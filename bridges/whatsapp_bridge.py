@@ -21,6 +21,7 @@ from tools.whatsapp_auto_reply import WhatsAppAutoReply
 from bridges.whatsapp_reader import (
     WhatsAppReadError,
     WhatsAppWebReader,
+    _text_key,
     probe_environment,
 )
 
@@ -41,7 +42,8 @@ class WhatsAppBridge:
     def __init__(self, bridge_url: str = "http://localhost:8000/api/whatsapp/webhook",
                  reader=None, state_path: str = DEFAULT_STATE_PATH,
                  authorized_senders=None, poll_seconds: int = 8,
-                 max_replies: int = 50, observe_only: bool = False):
+                 max_replies: int = 50, observe_only: bool = False,
+                 respond_to_own_outgoing: bool = False):
         self.bridge_url = bridge_url
         self.orchestrator = AvatarOrchestrator()
         self.reader = reader  # inyectable para tests; si None se crea al arrancar
@@ -52,6 +54,9 @@ class WhatsAppBridge:
         self.poll_seconds = poll_seconds
         self.max_replies = max_replies
         self.observe_only = observe_only
+        # Auto-chat ("Mensaje a ti mismo"): lo de Mauro llega como saliente.
+        # Se procesa salvo que sea eco de un envío propio del lector.
+        self.respond_to_own_outgoing = respond_to_own_outgoing
         self._stop = False
         self._replied_ids = self._load_state()
 
@@ -98,8 +103,11 @@ class WhatsAppBridge:
         """
         print(f"\n💬 [Mensaje de WhatsApp de {sender}]: {message_body}")
         response = self.orchestrator.process_user_input(message_body)
+        self._deliver(sender=sender, message_body=message_body, response=response)
+        return response
 
-        # Enviar respuesta nativa al chat activo, sujeto a la política de autonomía.
+    def _deliver(self, sender: str, message_body: str, response: str) -> str:
+        """Envía una respuesta ya generada vía chokepoint (política + ledger)."""
         if self.orchestrator.chokepoint is None:
             self.orchestrator.chokepoint = self.orchestrator._build_chokepoint()
         delivery = self.orchestrator.chokepoint.perform(
@@ -110,11 +118,12 @@ class WhatsAppBridge:
             execution_id=f"wa-exec-{abs(hash(message_body)) % 10**8}",
         )
         print(f"📤 [Entrega a {sender}]: {delivery[:160]}")
-        return response
+        return delivery
 
     # -- loop vivo ------------------------------------------------------
     def start_live_bridge(self, target_chat: str = "Mauro Vanegas 2025",
-                          max_polls: int = 0) -> dict:
+                          max_polls: int = 0, heartbeat_cb=None,
+                          stop_path: str = "") -> dict:
         """
         Puente activo real para el chat indicado.
 
@@ -148,17 +157,31 @@ class WhatsAppBridge:
             self.orchestrator.chokepoint.executors["SEND_WHATSAPP"] = (
                 lambda a: reader.send_text(a.get("message") or a.get("params") or "")
             )
-            return self._poll_loop(reader, target_chat, max_polls)
+            return self._poll_loop(reader, target_chat, max_polls,
+                                    heartbeat_cb=heartbeat_cb, stop_path=stop_path)
         finally:
             if self.reader is None:
                 reader.close()
 
-    def _poll_loop(self, reader, target_chat: str, max_polls: int) -> dict:
+    #: Respuestas que indican silencio del proveedor: enviarlas al chat solo
+    #: generaría ruido; se registra el salto y se avanza el cursor (el dueño
+    #: puede reenviar el mensaje).
+    SILENCE_MARKERS = (
+        "El proveedor devolvió respuestas vacías",
+        "No obtuve respuesta del proveedor",
+    )
+
+    def _poll_loop(self, reader, target_chat: str, max_polls: int,
+                   heartbeat_cb=None, stop_path: str = "") -> dict:
         polls = 0
         processed = 0
         replied = 0
+        stop_file = stop_path or os.path.join(base_dir, "memory", "AVATAR_WA_STOP")
         while not self._stop:
             if max_polls and polls >= max_polls:
+                break
+            if os.path.exists(stop_file):
+                print(f"[WhatsAppBridge] stop-file detectado ({stop_file}); paro limpio.")
                 break
             polls += 1
             try:
@@ -168,7 +191,12 @@ class WhatsAppBridge:
                 time.sleep(self.poll_seconds)
                 continue
             for msg in messages:
-                if not msg.incoming or not msg.text.strip():
+                if not msg.text.strip():
+                    continue
+                own = (self.respond_to_own_outgoing and not msg.incoming
+                       and _text_key(msg.text)
+                       not in getattr(reader, "sent_texts", set()))
+                if not msg.incoming and not own:
                     continue
                 if msg.msg_id in self._replied_ids:
                     continue  # dedup: ya respondido (o descartado) antes
@@ -183,18 +211,30 @@ class WhatsAppBridge:
                     self._replied_ids.add(msg.msg_id)
                     self._save_state()
                     continue
-                if replied >= self.max_replies:
+                if self.max_replies and replied >= self.max_replies:
                     print("[WhatsAppBridge] límite de respuestas alcanzado; paro.")
                     self._stop = True
                     break
                 processed += 1
                 try:
-                    self.process_incoming_whatsapp(msg.sender, msg.text)
+                    response = self.orchestrator.process_user_input(msg.text)
+                    if any(m in response for m in self.SILENCE_MARKERS):
+                        print(f"[WhatsAppBridge] proveedor mudo ante {msg.msg_id}; "
+                              "no envío nada (reenvía el mensaje para reintentar).")
+                    else:
+                        self._deliver(sender=msg.sender, message_body=msg.text,
+                                      response=response)
                     replied += 1
                 except Exception as exc:
                     print(f"[WhatsAppBridge] fallo procesando {msg.msg_id}: {exc}")
                 self._replied_ids.add(msg.msg_id)
                 self._save_state()
+            if heartbeat_cb is not None:
+                try:
+                    heartbeat_cb({"polls": polls, "processed": processed,
+                                  "replied": replied, "chat": target_chat})
+                except Exception:
+                    pass
             time.sleep(self.poll_seconds)
         summary = {"polls": polls, "processed": processed, "replied": replied,
                    "chat": target_chat}

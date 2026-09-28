@@ -14,7 +14,7 @@ if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
     except Exception:
         pass
 
-from core.llm_provider import LLMProvider
+from core.llm_provider import LLMProvider, _EMPTY_TEXTS
 from core.rag_memory import RAGMemory
 from core.checkpoint_engine import CheckpointEngine
 from core.resume_engine import ResumeEngine
@@ -522,10 +522,14 @@ class AvatarOrchestrator:
             else:
                 raw_text = llm_result.get("text", "")
 
-                # Silencio del proveedor: ni prosa ni herramienta. No se presenta como
-                # mensaje ni se queman más pasos en llamadas de relleno: al segundo vacío
-                # seguido se corta el turno con escalado honesto.
-                if llm_result.get("type") == "provider_empty" or not raw_text.strip():
+                # Silencio del proveedor: ni prosa ni herramienta. Incluye el caso en que
+                # el modelo PARROTEA una plantilla de vacío vista en el historial: una frase
+                # como "Respuesta vacía del proveedor." no es contenido, es ruido.
+                # No se presenta como mensaje ni se queman más pasos en llamadas de relleno:
+                # al segundo vacío seguido se corta el turno con escalado honesto.
+                if (llm_result.get("type") == "provider_empty"
+                        or not raw_text.strip()
+                        or raw_text.strip().lower() in _EMPTY_TEXTS):
                     empty_streak += 1
                     if empty_streak >= 2:
                         final_user_response = (
@@ -589,7 +593,11 @@ class AvatarOrchestrator:
                 break
 
         # Si se ejecutaron herramientas pero la respuesta no incluyó la evidencia de salida, incluirla (sólo en acciones/misiones)
-        if executed_tools_summary and interaction_type in [InteractionType.DIRECT_ACTION, InteractionType.OPEN_ENGINEERING_MISSION]:
+        # Condición endurecida: si la respuesta final está vacía o es solo espacios, NO se
+        # adjunta el bloque (de lo contrario el volcado QUEDA como mensaje y el respaldo
+        # ejecutivo nunca se dispara). El respaldo se encarga de informar con extracto.
+        if (executed_tools_summary and final_user_response.strip()
+                and interaction_type in [InteractionType.DIRECT_ACTION, InteractionType.OPEN_ENGINEERING_MISSION]):
             last = executed_tools_summary[-1]
             last_tool_name = last["tool_name"]
             last_output = last["output"]

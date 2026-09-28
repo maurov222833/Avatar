@@ -124,6 +124,9 @@ class TestWhatsAppSurface(unittest.TestCase):
 
         with _TempWorld():
             bridge = WhatsAppBridge()
+            # Denegación hermética: no depende del config de la máquina.
+            bridge.orchestrator.chokepoint.policy.allow_external_messages = False
+            bridge.orchestrator.chokepoint.policy.dry_run = True
             # Avoid running the agent: we only care about the delivery step.
             bridge.orchestrator.llm = type(
                 "NoLLM", (), {"generate_response": lambda *a, **k: "ok",
@@ -162,6 +165,8 @@ class TestLegacyTextPath(unittest.TestCase):
         """Proves: the legacy path cannot bypass the external-effect policy either."""
         with _TempWorld():
             orch = AvatarOrchestrator()
+            orch.chokepoint.policy.allow_external_messages = False
+            orch.chokepoint.policy.dry_run = True
             out = orch._dispatch_tool_action("SEND_WHATSAPP", "no debe salir")
             self.assertIn("Bloqueado", out)
             self.assertIn("EXTERNAL_EFFECT", out)
@@ -323,6 +328,38 @@ class TestEmptyProviderCutsTurn(unittest.TestCase):
             out = orch.process_user_input("haz algo", max_steps=5)
             self.assertIn("vacías", out)
             self.assertEqual(len(calls), 2, "el turno se corta al segundo vacío")
+
+    def test_parroted_canned_text_counts_as_silence(self):
+        """Proves: el modelo repitiendo 'Respuesta vacía…' no cuela como prosa."""
+        with _TempWorld():
+            orch = AvatarOrchestrator()
+            calls = []
+
+            def parrot(system_prompt=None, contents=None, tools=None, **k):
+                calls.append(1)
+                return {"type": "text", "provider": "fake",
+                        "text": "Respuesta vacía del proveedor."}
+
+            orch.llm.generate_response_with_tools = parrot
+            out = orch.process_user_input("haz algo", max_steps=5)
+            self.assertIn("vacías", out)
+            self.assertNotIn("📌", out, "el volcado no queda como mensaje")
+            self.assertEqual(len(calls), 2)
+
+    def test_whitespace_final_never_leaves_bare_evidence_dump(self):
+        """Proves: un final en blanco dispara el respaldo, no un bloque huérfano."""
+        with _TempWorld():
+            orch = AvatarOrchestrator()
+            calls = []
+
+            def blank(system_prompt=None, contents=None, tools=None, **k):
+                calls.append(1)
+                return {"type": "text", "provider": "fake", "text": "   "}
+
+            orch.llm.generate_response_with_tools = blank
+            out = orch.process_user_input("lista el directorio", max_steps=5)
+            self.assertNotIn("📌", out)
+            self.assertEqual(len(calls), 2)
 
     def test_evidence_block_truncates_long_output(self):
         """Proves: the chat evidence never dumps full directory listings."""

@@ -142,15 +142,19 @@ class TestChokepointEnforcement(unittest.TestCase):
         path = os.path.join(ROOT, "bridges", "whatsapp_bridge.py")
         src = open(path, encoding="utf-8").read()
         tree = ast.parse(src)
-        fn = None
+        fns = {}
         for node in ast.walk(tree):
             if (isinstance(node, ast.FunctionDef)
-                    and node.name == "process_incoming_whatsapp"):
-                fn = node
-                break
-        self.assertIsNotNone(fn)
-        attrs = {n.func.attr for n in ast.walk(fn)
-                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+                    and node.name in ("process_incoming_whatsapp", "_deliver")):
+                fns[node.name] = node
+        self.assertIn("process_incoming_whatsapp", fns)
+        self.assertIn("_deliver", fns)
+        attrs = set()
+        for fn in fns.values():
+            attrs |= {n.func.attr for n in ast.walk(fn)
+                      if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+        self.assertIn("process_user_input", attrs)
+        self.assertIn("_deliver", attrs)
         self.assertIn("perform", attrs,
                       "the WhatsApp bridge must call chokepoint.perform()")
 

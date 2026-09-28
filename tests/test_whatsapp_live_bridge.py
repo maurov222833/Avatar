@@ -58,6 +58,7 @@ class FakeReader:
         self.scripts = list(scripts)
         self.calls = 0
         self.sent = []
+        self.sent_texts = set()
         self.launched = False
 
     def launch(self):
@@ -80,6 +81,7 @@ class FakeReader:
 
     def send_text(self, text):
         self.sent.append(text)
+        self.sent_texts.add(" ".join(text.split()))
         return "verificado"
 
     def close(self):
@@ -108,8 +110,9 @@ class TestLiveLoop(unittest.TestCase):
             ])
             b = _bridge(reader)
             calls = []
-            orig = b.process_incoming_whatsapp
-            b.process_incoming_whatsapp = lambda s, m: calls.append((s, m)) or orig(s, m)
+            orig_process = b.orchestrator.process_user_input
+            b.orchestrator.process_user_input = lambda m: calls.append(m) or "ok"
+            b._deliver = lambda **k: "delivered"
             summary = b.start_live_bridge("Chat Prueba", max_polls=2)
             self.assertEqual(len(calls), 1, "el mismo mensaje no se reprocesa")
             self.assertEqual(summary["processed"], 1)
@@ -119,7 +122,8 @@ class TestLiveLoop(unittest.TestCase):
             reader = FakeReader([[ _msg("m2", "Desconocido", "haz esto") ]])
             b = _bridge(reader, authorized_senders=["Mauro"])
             calls = []
-            b.process_incoming_whatsapp = lambda s, m: calls.append((s, m))
+            b.orchestrator.process_user_input = lambda m: calls.append(m) or "ok"
+            b._deliver = lambda **k: "delivered"
             b.start_live_bridge("Chat Prueba", max_polls=1)
             self.assertEqual(calls, [])
 
@@ -128,7 +132,7 @@ class TestLiveLoop(unittest.TestCase):
             reader = FakeReader([[ _msg("m3", "Mauro", "solo mira") ]])
             b = _bridge(reader, observe_only=True)
             calls = []
-            b.process_incoming_whatsapp = lambda s, m: calls.append((s, m))
+            b.orchestrator.process_user_input = lambda m: calls.append(m) or "ok"
             b.start_live_bridge("Chat Prueba", max_polls=1)
             self.assertEqual(calls, [])
             self.assertIn("m3", b._replied_ids)
@@ -141,6 +145,9 @@ class TestLiveLoop(unittest.TestCase):
                 [_msg("m4", "Mauro", "salúdame")],
             ])
             b = _bridge(reader)  # usa el path real: eco + chokepoint
+            # Denegación hermética: no depende del config de la máquina.
+            b.orchestrator.chokepoint.policy.allow_external_messages = False
+            b.orchestrator.chokepoint.policy.dry_run = True
             summary = b.start_live_bridge("Chat Prueba", max_polls=2)
             self.assertEqual(summary["processed"], 1)
             acts = b.orchestrator.chokepoint.list_acts()
@@ -158,7 +165,8 @@ class TestLiveLoop(unittest.TestCase):
             ])
             b = _bridge(reader)
             calls = []
-            b.process_incoming_whatsapp = lambda s, m: calls.append((s, m)) or "ok"
+            b.orchestrator.process_user_input = lambda m: calls.append(m) or "ok"
+            b._deliver = lambda **k: "delivered"
             summary = b.start_live_bridge("Chat Prueba", max_polls=2)
             self.assertEqual(len(calls), 1)
 
@@ -170,6 +178,94 @@ class TestLiveLoop(unittest.TestCase):
             with self.assertRaises(WhatsAppReadError) as ctx:
                 b.start_live_bridge("Chat Prueba", max_polls=1)
             self.assertEqual(ctx.exception.code, WhatsAppReadError.LOGIN_REQUIRED_QR)
+
+    def test_provider_silence_skips_delivery_but_advances(self):
+        """El silencio del proveedor no se envía al chat; el cursor avanza igual."""
+        with _TempWorld():
+            reader = FakeReader([[ _msg("m6", "Mauro", "hola?") ]])
+            b = _bridge(reader)
+            b.orchestrator.process_user_input = lambda t: (
+                "⚠️ El proveedor devolvió respuestas vacías 2 veces seguidas.")
+            delivered = []
+            b._deliver = lambda **k: delivered.append(k) or "skip"
+            summary = b.start_live_bridge("Chat Prueba", max_polls=1)
+            self.assertEqual(delivered, [])
+            self.assertIn("m6", b._replied_ids)
+            self.assertEqual(summary["processed"], 1)
+
+    def test_own_outgoing_processed_in_self_chat_but_not_own_echo(self):
+        """Auto-chat: lo de Mauro (saliente) se procesa; el eco propio no."""
+        with _TempWorld():
+            reader = FakeReader([[ _msg("m7", "?", "enciende la luz", incoming=False) ]])
+            b = _bridge(reader, respond_to_own_outgoing=True)
+            calls = []
+            b.orchestrator.process_user_input = lambda m: calls.append(m) or "ok"
+            b._deliver = lambda **k: reader.sent_texts.add(" ".join("ok".split())) or "d"
+            b.start_live_bridge("Chat Prueba", max_polls=1)
+            self.assertEqual(calls, ["enciende la luz"])
+
+    def test_own_outgoing_ignored_by_default(self):
+        with _TempWorld():
+            reader = FakeReader([[ _msg("m8", "?", "ruido", incoming=False) ]])
+            b = _bridge(reader)  # respond_to_own_outgoing=False
+            calls = []
+            b.orchestrator.process_user_input = lambda m: calls.append(m) or "ok"
+            b.start_live_bridge("Chat Prueba", max_polls=1)
+            self.assertEqual(calls, [])
+
+    def test_max_replies_none_means_unlimited(self):
+        with _TempWorld():
+            reader = FakeReader([[ _msg("a1", "M", "uno") ], [ _msg("a2", "M", "dos") ]])
+            b = _bridge(reader, max_replies=None)
+            n = []
+            b.orchestrator.process_user_input = lambda m: n.append(m) or "ok"
+            b._deliver = lambda **k: "d"
+            summary = b.start_live_bridge("Chat Prueba", max_polls=2)
+            self.assertEqual(n, ["uno", "dos"])
+
+    def test_stop_file_breaks_loop_cleanly(self):
+        import tempfile as _t
+        with _TempWorld():
+            d = _t.mkdtemp(prefix="avatar_wa_stop_")
+            stop = os.path.join(d, "AVATAR_WA_STOP")
+            open(stop, "w").close()
+            reader = FakeReader([[ _msg("s1", "M", "nunca") ]])
+            b = _bridge(reader)
+            calls = []
+            b.orchestrator.process_user_input = lambda m: calls.append(m) or "ok"
+            summary = b.start_live_bridge("Chat Prueba", max_polls=5,
+                                          stop_path=stop)
+            self.assertEqual(summary["polls"], 0)
+            self.assertEqual(calls, [])
+
+    def test_heartbeat_called_each_poll(self):
+        with _TempWorld():
+            reader = FakeReader([[], []])
+            b = _bridge(reader)
+            beats = []
+            b.start_live_bridge("Chat Prueba", max_polls=2,
+                                heartbeat_cb=lambda s: beats.append(s["polls"]))
+            self.assertEqual(beats, [1, 2])
+
+    def test_readback_verified_marks_observation(self):
+        """El observer honra [READBACK_VERIFIED]; sin marca sigue no-verificado."""
+        from core.act_chokepoint import _observe_external_message
+        ok = _observe_external_message(
+            {}, "[READBACK_VERIFIED] Mensaje enviado y verificado por relectura.")
+        self.assertTrue(ok["verified"])
+        self.assertTrue(ok["delivery_confirmed"])
+        plain = _observe_external_message({}, "pegado y enviado a la ventana activa")
+        self.assertFalse(plain["verified"])
+        self.assertFalse(plain["delivery_confirmed"])
+
+
+    def test_text_key_ignores_emoji_and_spacing(self):
+        """El DOM altera emojis/espacios: la huella debe igualar igual."""
+        from bridges.whatsapp_reader import _text_key
+        sent = _text_key("🔧 Prueba de envío Avatar — ignórame")
+        seen = _text_key(" Prueba de envío Avatar — ignórame.")
+        self.assertTrue(sent)
+        self.assertIn(sent[:40], seen)
 
 
 if __name__ == "__main__":

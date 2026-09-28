@@ -80,16 +80,11 @@ _READ_JS = r"""
       '.copyable-text span',
       '.copyable-text'
     ]);
-    // data-pre-plain-text like "[12:03, 28/09/2026] Mauro: " lives on ancestors
+    // data-pre-plain-text like "[12:03, 28/09/2026] Mauro: " lives on an ancestor
+    // (closest, sin límite de profundidad: en auto-chats va más hondo).
     let meta = "";
-    let node = c;
-    for (let d = 0; d < 6 && node; d++) {
-      if (node.getAttribute && node.getAttribute('data-pre-plain-text')) {
-        meta = node.getAttribute('data-pre-plain-text');
-        break;
-      }
-      node = node.parentElement;
-    }
+    const holder = c.closest('[data-pre-plain-text]');
+    if (holder) meta = holder.getAttribute('data-pre-plain-text') || "";
     return {idx, incoming, text: textEl ? textEl.innerText : "", meta};
   });
 }
@@ -107,6 +102,12 @@ def _synthetic_id(incoming: bool, sender: str, timestamp: str, text: str) -> str
     return hashlib.sha1(raw.encode("utf-8", errors="replace")).hexdigest()[:16]
 
 
+def _text_key(s: str) -> str:
+    """Huella alfanumérica: ignora emojis, espacios y puntuación que el DOM altera."""
+    import re
+    return re.sub(r"[\W_]+", "", (s or "").lower(), flags=re.UNICODE)
+
+
 class WhatsAppWebReader:
     """Reads and sends via WhatsApp Web DOM in a persistent Chromium profile."""
 
@@ -119,9 +120,17 @@ class WhatsAppWebReader:
         self._context = None
         self._page = None
         self.current_chat: str = ""
+        # Textos que ESTE lector envió (normalizados): el loop no los reprocesa.
+        self.sent_texts = set()
 
     # -- lifecycle ------------------------------------------------------
     def launch(self) -> None:
+        # Idempotente: si ya hay página viva, no relanzar (evita doble lock del perfil).
+        try:
+            if self._page is not None and self._page.url:
+                return
+        except Exception:
+            pass
         if not HAS_PLAYWRIGHT:
             raise WhatsAppReadError(
                 WhatsAppReadError.BROWSER_LAUNCH_FAILED,
@@ -144,20 +153,65 @@ class WhatsAppWebReader:
             raise WhatsAppReadError(
                 WhatsAppReadError.BROWSER_LAUNCH_FAILED, str(exc)[:300])
 
-    def close(self) -> None:
-        try:
-            if self._context is not None:
-                self._context.close()
-        except Exception:
-            pass
-        try:
-            if self._pw is not None:
-                self._pw.stop()
-        except Exception:
-            pass
+    def close(self, timeout_s: float = 25.0) -> None:
+        """Cierre con watchdog: si el chromium headed se cuelga, no cuelga el loop."""
+        import threading
+
+        def _do():
+            try:
+                if self._page is not None:
+                    try:
+                        self._page.close()
+                    except Exception:
+                        pass
+                if self._context is not None:
+                    try:
+                        self._context.close()
+                    except Exception:
+                        pass
+            finally:
+                try:
+                    if self._pw is not None:
+                        self._pw.stop()
+                except Exception:
+                    pass
+
+        worker = threading.Thread(target=_do, daemon=True)
+        worker.start()
+        worker.join(timeout_s)
         self._context = None
         self._pw = None
         self._page = None
+        if worker.is_alive():
+            print("[WhatsAppReader] cierre colgado; mato solo procesos de ESTE perfil...",
+                  flush=True)
+            self._kill_own_chromium()
+
+    def _kill_own_chromium(self) -> None:
+        """Mata únicamente chromium cuyo cmdline use nuestro profile_dir. Nunca el del usuario."""
+        import subprocess
+        marker = os.path.abspath(self.profile_dir).lower()
+        try:
+            out = subprocess.run(
+                ["wmic", "process", "where", "name='chrome.exe'",
+                 "get", "ProcessId,CommandLine", "/format:csv"],
+                capture_output=True, text=True, timeout=20)
+        except Exception as exc:
+            print(f"[WhatsAppReader] wmic no disponible: {exc}", flush=True)
+            return
+        for line in (out.stdout or "").splitlines():
+            low = line.lower()
+            if marker in low and "wmic" not in low:
+                parts = [p.strip() for p in line.split(",")]
+                pid = next((p for p in parts if p.isdigit()), "")
+                if pid:
+                    try:
+                        subprocess.run(["taskkill", "/PID", pid, "/F"],
+                                       capture_output=True, timeout=10)
+                        print(f"[WhatsAppReader] proceso propio {pid} terminado.",
+                              flush=True)
+                    except Exception:
+                        pass
 
     def _require_page(self):
         if self._page is None:
@@ -184,21 +238,108 @@ class WhatsAppWebReader:
             raise WhatsAppReadError(
                 WhatsAppReadError.DOM_UNRECOGNIZED, f"login_state: {exc}"[:200])
 
+    _SEARCH_CANDIDATES = [
+        '#side input[aria-label*="Buscar"]',
+        'input[aria-label*="chat"]',
+        'div[data-testid="chat-list-search"] div[contenteditable="true"]',
+        '#side div[contenteditable="true"]',
+        'div[role="textbox"]',
+    ]
+
     def open_chat(self, chat_name: str) -> None:
         page = self._require_page()
         try:
-            search = page.query_selector(
-                'div[data-testid="chat-list-search"] div[contenteditable="true"], '
-                'div[data-testid="chat-list-search"]')
+            try:
+                page.wait_for_selector(
+                    'div[data-testid="chat-list"], div#pane-side', timeout=30000)
+            except Exception:
+                raise WhatsAppReadError(
+                    WhatsAppReadError.DOM_UNRECOGNIZED,
+                    "lista de chats no cargo (sesion lenta o DOM desconocido)")
+            search = None
+            # El buscador es una píldora ("Buscar un chat…") que solo crea el input
+            # al hacer clic: primero revelar, luego esperar el editable (hasta ~30s).
+            for reveal in ('text=Buscar un chat', 'text=Search a chat',
+                           'div[data-testid="chat-list-header"]'):
+                try:
+                    page.click(reveal, timeout=5000)
+                    break
+                except Exception:
+                    continue
+            for _ in range(15):
+                for sel in self._SEARCH_CANDIDATES:
+                    try:
+                        search = page.query_selector(sel)
+                    except Exception:
+                        search = None
+                    if search:
+                        break
+                if search:
+                    break
+                page.wait_for_timeout(2000)
             if search is None:
                 raise WhatsAppReadError(
                     WhatsAppReadError.DOM_UNRECOGNIZED, "search box no encontrado")
-            search.click()
+            try:
+                tag = search.evaluate("(el) => el.tagName")
+            except Exception:
+                tag = ""
+            # Tecleo real (fill no siempre dispara el filtrado de WA Web).
+            # Si parece un número, buscar por los últimos dígitos: el "+" y los
+            # espacios del formato internacional rompen el match exacto.
+            digits = "".join(ch for ch in chat_name if ch.isdigit())
+            query = digits[-8:] if len(digits) >= 7 else chat_name
+            try:
+                search.click()
+            except Exception:
+                pass
             page.keyboard.press("ControlOrMeta+a")
-            page.keyboard.type(chat_name, delay=20)
-            page.wait_for_timeout(1500)
-            page.keyboard.press("Enter")
-            page.wait_for_timeout(1500)
+            page.keyboard.type(query, delay=30)
+            page.wait_for_timeout(2000)
+            # Clic directo en la sugerencia que contenga el nombre/dígitos (más
+            # robusto que Enter, que con 0-1 coincidencias abre paneles ajenos).
+            needle = (digits[-8:] if len(digits) >= 7
+                      else "".join(ch for ch in chat_name if ch.isalnum())[-8:])
+            suggestion = None
+            try:
+                suggestion = page.query_selector(
+                    f'div[data-testid="chat-list"] span[title*="{needle}"]')
+            except Exception:
+                suggestion = None
+            if suggestion is not None:
+                try:
+                    suggestion.click()
+                except Exception:
+                    page.keyboard.press("Enter")
+            else:
+                page.keyboard.press("Enter")
+            page.wait_for_timeout(2000)
+            # Verificar que se abrió LA conversación pedida (cabecera dedicada,
+            # no el primer header genérico de la página).
+            header = ""
+            for hsel in ('header[data-testid="conversation-header"]',
+                         '#main header'):
+                try:
+                    header = page.inner_text(hsel) or ""
+                except Exception:
+                    header = ""
+                if header:
+                    break
+            if not header:
+                try:
+                    header = page.inner_text("header") or ""
+                except Exception:
+                    header = ""
+            hlow = header.lower()
+            tail = "".join(ch for ch in chat_name if ch.isdigit())[-8:]
+            if chat_name.lower() not in hlow and (not tail or tail not in hlow):
+                try:
+                    page.keyboard.press("Escape")
+                except Exception:
+                    pass
+                raise WhatsAppReadError(
+                    WhatsAppReadError.CHAT_NOT_FOUND,
+                    f"sin coincidencia para '{chat_name}' (cabecera: {header[:80]!r})")
             self.current_chat = chat_name
         except WhatsAppReadError:
             raise
@@ -220,14 +361,20 @@ class WhatsAppWebReader:
                 WhatsAppReadError.DOM_UNRECOGNIZED,
                 "0 contenedores de mensaje: chat vacío o DOM desconocido")
         out: List[WhatsAppMessage] = []
+        seen_counts: Dict[str, int] = {}
         for r in rows[-limit:]:
             text = (r.get("text") or "").strip()
             if not text:
                 continue
             meta = r.get("meta") or ""
             sender, timestamp = self._parse_meta(meta)
+            base = _synthetic_id(bool(r.get("incoming")), sender, timestamp, text)
+            # Desempata textos idénticos (p. ej. "Hola Avatar" x6): el occurrence
+            # es estable mientras el lote no deslice esos mensajes fuera.
+            occ = seen_counts.get(base, 0)
+            seen_counts[base] = occ + 1
             out.append(WhatsAppMessage(
-                msg_id=_synthetic_id(bool(r.get("incoming")), sender, timestamp, text),
+                msg_id=f"{base}#{occ}" if occ else base,
                 incoming=bool(r.get("incoming")),
                 sender=sender,
                 text=text,
@@ -274,18 +421,45 @@ class WhatsAppWebReader:
         except Exception as exc:
             raise WhatsAppReadError(
                 WhatsAppReadError.SEND_UNVERIFIED, f"envío: {exc}"[:200])
-        # Read-back: el último mensaje saliente debe contener el texto.
-        try:
-            recent = self.read_recent(limit=3)
-            norm = " ".join(text.split())
-            for m in reversed(recent):
-                if not m.incoming and norm[:60] in " ".join(m.text.split()):
-                    return "Mensaje enviado y verificado por relectura en el chat."
-        except WhatsAppReadError:
-            pass
+        # Read-back con reintentos: la red puede tardar varios segundos en reflejarlo.
+        # Comparación por huella alfanumérica: el DOM altera emojis/espacios.
+        norm = " ".join(text.split())
+        want = _text_key(norm)[:40]
+
+        def _appeared():
+            try:
+                recent = self.read_recent(limit=5)
+            except WhatsAppReadError:
+                return False
+            return any(not m.incoming and want and want in _text_key(m.text)
+                       for m in recent)
+
+        import time as _time
+        for _ in range(7):
+            _time.sleep(1.5)
+            if _appeared():
+                self.sent_texts.add(_text_key(norm))
+                return ("[READBACK_VERIFIED] Mensaje enviado y verificado "
+                        "por relectura en el chat.")
+        # Fallback: botón Enviar en vez de Enter.
+        for sel in ('button[aria-label="Enviar"]', 'button[data-testid="send"]',
+                    'footer button[type="submit"]'):
+            try:
+                btn = page.query_selector(sel)
+                if btn:
+                    btn.click()
+                    break
+            except Exception:
+                continue
+        for _ in range(5):
+            _time.sleep(1.5)
+            if _appeared():
+                self.sent_texts.add(_text_key(norm))
+                return ("[READBACK_VERIFIED] Mensaje enviado y verificado "
+                        "por relectura en el chat (botón Enviar).")
         raise WhatsAppReadError(
             WhatsAppReadError.SEND_UNVERIFIED,
-            "Enter enviado pero el texto no aparece como saliente")
+            "texto pegado pero no aparece como saliente tras Enter ni botón")
 
 
 def probe_environment() -> Dict[str, Any]:

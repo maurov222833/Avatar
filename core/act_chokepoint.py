@@ -176,18 +176,23 @@ def _observe_command(args: Dict[str, Any], result: str) -> Dict[str, Any]:
 
 def _observe_external_message(args: Dict[str, Any], result: str) -> Dict[str, Any]:
     """
-    For external messages there is no system-side signal of delivery, so the observer records
-    what is actually knowable and says so, rather than manufacturing a success claim.
+    For external messages there is no system-side signal of delivery, so the observer
+    records what is actually knowable and says so, rather than manufacturing a success
+    claim. EXCEPTION: an executor that verified by read-back (e.g. the WhatsApp DOM
+    reader re-reading the outgoing bubble) marks its report with [READBACK_VERIFIED];
+    that independent observation is honored as verification.
     """
     lowered = (result or "").lower()
     looks_like_error = any(t in lowered for t in ("error", "denegad", "no se pudo", "fall"))
+    readback = "[READBACK_VERIFIED]" in (result or "")
     return {
-        "delivery_confirmed": False,
+        "delivery_confirmed": readback and not looks_like_error,
         "executor_report": (result or "")[:200],
-        "note": "No system-side delivery receipt; success is NOT independently confirmed.",
+        "note": ("Verified by read-back of the outgoing message."
+                 if readback else
+                 "No system-side delivery receipt; success is NOT independently confirmed."),
         "looks_like_error": looks_like_error,
-        # Honest: the executor said it ran, but we cannot confirm delivery. So NOT verified.
-        "verified": False,
+        "verified": readback and not looks_like_error,
     }
 
 

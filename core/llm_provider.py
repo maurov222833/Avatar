@@ -561,6 +561,59 @@ class ProviderManager:
         return health_report
 
 
+def _allowed_tool_names(tools) -> set:
+    """Nombres de herramientas del schema, en cualquiera de sus formas."""
+    names = set()
+    for t in tools or []:
+        if not isinstance(t, dict):
+            continue
+        for f in t.get("functionDeclarations") or []:
+            if isinstance(f, dict) and f.get("name"):
+                names.add(f["name"])
+        fn = t.get("function")
+        if isinstance(fn, dict) and fn.get("name"):
+            names.add(fn["name"])
+        if t.get("name") and "functionDeclarations" not in t:
+            names.add(t["name"])
+    return names
+
+
+_PARSE_ERROR_MARKERS = (
+    "parse tool call", "tool_use_failed", "tool call validation failed",
+    "not in request.tools", "failed_generation", "tools should have a name",
+    "harmony", "invalid_request_error",
+)
+
+
+# Textos plantilla que los adaptadores devuelven cuando la API responde 200 sin
+# contenido aprovechable. NO son prosa del modelo: el facade los normaliza a
+# provider_empty para que el orquestador los trate como silencio, jamás como
+# mensaje al dueño.
+_EMPTY_TEXTS = frozenset([
+    "", "respuesta vacía del proveedor.", "respuesta vacía de gemini.",
+    "sin respuesta generada por gemini.", "sin respuesta.",
+    "sin contenido devuelto.", "sin respuesta del modelo local.",
+])
+
+
+def _is_tool_parse_error(error_text: str) -> bool:
+    lowered = (error_text or "").lower()
+    return any(m in lowered for m in _PARSE_ERROR_MARKERS)
+
+
+def _repair_contents(contents, allowed: set, malformed: bool = False,
+                     bad_name: str = ""):
+    """Añade una instrucción de reparación acotada para UN solo reintento."""
+    allowed_txt = ", ".join(sorted(allowed)) if allowed else "ninguna listada"
+    if malformed:
+        hint = ("Tu tool-call llegó truncado o con JSON inválido y fue rechazado. "
+                f"Re-emite el MISMO tool-call completo y válido usando solo: {allowed_txt}.")
+    else:
+        hint = (f"La herramienta '{bad_name}' no existe. Usa EXCLUSIVAMENTE una de: "
+                f"{allowed_txt}. Re-emite tu respuesta completa.")
+    return list(contents or []) + [{"role": "user", "parts": [{"text": hint}]}]
+
+
 class LLMProvider:
     """
     LLM Provider Manager & Router Agnóstico (Fachada Principal).
@@ -638,7 +691,36 @@ class LLMProvider:
         provider = self.get_active_provider()
         adapter = self.manager.get_adapter(provider)
         res = adapter.generate_response_with_tools(system_prompt, contents, tools)
-        
+
+        # Normalización: una plantilla de vacío no es texto del modelo.
+        if res.get("type") == "text" and (res.get("text") or "").strip().lower() in _EMPTY_TEXTS:
+            res = {"type": "provider_empty", "provider": res.get("provider", provider),
+                   "error": "La API respondió sin contenido aprovechable."}
+
+        # Reparación 1: el modelo invocó una herramienta que no existe en el schema
+        # (p. ej. 'SEARCH_CODE'). Un solo reintento guiado con la lista permitida;
+        # si persiste, se devuelve como texto para que el loop/SAR/fallback decidan.
+        if res.get("type") == "function_call" and tools:
+            allowed = _allowed_tool_names(tools)
+            if allowed and res.get("name") not in allowed:
+                print(f"[LLMProvider]: Tool desconocido '{res.get('name')}'; reintento guiado.")
+                res = adapter.generate_response_with_tools(
+                    system_prompt,
+                    _repair_contents(contents, allowed, bad_name=res.get("name") or "?"),
+                    tools)
+                if res.get("type") == "function_call" and res.get("name") not in allowed:
+                    res = {"type": "text", "text": res.get("text", "")}
+
+        # Reparación 2: el tool-call llegó truncado o con JSON inválido (400 del
+        # proveedor). Un solo reintento pidiendo re-emisión completa.
+        if res.get("type") == "provider_error" and _is_tool_parse_error(res.get("error", "")):
+            print("[LLMProvider]: Tool-call malformado; reintento con reparación.")
+            retry = adapter.generate_response_with_tools(
+                system_prompt, _repair_contents(contents, _allowed_tool_names(tools),
+                                               malformed=True), tools)
+            if retry.get("type") != "provider_error":
+                return retry
+
         if res.get("type") == "provider_error" and provider != "gemini":
             gemini_adapter = self.manager.get_adapter("gemini")
             if gemini_adapter and gemini_adapter.get_api_key():

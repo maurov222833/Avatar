@@ -18,16 +18,66 @@ if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
 
 from core.orchestrator import AvatarOrchestrator
 from tools.whatsapp_auto_reply import WhatsAppAutoReply
+from bridges.whatsapp_reader import (
+    WhatsAppReadError,
+    WhatsAppWebReader,
+    probe_environment,
+)
+
+DEFAULT_PROFILE_DIR = os.path.join(base_dir, "memory", "whatsapp_profile")
+DEFAULT_STATE_PATH = os.path.join(base_dir, "memory", "whatsapp_bridge_state.json")
+
 
 class WhatsAppBridge:
     """
     Pasarela de integración para WhatsApp del Proyecto Avatar.
-    Soporta sincronización nativa por código QR y comunicación bidireccional en tiempo real.
+
+    Dos modos:
+      - process_incoming_whatsapp(sender, message): procesa UN mensaje ya obtenido
+        (usado por el webhook HTTP y por el loop vivo). Responde vía chokepoint.
+      - start_live_bridge(target_chat): loop real — lee WhatsApp Web con un lector
+        DOM, procesa lo nuevo con el orquestador y responde en el mismo chat.
     """
-    def __init__(self, bridge_url: str = "http://localhost:8000/api/whatsapp/webhook"):
+    def __init__(self, bridge_url: str = "http://localhost:8000/api/whatsapp/webhook",
+                 reader=None, state_path: str = DEFAULT_STATE_PATH,
+                 authorized_senders=None, poll_seconds: int = 8,
+                 max_replies: int = 50, observe_only: bool = False):
         self.bridge_url = bridge_url
         self.orchestrator = AvatarOrchestrator()
+        self.reader = reader  # inyectable para tests; si None se crea al arrancar
+        self.state_path = state_path
+        self.authorized_senders = (
+            list(authorized_senders) if authorized_senders is not None else None
+        )  # None = cualquiera en el chat objetivo (chat 1:1 de Mauro)
+        self.poll_seconds = poll_seconds
+        self.max_replies = max_replies
+        self.observe_only = observe_only
+        self._stop = False
+        self._replied_ids = self._load_state()
 
+    # -- estado ---------------------------------------------------------
+    def _load_state(self):
+        try:
+            if os.path.exists(self.state_path):
+                with open(self.state_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return set(data.get("replied_ids", []))
+        except Exception:
+            pass
+        return set()
+
+    def _save_state(self):
+        try:
+            os.makedirs(os.path.dirname(self.state_path), exist_ok=True)
+            with open(self.state_path, "w", encoding="utf-8") as f:
+                json.dump({"replied_ids": sorted(self._replied_ids)[-500:]}, f)
+        except Exception as exc:
+            print(f"[WhatsAppBridge aviso]: no se pudo persistir cursor: {exc}")
+
+    def stop(self):
+        self._stop = True
+
+    # -- QR -------------------------------------------------------------
     def sync_whatsapp_qr(self) -> str:
         """Abre WhatsApp Web en la PC para permitir el escaneo del código QR."""
         sync_script = os.path.join(base_dir, "whatsapp_native_sync.py")
@@ -37,6 +87,7 @@ class WhatsAppBridge:
             return "✅ Iniciando sincronización de WhatsApp Web en tu pantalla. Por favor escanea el código QR desde tu celular."
         return "⚠️ No se encontró el script de sincronización whatsapp_native_sync.py."
 
+    # -- procesar un mensaje -------------------------------------------
     def process_incoming_whatsapp(self, sender: str, message_body: str) -> str:
         """
         Recibe un mensaje de WhatsApp, lo procesa con el Agente Avatar y envía la respuesta.
@@ -61,23 +112,115 @@ class WhatsAppBridge:
         print(f"📤 [Entrega a {sender}]: {delivery[:160]}")
         return response
 
+    # -- loop vivo ------------------------------------------------------
+    def start_live_bridge(self, target_chat: str = "Mauro Vanegas 2025",
+                          max_polls: int = 0) -> dict:
+        """
+        Puente activo real para el chat indicado.
+
+        Lee mensajes entrantes nuevos, los procesa con el orquestador y responde en el
+        mismo chat. Dedup por msg_id persistido (nunca responde dos veces lo mismo),
+        solo remitentes autorizados, y la política del chokepoint decide cada envío:
+        sin opt-in del operador el envío se DENIEGA y queda registrado (correcto).
+
+        max_polls=0 significa infinito (hasta stop()); >0 lo limita (útil en pruebas).
+        Devuelve un resumen con lo procesado.
+        """
+        print("==================================================")
+        print(f"⚡ [AVATAR AI]: Puente de WhatsApp Activo para '{target_chat}'")
+        print("==================================================")
+
+        reader = self.reader or WhatsAppWebReader(profile_dir=DEFAULT_PROFILE_DIR)
+        reader.launch()
+        try:
+            state = reader.login_state()
+            if state != "LOGGED_IN":
+                raise WhatsAppReadError(
+                    WhatsAppReadError.LOGIN_REQUIRED_QR,
+                    "Sesión no iniciada: escanea el QR una vez en la ventana abierta "
+                    "y vuelve a arrancar el puente.")
+            reader.open_chat(target_chat)
+            # El envío del loop usa el lector DOM (verificado por relectura) en lugar
+            # del AutoReply de ventana activa. La política y el ledger se conservan:
+            # perform() sigue decidiendo y registrando cada SEND_WHATSAPP.
+            if self.orchestrator.chokepoint is None:
+                self.orchestrator.chokepoint = self.orchestrator._build_chokepoint()
+            self.orchestrator.chokepoint.executors["SEND_WHATSAPP"] = (
+                lambda a: reader.send_text(a.get("message") or a.get("params") or "")
+            )
+            return self._poll_loop(reader, target_chat, max_polls)
+        finally:
+            if self.reader is None:
+                reader.close()
+
+    def _poll_loop(self, reader, target_chat: str, max_polls: int) -> dict:
+        polls = 0
+        processed = 0
+        replied = 0
+        while not self._stop:
+            if max_polls and polls >= max_polls:
+                break
+            polls += 1
+            try:
+                messages = reader.read_recent(limit=10)
+            except WhatsAppReadError as exc:
+                print(f"[WhatsAppBridge] lectura fallida ({exc.code}): {exc.detail}")
+                time.sleep(self.poll_seconds)
+                continue
+            for msg in messages:
+                if not msg.incoming or not msg.text.strip():
+                    continue
+                if msg.msg_id in self._replied_ids:
+                    continue  # dedup: ya respondido (o descartado) antes
+                if (self.authorized_senders is not None
+                        and msg.sender not in self.authorized_senders):
+                    print(f"[WhatsAppBridge] remitente no autorizado: {msg.sender}")
+                    self._replied_ids.add(msg.msg_id)
+                    self._save_state()
+                    continue
+                if self.observe_only:
+                    print(f"[observe] {msg.sender}: {msg.text[:120]}")
+                    self._replied_ids.add(msg.msg_id)
+                    self._save_state()
+                    continue
+                if replied >= self.max_replies:
+                    print("[WhatsAppBridge] límite de respuestas alcanzado; paro.")
+                    self._stop = True
+                    break
+                processed += 1
+                try:
+                    self.process_incoming_whatsapp(msg.sender, msg.text)
+                    replied += 1
+                except Exception as exc:
+                    print(f"[WhatsAppBridge] fallo procesando {msg.msg_id}: {exc}")
+                self._replied_ids.add(msg.msg_id)
+                self._save_state()
+            time.sleep(self.poll_seconds)
+        summary = {"polls": polls, "processed": processed, "replied": replied,
+                   "chat": target_chat}
+        print(f"[WhatsAppBridge] fin del loop: {summary}")
+        return summary
+
     def start_daemon(self):
         """
-        Ejecuta el demonio en segundo plano para escuchar peticiones de WhatsApp.
+        Demonio de pasarela. Solo arranca el loop vivo si el operador lo activó en
+        config (`whatsapp.autostart_live: true`); en caso contrario lo dice y no hace
+        nada. Un reply-loop autónomo sin opt-in explícito sería incorrecto.
         """
-        print("[AVATAR WhatsApp Daemon]: Servicio de pasarela activo en segundo plano.")
-        while True:
-            time.sleep(30)
+        cfg = {}
+        try:
+            cfg = (self.orchestrator.config or {}).get("whatsapp", {}) or {}
+        except Exception:
+            pass
+        if not cfg.get("autostart_live"):
+            print("[AVATAR WhatsApp Daemon]: autostart_live desactivado en config; "
+                  "el puente vivo requiere arranque explícito.")
+            return
+        self.start_live_bridge(target_chat=cfg.get("target_chat", "Mauro Vanegas 2025"))
 
-    def start_live_bridge(self, target_chat: str = "Mauro Vanegas 2025"):
-        """
-        Inicia el puente activo para el chat especificado.
-        """
-        print(f"==================================================")
-        print(f"⚡ [AVATAR AI]: Puente de WhatsApp Activo para '{target_chat}'")
-        print(f"==================================================")
-        print(f"Instrucción: Ten abierta la ventana de WhatsApp Web en el chat '{target_chat}'.")
-        print("El sistema está listo para procesar y responder tus mensajes.")
+    def start_live_bridge_legacy(self, target_chat: str = "Mauro Vanegas 2025"):
+        """Nombre anterior del stub: ahora delega al puente real."""
+        return self.start_live_bridge(target_chat=target_chat)
 
 if __name__ == "__main__":
     bridge = WhatsAppBridge()

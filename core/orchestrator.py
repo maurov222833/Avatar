@@ -182,7 +182,13 @@ class AvatarOrchestrator:
             "  4. ENVIAR MENSAJES DE WHATSAPP: Invoca la herramienta SEND_WHATSAPP directamente cuando sea solicitado enviarle mensajes a su teléfono.\n"
             "- RUTAS CON ESPACIOS EN WINDOWS: En comandos COMMAND, SIEMPRE coloca entre comillas dobles cualquier ruta de archivo que contenga espacios (ej: python \"b:\\PROYECTOS ANTIGRAVITY\\Avatar\\script.py\").\n"
             "- VISOR DE CÓDIGO EN TIEMPO REAL (MONACO EDITOR): Tu interfaz gráfica YA TIENE integrado Monaco Editor a la derecha. Cuando generas o modificas código, la interfaz abre y carga automáticamente ese código en Monaco Editor.\n"
-            "- Precisión y Anti-alucinación: Da respuestas claras, concisas y técnicamente verídicas."
+            "- Precisión y Anti-alucinación: Da respuestas claras, concisas y técnicamente verídicas.\n"
+            "- FORMATO EXPLÍCITO OBLIGATORIO: Mauro quiere respuestas explicativas, no de una línea. "
+            "Cada respuesta que informe de un trabajo debe tener: (1) QUÉ HICE — la acción en lenguaje claro; "
+            "(2) EVIDENCIA — el dato concreto que lo demuestra (resultado, archivo, estado leído); "
+            "(3) ESTADO — verificado, pendiente o fallido, sin ambigüedad; "
+            "(4) SIGUIENTE PASO — qué sigue o qué necesita de Mauro. "
+            "Explícito no significa largo: 4-8 líneas bastan. Nunca respondas solo 'listo' o 'correcto'."
         )
 
     def _load_config(self):
@@ -348,6 +354,7 @@ class AvatarOrchestrator:
         contents.append({"role": "user", "parts": [{"text": user_input}]})
 
         step_count = 0
+        empty_streak = 0  # respuestas vacías seguidas del proveedor en este turno
         final_user_response = ""
         executed_tools_summary = []
         verified_facts_history: List[VerifiedFact] = []
@@ -387,7 +394,7 @@ class AvatarOrchestrator:
                 break
 
             if llm_result.get("type") == "function_call":
-
+                empty_streak = 0
                 tool_name = llm_result.get("name")
                 args = llm_result.get("args", {})
                 print(f"[AvatarOrchestrator]: Function Calling Nativo -> [{tool_name}] Parámetros: {args}")
@@ -515,6 +522,26 @@ class AvatarOrchestrator:
             else:
                 raw_text = llm_result.get("text", "")
 
+                # Silencio del proveedor: ni prosa ni herramienta. No se presenta como
+                # mensaje ni se queman más pasos en llamadas de relleno: al segundo vacío
+                # seguido se corta el turno con escalado honesto.
+                if llm_result.get("type") == "provider_empty" or not raw_text.strip():
+                    empty_streak += 1
+                    if empty_streak >= 2:
+                        final_user_response = (
+                            "⚠️ El proveedor devolvió respuestas vacías "
+                            f"{empty_streak} veces seguidas. Detengo el turno para no "
+                            "generar llamadas de relleno: revisa la conexión o la cuota, "
+                            "considera cambiar de proveedor y repite la petición.")
+                        break
+                    contents.append({
+                        "role": "user",
+                        "parts": [{"text": "Tu respuesta anterior llegó vacía. Continúa: "
+                                           "responde con texto o invoca una herramienta válida."}]
+                    })
+                    continue
+
+                empty_streak = 0
                 # Registrar respuesta textual en StagnationDetector
                 stagnation_state = stagnation_detector.record_text_turn(raw_text)
 
@@ -575,7 +602,7 @@ class AvatarOrchestrator:
                 f"- **Herramienta:** `{last_tool_name}`\n"
                 f"- **Estado de Tarea:** `{t_obj.state.value}`\n"
                 f"- **Resultado Determinado:** `{t_res.status.value}` (Éxito: `{t_res.status.is_success()}`)\n"
-                f"- **Salida Real:**\n```\n{last_output}\n```"
+                f"- **Salida Real (resumen):**\n```\n{self._truncate_output(last_output)}\n```"
             )
             if last_output and not any(line in final_user_response for line in last_output.splitlines() if len(line) > 10):
                 final_user_response = f"{final_user_response}\n{summary_block}"
@@ -584,7 +611,9 @@ class AvatarOrchestrator:
             if interaction_type == InteractionType.CONVERSATION_NORMAL:
                 final_user_response = "¡Hola, Mauro! 👋 Estoy aquí y listo para asistirte en cualquier tarea o consulta que necesites en tu entorno de desarrollo."
             else:
-                final_user_response = "Auditoría y análisis procesados correctamente."
+                # Sin texto útil del proveedor: informar desde el estado real de ejecución,
+                # nunca con una plantilla genérica (el usuario no puede distinguirla de éxito).
+                final_user_response = self._build_executive_fallback(executed_tools_summary)
 
         # Guardar en memoria de conversación corta descontaminada
         self.history.append({"role": "user", "content": user_input})
@@ -598,6 +627,73 @@ class AvatarOrchestrator:
             self._reconcile_mission(current_mission_id)
 
         return final_user_response
+
+    def _truncate_output(self, text: str, max_lines: int = 40,
+                           max_chars: int = 1500) -> str:
+        """Recorta salidas largas para el chat: la evidencia se resume, no se vuelca."""
+        text = str(text or "")
+        lines = text.splitlines()
+        cut = False
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+            cut = True
+        out = "\n".join(lines)
+        if len(out) > max_chars:
+            out = out[:max_chars]
+            cut = True
+        if cut:
+            out += f"\n[…salida truncada: {len(text.splitlines())} líneas totales…]"
+        return out
+
+    def _build_executive_fallback(self, executed_tools_summary) -> str:
+        """
+        Mensaje final de respaldo construido desde el estado real de ejecución.
+
+        Se usa cuando el proveedor no devolvió texto aprovechable (p. ej. un 400 en el
+        function-calling). Informa qué se hizo realmente —herramienta y un extracto de
+        su salida, INCLUIDA una denegación de política— para que un DENIED jamás pueda
+        presentarse como éxito. Si el silencio del proveedor se repite turnos seguidos,
+        escala en vez de enmascarar: el dueño debe saber que el cerebro no responde.
+        Prohibido devolver plantillas genéricas que el dueño pueda confundir con éxito.
+        """
+        if executed_tools_summary:
+            last = executed_tools_summary[-1]
+            tool = last.get("tool_name", "?")
+            excerpt = " ".join(str(last.get("output", "")).split())[:300]
+            try:
+                ok = bool(last["task_result"].status.is_success())
+            except Exception:
+                ok = False
+            if ok:
+                base = (f"✅ Tarea completada: `{tool}` ejecutada y verificada.\n"
+                        f"Evidencia: {excerpt}\n"
+                        "Dime si seguimos con lo siguiente.")
+            else:
+                base = (f"⚠️ No pude completar la tarea con `{tool}`.\n"
+                        f"Detalle real: {excerpt or 'sin salida registrada'}\n"
+                        "Dime si reintento o cambiamos de enfoque.")
+        else:
+            base = ("⚠️ No obtuve respuesta del proveedor de IA en este turno y no se ejecutó "
+                    "ninguna acción. Repite la petición o dime cómo seguir.")
+        silent_streak = self._count_silent_streak()
+        if silent_streak >= 1:
+            base += (f"\n\n⚠️ Aviso: el proveedor lleva {silent_streak + 1} turnos seguidos "
+                     "sin devolver texto útil. Si continúa, conviene pausar, revisar la "
+                     "conexión o cambiar de proveedor antes de seguir intentando.")
+        return base
+
+    def _count_silent_streak(self) -> int:
+        """Turnos seguidos cuyo mensaje final fue este mismo respaldo (enmascaramiento)."""
+        streak = 0
+        for turn in reversed(self.history[-10:]):
+            if turn.get("role") != "assistant":
+                continue
+            content = turn.get("content", "")
+            if content.startswith(("✅ Tarea completada:", "⚠️ No obtuve respuesta")):
+                streak += 1
+            else:
+                break
+        return streak
 
     def _reconcile_mission(self, mission_id: str) -> str:
         """

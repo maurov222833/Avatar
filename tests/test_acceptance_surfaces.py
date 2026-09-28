@@ -238,5 +238,102 @@ class TestResumeSurface(unittest.TestCase):
             self.assertEqual(body["executed_trace"], [])
 
 
+class TestExecutiveFallback(unittest.TestCase):
+
+    def _summary(self, tool, status):
+        from core.cognitive.models import TaskResult, TaskResultStatus
+        return [{"tool_name": tool, "output": "out",
+                 "task_result": TaskResult(task_id="t1", status=status),
+                 "task": None, "goal": None}]
+
+    def test_empty_provider_text_reports_real_state_not_a_template(self):
+        """
+        Proves: when the provider returns no usable text, the owner gets an executive
+        message built from real execution state — never the canned
+        "Auditoría y análisis procesados correctamente." template.
+        """
+        from core.cognitive.models import TaskResultStatus
+
+        with _TempWorld():
+            orch = AvatarOrchestrator()
+
+            ok_msg = orch._build_executive_fallback(
+                self._summary("WRITE_FILE", TaskResultStatus.PASS))
+            self.assertIn("WRITE_FILE", ok_msg)
+            self.assertIn("completada", ok_msg)
+
+            fail_msg = orch._build_executive_fallback(
+                self._summary("WRITE_FILE", TaskResultStatus.FAIL))
+            self.assertIn("No pude completar", fail_msg)
+            self.assertNotIn("correctamente", fail_msg)
+
+            idle_msg = orch._build_executive_fallback([])
+            self.assertIn("no se ejecutó ninguna acción", idle_msg)
+
+            for msg in (ok_msg, fail_msg, idle_msg):
+                self.assertNotIn("Auditoría y análisis procesados correctamente", msg)
+
+    def test_denial_text_surfaces_and_silence_escalates(self):
+        """
+        Proves: a policy DENIED in the last output is shown (never reported as
+        success), and repeated provider silence escalates instead of masking.
+        """
+        from core.cognitive.models import TaskResult, TaskResultStatus
+
+        with _TempWorld():
+            orch = AvatarOrchestrator()
+
+            denied = [{"tool_name": "SEND_WHATSAPP",
+                       "output": "Bloqueado por política: EXTERNAL_EFFECT_REQUIRES_OPERATOR_CONSENT",
+                       "task_result": TaskResult(task_id="t1",
+                                                 status=TaskResultStatus.FAIL),
+                       "task": None, "goal": None}]
+            msg = orch._build_executive_fallback(denied)
+            self.assertIn("EXTERNAL_EFFECT_REQUIRES_OPERATOR_CONSENT", msg)
+            self.assertNotIn("completada", msg)
+
+            # Simular racha de silencio: dos respaldos seguidos en el historial.
+            orch.history.append({"role": "user", "content": "sigue"})
+            orch.history.append({"role": "assistant",
+                                 "content": "✅ Tarea completada: `LIST_DIR` fake"})
+            orch.history.append({"role": "user", "content": "sigue"})
+            orch.history.append({"role": "assistant",
+                                 "content": "✅ Tarea completada: `READ_FILE` fake"})
+            esc = orch._build_executive_fallback([])
+            self.assertIn("turnos seguidos", esc)
+
+
+class TestEmptyProviderCutsTurn(unittest.TestCase):
+
+    def test_two_consecutive_empties_stop_the_turn(self):
+        """
+        Proves: provider silence cuts the turn deterministically instead of burning
+        steps on filler tool calls masked as progress.
+        """
+        with _TempWorld():
+            orch = AvatarOrchestrator()
+            calls = []
+
+            def silent(system_prompt=None, contents=None, tools=None, **k):
+                calls.append(1)
+                return {"type": "provider_empty", "provider": "fake",
+                        "error": "sin contenido"}
+
+            orch.llm.generate_response_with_tools = silent
+            out = orch.process_user_input("haz algo", max_steps=5)
+            self.assertIn("vacías", out)
+            self.assertEqual(len(calls), 2, "el turno se corta al segundo vacío")
+
+    def test_evidence_block_truncates_long_output(self):
+        """Proves: the chat evidence never dumps full directory listings."""
+        with _TempWorld():
+            orch = AvatarOrchestrator()
+            long_text = "\n".join(f"linea-{i}" for i in range(100))
+            short = orch._truncate_output(long_text)
+            self.assertLessEqual(len(short.splitlines()), 41)
+            self.assertIn("truncada", short)
+            self.assertIn("100", short)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

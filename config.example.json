@@ -1,0 +1,40 @@
+{
+  "project_name": "",
+  "version": "",
+  "default_provider": "",
+  "gemini": {
+    "api_key": "",
+    "model": ""
+  },
+  "openai": {
+    "api_key": "",
+    "model": ""
+  },
+  "ollama": {
+    "url": "",
+    "model": ""
+  },
+  "groq": {
+    "api_key": "",
+    "model": "",
+    "url": ""
+  },
+  "github": {
+    "api_key": "",
+    "model": "",
+    "url": ""
+  },
+  "lmstudio": {
+    "url": "",
+    "model": ""
+  },
+  "security": {
+    "auto_approve_safe_commands": true,
+    "allowed_workspace": ""
+  },
+  "telegram": {
+    "enabled": true,
+    "bot_token": "",
+    "bot_username": ""
+  }
+}

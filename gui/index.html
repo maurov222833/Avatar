@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AVATAR AI - Sovereign Agent Workspace</title>
+    <!-- Tailwind CSS y FontAwesome -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Marked.js para renderizado de Markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Highlight.js para código -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <!-- Monaco Editor para visualización de código en tiempo real -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="bg-[#0b0f19] text-gray-200 h-screen flex flex-col font-sans overflow-hidden select-text">
+
+    <!-- BARRA DE MENÚ SUPERIOR ESTILO ANTIGRAVITY IDE -->
+    <header class="h-9 bg-[#111827] border-b border-gray-800 flex items-center justify-between px-3 text-xs text-gray-400">
+        <div class="flex items-center space-x-4">
+            <span class="font-bold text-cyan-400 flex items-center gap-1 cursor-pointer" onclick="showAppInfo()">
+                <i class="fa-solid fa-atom text-cyan-400"></i> Antigravity Workspace
+            </span>
+            <div class="relative group">
+                <span class="hover:text-white cursor-pointer px-1 py-0.5">File</span>
+                <div class="absolute left-0 top-full mt-1 w-44 bg-[#1e293b] border border-gray-700 rounded-lg shadow-xl hidden group-hover:block z-50 py-1 text-xs text-gray-200">
+                    <div onclick="createNewConversation()" class="px-3 py-1.5 hover:bg-cyan-600 hover:text-white cursor-pointer flex items-center gap-2"><i class="fa-solid fa-plus text-xs"></i> New Conversation</div>
+                    <div onclick="triggerFileUpload()" class="px-3 py-1.5 hover:bg-cyan-600 hover:text-white cursor-pointer flex items-center gap-2"><i class="fa-solid fa-file-import text-xs"></i> Open File...</div>
+                    <div class="border-t border-gray-700 my-1"></div>
+                    <div onclick="window.close()" class="px-3 py-1.5 hover:bg-red-600 hover:text-white cursor-pointer flex items-center gap-2"><i class="fa-solid fa-power-off text-xs"></i> Exit</div>
+                </div>
+            </div>
+            <div class="relative group">
+                <span class="hover:text-white cursor-pointer px-1 py-0.5">View</span>
+                <div class="absolute left-0 top-full mt-1 w-44 bg-[#1e293b] border border-gray-700 rounded-lg shadow-xl hidden group-hover:block z-50 py-1 text-xs text-gray-200">
+                    <div onclick="toggleTerminal()" class="px-3 py-1.5 hover:bg-cyan-600 hover:text-white cursor-pointer flex items-center gap-2"><i class="fa-solid fa-terminal text-xs"></i> Toggle Terminal</div>
+                    <div onclick="toggleSidebar()" class="px-3 py-1.5 hover:bg-cyan-600 hover:text-white cursor-pointer flex items-center gap-2"><i class="fa-solid fa-sidebar text-xs"></i> Toggle Sidebar</div>
+                </div>
+            </div>
+            <div class="relative group">
+                <span class="hover:text-white cursor-pointer px-1 py-0.5">Tools</span>
+                <div class="absolute left-0 top-full mt-1 w-48 bg-[#1e293b] border border-gray-700 rounded-lg shadow-xl hidden group-hover:block z-50 py-1 text-xs text-gray-200">
+                    <div onclick="openTasksModal()" class="px-3 py-1.5 hover:bg-cyan-600 hover:text-white cursor-pointer flex items-center gap-2"><i class="fa-solid fa-tasks text-xs"></i> Scheduled Tasks</div>
+                    <div onclick="toggleSettingsModal()" class="px-3 py-1.5 hover:bg-cyan-600 hover:text-white cursor-pointer flex items-center gap-2"><i class="fa-solid fa-gear text-xs"></i> API Configuration</div>
+                </div>
+            </div>
+            <span class="hover:text-white cursor-pointer" onclick="showHelpModal()">Help</span>
+        </div>
+
+        <div class="flex items-center space-x-3 text-gray-400">
+            <span id="header-status-badge" class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 font-medium cursor-pointer" onclick="toggleSettingsModal()">
+                <i class="fa-solid fa-bolt"></i> Gemini 3.5
+            </span>
+            <span class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 font-medium">
+                <i class="fa-solid fa-shield-halved"></i> Security ON
+            </span>
+        </div>
+    </header>
+
+    <!-- CUERPO PRINCIPAL (SIDEBAR + WORKSPACE) -->
+    <div class="flex-1 flex overflow-hidden relative">
+
+        <!-- BARRA LATERAL IZQUIERDA (SIDEBAR) -->
+        <aside id="sidebar" class="w-64 bg-[#111827] border-r border-gray-800 flex flex-col justify-between transition-all duration-300">
+            <div class="p-3 space-y-4 overflow-y-auto flex-1">
+                
+                <!-- BRANDING -->
+                <div class="flex items-center space-x-2 px-2 py-1">
+                    <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-cyan-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-cyan-500/20">
+                        ⚡
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-white tracking-wide text-sm">AVATAR AI</h1>
+                        <p class="text-[10px] text-cyan-400">Sovereign Agentic System</p>
+                    </div>
+                </div>
+
+                <!-- BOTÓN NUEVA CONVERSACIÓN -->
+                <button onclick="createNewConversation()" class="w-full py-2 px-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-semibold rounded-lg shadow-md transition flex items-center justify-center space-x-2">
+                    <i class="fa-solid fa-plus"></i>
+                    <span>New Conversation</span>
+                </button>
+
+                <!-- NAVEGACIÓN PRINCIPAL -->
+                <div class="space-y-1 text-xs">
+                    <div onclick="showHistoryDrawer()" class="px-2 py-1.5 rounded hover:bg-gray-800/60 cursor-pointer text-gray-300 flex items-center space-x-2">
+                        <i class="fa-regular fa-clock text-gray-400"></i>
+                        <span>Conversation History</span>
+                    </div>
+                    <div onclick="openTasksModal()" class="px-2 py-1.5 rounded hover:bg-gray-800/60 cursor-pointer text-gray-300 flex items-center space-x-2">
+                        <i class="fa-solid fa-calendar-check text-gray-400"></i>
+                        <span>Scheduled Tasks</span>
+                    </div>
+                </div>
+
+                <!-- SECCIÓN PROYECTOS -->
+                <div class="pt-2">
+                    <h2 class="text-[10px] font-bold text-gray-500 tracking-wider uppercase px-2 mb-1">Projects</h2>
+                    <div id="projects-list" class="space-y-1 text-xs">
+                        <div onclick="selectProject('PROYECTOS ANTIGRAVITY')" class="px-2 py-1.5 rounded bg-gray-800/40 text-cyan-300 font-medium flex items-center space-x-2 border-l-2 border-cyan-400 cursor-pointer hover:bg-gray-800">
+                            <i class="fa-solid fa-folder-open text-cyan-400"></i>
+                            <span>PROYECTOS ANTIGRAVITY</span>
+                        </div>
+                        <div onclick="selectProject('Avatar')" class="px-2 py-1.5 rounded hover:bg-gray-800/60 text-gray-400 flex items-center space-x-2 cursor-pointer">
+                            <i class="fa-solid fa-folder text-gray-500"></i>
+                            <span>Avatar</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SECCIÓN CONVERSATIONS -->
+                <div class="pt-2">
+                    <h2 class="text-[10px] font-bold text-gray-500 tracking-wider uppercase px-2 mb-1">Conversations</h2>
+                    <div id="conversations-list" class="space-y-1 text-xs text-gray-400">
+                        <div onclick="loadConversationSession(1)" class="px-2 py-1.5 rounded bg-gray-800/60 text-white font-medium truncate flex items-center space-x-2 cursor-pointer">
+                            <i class="fa-regular fa-message text-cyan-400"></i>
+                            <span class="truncate">Desarrollo de Agentes</span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- BOTÓN CONFIGURACIÓN EN FOOTER -->
+            <div class="p-3 border-t border-gray-800">
+                <button onclick="toggleSettingsModal()" class="w-full py-2 px-3 bg-gray-800/80 hover:bg-gray-800 text-gray-300 text-xs rounded-lg flex items-center space-x-2 transition">
+                    <i class="fa-solid fa-gear text-gray-400"></i>
+                    <span>Settings & API Keys</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- ÁREA DE TRABAJO CENTRAL (CANVAS DE CHAT) -->
+        <main class="flex-1 flex flex-col bg-[#0b0f19] relative">
+
+            <!-- CONTENEDOR DIVIDIDO CHAT / VISOR DE CÓDIGO EN TIEMPO REAL -->
+            <div class="flex-1 flex overflow-hidden">
+                <!-- ÁREA DE CONTENIDO DE CHAT -->
+                <div id="chat-container" class="flex-1 overflow-y-auto p-6 space-y-6">
+                    <!-- MENSAJE DE BIENVENIDA -->
+                    <div id="welcome-message" class="max-w-3xl mx-auto text-center space-y-3 pt-6">
+                        <h1 class="text-3xl font-bold text-white tracking-tight">PROYECTOS ANTIGRAVITY</h1>
+                        <p class="text-sm text-gray-400">Tu entorno de trabajo autónomo impulsado por Agentes de Inteligencia Artificial.</p>
+                    </div>
+                </div>
+
+                <!-- VISOR DE CÓDIGO EN TIEMPO REAL (MONACO EDITOR SPLIT PANEL) -->
+                <div id="code-viewer-panel" class="w-1/2 border-l border-gray-800 bg-[#1e1e1e] flex flex-col hidden transition-all duration-300">
+                    <div class="h-8 bg-[#181818] border-b border-gray-800 px-3 flex items-center justify-between text-xs text-gray-400">
+                        <span class="font-mono text-cyan-400 font-semibold flex items-center gap-1.5" id="code-viewer-filename">
+                            <i class="fa-solid fa-code text-cyan-400"></i> LIVE CODE VIEWER (MONACO IDE)
+                        </span>
+                        <div class="flex items-center space-x-2">
+                            <button onclick="copyMonacoCode()" class="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 text-[10px]"><i class="fa-regular fa-copy"></i> Copiar Código</button>
+                            <button onclick="toggleCodeViewer()" class="text-gray-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                    </div>
+                    <div id="monaco-editor-container" class="flex-1 w-full h-full"></div>
+                </div>
+            </div>
+
+            <!-- BARRA DE ENTRADA MODERNA ESTILO ANTIGRAVITY -->
+            <div class="p-4 bg-[#0b0f19]">
+                <div class="max-w-3xl mx-auto bg-[#161e2e] border border-gray-700/80 rounded-2xl p-3 shadow-2xl space-y-3 focus-within:border-cyan-500/80 transition">
+                    
+                    <!-- AREA DE ADJUNTO PREVIEW (HIDDEN BY DEFAULT) -->
+                    <div id="attachment-preview" class="hidden bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs flex items-center justify-between">
+                        <span class="text-cyan-400 font-mono truncate" id="attachment-filename">archivo.txt</span>
+                        <button onclick="removeAttachment()" class="text-gray-400 hover:text-red-400"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+
+                    <!-- AREA DE TEXTO -->
+                    <textarea id="user-input" rows="2" placeholder="Ask anything... (/ comandos, @ menciones)" class="w-full bg-transparent text-gray-100 text-sm focus:outline-none resize-none placeholder-gray-500 font-sans"></textarea>
+                    
+                    <!-- INPUT OCULTO PARA ARCHIVOS -->
+                    <input type="file" id="file-input" class="hidden" onchange="handleFileSelected(event)">
+
+                    <!-- BARRA INFERIOR DE CONTROLES -->
+                    <div class="flex items-center justify-between pt-2 border-t border-gray-800/80 text-xs">
+                        
+                        <!-- SELECTORES DROPDOWN -->
+                        <div class="flex items-center space-x-2">
+                            <!-- SELECTOR DE MODELO -->
+                            <select id="model-select" onchange="changeActiveModel()" class="bg-[#1e293b] text-cyan-300 border border-cyan-800/60 rounded-lg px-2.5 py-1 focus:outline-none cursor-pointer font-medium hover:border-cyan-500">
+                                <option value="gemini">🌐 Gemini 3.6 (Pago / Gratis)</option>
+                                <option value="groq">⚡ Groq Cloud (14k/día Gratis)</option>
+                                <option value="github">🐙 GitHub Models (Gratis)</option>
+                                <option value="openai">🤖 ChatGPT-4o (OpenAI)</option>
+                                <option value="lmstudio">🖥️ LM Studio (Local GUI)</option>
+                                <option value="ollama">💻 Ollama (Local CLI)</option>
+                            </select>
+
+                            <!-- SELECTOR DE MODO -->
+                            <select id="mode-select" onchange="changeAgentMode()" class="bg-[#1e293b] text-purple-300 border border-purple-800/60 rounded-lg px-2.5 py-1 focus:outline-none cursor-pointer font-medium hover:border-purple-500">
+                                <option value="agent">🤖 Main Agent</option>
+                                <option value="local">💻 Local Executor</option>
+                            </select>
+                        </div>
+
+                        <!-- BOTONES DE ACCIÓN (MIC, ADJUNTO, ENVIAR) -->
+                        <div class="flex items-center space-x-3">
+                            <button onclick="triggerFileUpload()" title="Adjuntar archivo de PC" class="text-gray-400 hover:text-cyan-400 transition">
+                                <i class="fa-solid fa-paperclip text-sm"></i>
+                            </button>
+                            <button id="mic-btn" onclick="toggleVoiceDictation()" title="Dictar por voz" class="text-gray-400 hover:text-red-400 transition">
+                                <i class="fa-solid fa-microphone text-sm"></i>
+                            </button>
+                            <button onclick="sendMessage()" class="w-8 h-8 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg flex items-center justify-center transition shadow-lg shadow-cyan-600/30">
+                                <i class="fa-solid fa-paper-plane text-xs"></i>
+                            </button>
+                        </div>
+
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- TERMINAL INTEGRADA (ABAJO) -->
+            <div id="terminal-panel" class="h-44 bg-[#0a0d14] border-t border-gray-800 flex flex-col transition-all duration-300">
+                <div class="h-7 bg-[#111827] border-b border-gray-800 px-3 flex items-center justify-between text-xs text-gray-400">
+                    <div class="flex items-center space-x-4 font-semibold">
+                        <button onclick="switchTerminalTab('powershell')" id="tab-powershell-btn" class="text-cyan-400 border-b-2 border-cyan-400 pb-0.5 flex items-center gap-1">
+                            <i class="fa-solid fa-terminal"></i> POWERSHELL TERMINAL
+                        </button>
+                        <button onclick="switchTerminalTab('logs')" id="tab-logs-btn" class="text-gray-500 hover:text-gray-300 pb-0.5 flex items-center gap-1">
+                            <i class="fa-solid fa-list-check"></i> AGENT LOGS
+                        </button>
+                    </div>
+                    <button onclick="toggleTerminal()" class="text-gray-400 hover:text-white">
+                        <i id="terminal-toggle-icon" class="fa-solid fa-chevron-down text-xs"></i>
+                    </button>
+                </div>
+
+                <!-- SALIDA Y CONSOLA DE TERMINAL -->
+                <div class="flex-1 flex flex-col overflow-hidden bg-black/90 font-mono text-xs">
+                    <div id="terminal-output" class="flex-1 p-3 text-emerald-400 overflow-y-auto space-y-1">
+                        <div>[SYSTEM]: Avatar AI Agent Workspace initialized.</div>
+                        <div>[SYSTEM]: Engine status: Ready. Multi-model selector active.</div>
+                    </div>
+                    <!-- PROMPT DIRECTO DE TERMINAL -->
+                    <div id="terminal-input-bar" class="h-7 border-t border-gray-800 bg-gray-950 px-3 flex items-center text-xs text-gray-300">
+                        <span class="text-cyan-400 font-bold mr-2">PS b:\PROYECTOS ANTIGRAVITY></span>
+                        <input type="text" id="terminal-cmd-input" placeholder="Ejecuta comandos de PowerShell directamente..." class="flex-1 bg-transparent border-none text-gray-200 focus:outline-none font-mono" onkeydown="handleTerminalCommand(event)">
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- MODAL DE CONFIGURACIÓN -->
+    <div id="settings-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden items-center justify-center z-50">
+        <div class="bg-[#111827] border border-gray-700 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-sliders text-cyan-400"></i> Avatar System Settings
+                </h3>
+                <button onclick="toggleSettingsModal()" class="text-gray-400 hover:text-white">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            
+            <div class="space-y-4 text-xs">
+                <div>
+                    <label class="block text-gray-400 mb-1">Google Gemini API Key:</label>
+                    <input type="password" id="gemini-key-input" class="w-full bg-[#1e293b] border border-gray-700 rounded-lg p-2 text-white font-mono focus:outline-none focus:border-cyan-500">
+                </div>
+                <div>
+                    <label class="block text-gray-400 mb-1">OpenAI API Key:</label>
+                    <input type="password" id="openai-key-input" class="w-full bg-[#1e293b] border border-gray-700 rounded-lg p-2 text-white font-mono focus:outline-none focus:border-cyan-500">
+                </div>
+                <div>
+                    <label class="block text-gray-400 mb-1">Groq Cloud API Key (14k req/día GRATIS):</label>
+                    <input type="password" id="groq-key-input" class="w-full bg-[#1e293b] border border-gray-700 rounded-lg p-2 text-white font-mono focus:outline-none focus:border-cyan-500">
+                </div>
+                <div>
+                    <label class="block text-gray-400 mb-1">GitHub Personal Access Token (Models):</label>
+                    <input type="password" id="github-key-input" class="w-full bg-[#1e293b] border border-gray-700 rounded-lg p-2 text-white font-mono focus:outline-none focus:border-cyan-500">
+                </div>
+                <div>
+                    <label class="block text-gray-400 mb-1">Ollama Local Server URL:</label>
+                    <input type="text" id="ollama-url-input" class="w-full bg-[#1e293b] border border-gray-700 rounded-lg p-2 text-white font-mono focus:outline-none focus:border-cyan-500" value="http://localhost:11434">
+                </div>
+            </div>
+
+            <div class="pt-4 flex justify-between items-center border-t border-gray-800">
+                <span id="save-settings-msg" class="text-xs text-emerald-400 hidden">✓ Configuración guardada</span>
+                <div class="flex space-x-2">
+                    <button onclick="toggleSettingsModal()" class="px-4 py-2 bg-gray-800 text-gray-300 text-xs rounded-lg hover:bg-gray-700">Cancelar</button>
+                    <button onclick="saveSettings()" class="px-4 py-2 bg-cyan-600 text-white text-xs font-semibold rounded-lg hover:bg-cyan-500">Guardar Cambios</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL DE TAREAS PROGRAMADAS -->
+    <div id="tasks-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden items-center justify-center z-50">
+        <div class="bg-[#111827] border border-gray-700 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-calendar-check text-cyan-400"></i> Scheduled Tasks Manager
+                </h3>
+                <button onclick="openTasksModal()" class="text-gray-400 hover:text-white">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            <div class="text-xs text-gray-300 space-y-2">
+                <p>Configura tareas periódicas o temporizadores desatendidos para Avatar.</p>
+                <div class="bg-gray-900 border border-gray-800 p-3 rounded-lg space-y-2">
+                    <div class="font-semibold text-cyan-400">Cron Schedule Activo:</div>
+                    <div class="text-gray-400 font-mono">0 9 * * * - Reporte diario de proyectos</div>
+                </div>
+            </div>
+            <div class="flex justify-end">
+                <button onclick="openTasksModal()" class="px-4 py-2 bg-cyan-600 text-white text-xs rounded-lg">Aceptar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

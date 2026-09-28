@@ -1,0 +1,74 @@
+{
+  "gemini": {
+    "provider": "gemini",
+    "implemented": true,
+    "configured": true,
+    "text": "PASS",
+    "function_calling": "PASS",
+    "multi_turn": "PASS",
+    "tool_result": "PASS",
+    "isolation": "VERIFIED",
+    "latency": 15.19,
+    "status": "VERIFIED"
+  },
+  "openai": {
+    "provider": "openai",
+    "implemented": true,
+    "configured": false,
+    "text": "FAIL",
+    "function_calling": "UNSUPPORTED",
+    "multi_turn": "UNSUPPORTED",
+    "tool_result": "UNSUPPORTED",
+    "isolation": "VERIFIED",
+    "latency": 0.0,
+    "status": "MISSING_KEY"
+  },
+  "groq": {
+    "provider": "groq",
+    "implemented": true,
+    "configured": false,
+    "text": "FAIL",
+    "function_calling": "UNSUPPORTED",
+    "multi_turn": "UNSUPPORTED",
+    "tool_result": "UNSUPPORTED",
+    "isolation": "VERIFIED",
+    "latency": 0.0,
+    "status": "MISSING_KEY"
+  },
+  "ollama": {
+    "provider": "ollama",
+    "implemented": true,
+    "configured": true,
+    "text": "PASS",
+    "function_calling": "UNSUPPORTED",
+    "multi_turn": "UNSUPPORTED",
+    "tool_result": "UNSUPPORTED",
+    "isolation": "VERIFIED",
+    "latency": 1.217,
+    "status": "PARTIAL"
+  },
+  "lmstudio": {
+    "provider": "lmstudio",
+    "implemented": true,
+    "configured": true,
+    "text": "FAIL",
+    "function_calling": "UNSUPPORTED",
+    "multi_turn": "UNSUPPORTED",
+    "tool_result": "UNSUPPORTED",
+    "isolation": "VERIFIED",
+    "latency": 2.023,
+    "status": "OFFLINE"
+  },
+  "github": {
+    "provider": "github",
+    "implemented": true,
+    "configured": false,
+    "text": "FAIL",
+    "function_calling": "UNSUPPORTED",
+    "multi_turn": "UNSUPPORTED",
+    "tool_result": "UNSUPPORTED",
+    "isolation": "VERIFIED",
+    "latency": 0.0,
+    "status": "RETIRED"
+  }
+}

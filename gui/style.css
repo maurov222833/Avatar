@@ -1,0 +1,47 @@
+/* Estilos de personalización para la interfaz Antigravity Desktop GUI */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: #0b0f19;
+}
+::-webkit-scrollbar-thumb {
+    background: #1f293d;
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #334155;
+}
+
+/* Habilitar selección de texto con ratón */
+.chat-bubble-user,
+.chat-bubble-avatar,
+.prose,
+p,
+span,
+pre,
+code {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    -ms-user-select: text !important;
+}
+
+.chat-bubble-user {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 16px 16px 4px 16px;
+}
+
+.chat-bubble-avatar {
+    background: #111827;
+    border: 1px solid #1f293d;
+    border-radius: 16px 16px 16px 4px;
+}
+
+pre code {
+    border-radius: 8px;
+    font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+    font-size: 12px;
+}

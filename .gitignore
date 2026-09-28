@@ -1,0 +1,37 @@
+# ============================================================
+# Avatar — repo propio. Regla dura: NUNCA versionar secretos.
+# config.json y .env contienen claves reales y viven solo en local.
+# Para arrancar desde cero: copiar .env.example a .env y
+# config.example.json a config.json, y rellenar claves.
+# ============================================================
+
+# Secretos (claves reales en local, jamás al repo)
+.env
+config.json
+
+# Estado runtime: SQLite, sesiones, capturas, conocimiento local
+memory/
+*.db
+*.db-wal
+*.db-shm
+*.wal
+*.shm
+whatsapp_profile/
+screenshot.png
+screen_observation.png
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Build / Windows / empaquetado
+dist/
+build/
+*.exe
+*.lnk
+Avatar_Project_Complete.zip

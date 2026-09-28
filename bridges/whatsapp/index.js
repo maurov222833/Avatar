@@ -1,0 +1,1 @@
+const { Client, LocalAuth } = require('whatsapp-web.js');

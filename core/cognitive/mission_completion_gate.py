@@ -196,6 +196,36 @@ class MissionCompletionGate:
         )
 
     @staticmethod
+    def _defer_unverified_requirements(
+        mission_id: str, required_capabilities: List[str]
+    ) -> GateAuthorization:
+        """
+        Keep a legacy-sealed mission open.
+
+        The seal cannot be checked, so the mission is not completed and it is not
+        rewritten as having no requirements. Resume of pending work still sees an
+        open mission.
+        """
+        verdict = MissionGateResult(
+            can_complete=False,
+            mission_status="IN_PROGRESS",
+            blocking_reasons=[
+                "REQUIREMENTS_SEAL_UNVERIFIED: el sello de requisitos es de un formato "
+                "anterior y no se puede comprobar. La misión sigue abierta."
+            ],
+            unverified_required_capabilities=list(required_capabilities),
+            evaluation_id=_authority.new_nonce(),
+        )
+        return GateAuthorization._issue(
+            mission_id=mission_id,
+            required_capabilities=required_capabilities,
+            requirements_declared=True,
+            evaluation_id=verdict.evaluation_id,
+            verdict=verdict,
+            authorized_status="IN_PROGRESS",
+        )
+
+    @staticmethod
     def evaluate_and_authorize(
         mission_id: str,
         state_db: StateEngine,
@@ -215,13 +245,16 @@ class MissionCompletionGate:
         required_capabilities, requirements_declared = read_mission_requirements(state_db, mission_id)
         row = state_db.get_mission(mission_id)
 
-        # D-5: a same-process mismatch, or a wiped seal, blocks completion and is never
-        # silently reinterpreted as "no requirements declared". A seal from another
-        # process is unverified: resume continues and the verdict comes from the
-        # persisted requirements plus current evidence.
+        # D-5: a mismatch, a wiped seal, or a seal under some other key blocks completion
+        # and is never silently reinterpreted as "no requirements declared". A legacy
+        # hex seal is unverified: the mission stays open and is not marked complete.
         seal_state = "tampered" if row is None else state_db.requirements_seal_state(row)
         if seal_state == "tampered":
             return MissionCompletionGate._reject_corrupt_requirements(
+                mission_id, required_capabilities
+            )
+        if seal_state == "unverified":
+            return MissionCompletionGate._defer_unverified_requirements(
                 mission_id, required_capabilities
             )
 

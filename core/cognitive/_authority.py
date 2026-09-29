@@ -25,11 +25,6 @@ from typing import Any, Dict
 _KEY: bytes = secrets.token_bytes(32)
 
 
-def key_id() -> str:
-    """Public id of the process key. Not key material and not sufficient to sign."""
-    return hashlib.sha256(_KEY).hexdigest()[:16]
-
-
 def _canonical(payload: Dict[str, Any]) -> bytes:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
 

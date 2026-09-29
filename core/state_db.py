@@ -4,6 +4,9 @@ import os
 import json
 import uuid
 import datetime
+import hashlib
+import hmac
+import secrets
 import threading
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 
@@ -13,16 +16,8 @@ def _is_hex(value: str, size: int) -> bool:
 
 
 def _is_legacy_requirements_seal(seal: str) -> bool:
-    """Hex HMAC from before the seal carried a process key id."""
+    """Hex HMAC from before the seal carried a database key id."""
     return _is_hex(seal, 64)
-
-
-def _is_foreign_requirements_seal(seal: str) -> bool:
-    """A well-formed v2 seal. The caller has already ruled out this process's key id."""
-    parts = seal.split(":")
-    if len(parts) != 3 or parts[0] != "v2":
-        return False
-    return _is_hex(parts[1], 16) and _is_hex(parts[2], 64)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from core.cognitive.gate_authorization import GateAuthorization
@@ -242,13 +237,12 @@ class StateEngine:
         that requirements cannot be quietly rewritten by a path that does not know about the
         seal, and that such tampering blocks completion rather than silently succeeding.
         """
-        from core.cognitive import _authority
-        mac = _authority.sign({
+        mac = self._seal_mac({
             "mission_id": mission_id,
             "required_capabilities": caps_json,
             "requirements_declared": int(declared),
         })
-        return f"v2:{_authority.key_id()}:{mac}"
+        return f"v2:{self._seal_key_id()}:{mac}"
 
     def _requirements_payload(self, mission: Dict[str, Any]) -> Dict[str, Any]:
         return {
@@ -257,25 +251,75 @@ class StateEngine:
             "requirements_declared": int(mission.get("requirements_declared") or 0),
         }
 
+    def _seal_key_path(self) -> str:
+        return self.db_path + ".seal_key"
+
+    def _load_seal_key(self) -> bytes:
+        """
+        Key for the requirements seal, stored beside the database.
+
+        It survives a restart, so a real seal still verifies. It is not in the mission
+        row: an UPDATE of the requirement columns cannot mint a new valid seal.
+        """
+        cached = getattr(self, "_seal_key_cache", None)
+        if isinstance(cached, bytes) and len(cached) == 32:
+            return cached
+        path = self._seal_key_path()
+        try:
+            with open(path, "rb") as handle:
+                data = handle.read()
+        except FileNotFoundError:
+            data = b""
+        if len(data) == 32:
+            self._seal_key_cache = data
+            return data
+        if data:
+            raise ValueError(f"requirements seal key at {path} is not 32 bytes")
+        key = secrets.token_bytes(32)
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            with open(path, "rb") as handle:
+                data = handle.read()
+            if len(data) != 32:
+                raise ValueError(f"requirements seal key at {path} is not 32 bytes")
+            self._seal_key_cache = data
+            return data
+        try:
+            os.write(fd, key)
+        finally:
+            os.close(fd)
+        self._seal_key_cache = key
+        return key
+
+    def _seal_key_id(self) -> str:
+        return hashlib.sha256(self._load_seal_key()).hexdigest()[:16]
+
+    def _seal_mac(self, payload: Dict[str, Any]) -> str:
+        body = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        return hmac.new(self._load_seal_key(), body, hashlib.sha256).hexdigest()
+
     def requirements_seal_state(self, mission: Dict[str, Any]) -> str:
         """
-        ``intact`` when this process sealed the row and the HMAC matches.
+        ``intact`` when the seal names this database's key and the HMAC matches.
 
-        ``tampered`` when this process's key id is on the seal and the HMAC does not
-        match, or when the seal was wiped. That blocks completion.
+        ``tampered`` when that key's HMAC fails, the seal was wiped, or the seal
+        names some other key. That blocks completion.
 
-        ``unverified`` when the seal belongs to another process (its key id differs)
-        or is a legacy hex seal. Resume continues; the row is not treated as corrupt.
+        ``unverified`` only for a legacy 64-hex seal from before this key existed.
+        Resume may continue. The mission is not marked complete.
         """
-        from core.cognitive import _authority
         seal = mission.get("requirements_seal") or ""
-        prefix = f"v2:{_authority.key_id()}:"
+        prefix = f"v2:{self._seal_key_id()}:"
         if seal.startswith(prefix):
             mac = seal[len(prefix):]
-            if _authority.verify_signature(self._requirements_payload(mission), mac):
-                return "intact"
-            return "tampered"
-        if _is_foreign_requirements_seal(seal) or _is_legacy_requirements_seal(seal):
+            expected = self._seal_mac(self._requirements_payload(mission))
+            try:
+                matches = hmac.compare_digest(expected, mac)
+            except Exception:
+                return "tampered"
+            return "intact" if matches else "tampered"
+        if _is_legacy_requirements_seal(seal):
             return "unverified"
         return "tampered"
 
@@ -531,11 +575,13 @@ class StateEngine:
         required_capabilities, requirements_declared = read_mission_requirements(self, mission_id)
         registry = CapabilityEvidenceRegistry(state_db=self)
 
-        # D-5: a same-process mismatch must not be completed and must not be
-        # reinterpreted as declaring no requirements. A seal from another process is
-        # unverified and does not take this path. Checked here as well as in the gate
-        # because this method is the sovereign writer.
-        if self.requirements_seal_state(mission) == "tampered":
+        # D-5: a bad seal must not be completed and must not be reinterpreted as
+        # declaring no requirements. A legacy seal stays at its current open status.
+        # Checked here as well as in the gate because this method is the sovereign writer.
+        seal_state = self.requirements_seal_state(mission)
+        if seal_state == "unverified":
+            return mission.get("status") or "IN_PROGRESS"
+        if seal_state == "tampered":
             from core.cognitive.gate_types import MissionGateResult, MissionStatus
             from core.cognitive.authority_core import (
                 AuthorityAudit,

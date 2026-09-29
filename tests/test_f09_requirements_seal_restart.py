@@ -121,14 +121,40 @@ class TestF09RequirementsSealRestart(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         report = json.loads(proc.stdout.strip().splitlines()[-1])
-        self.assertFalse(report["plain_intact"])
-        self.assertEqual(report["plain_state"], "unverified")
-        self.assertNotEqual(report["plain_status"], "BLOCKED")
+        self.assertTrue(report["plain_intact"])
+        self.assertEqual(report["plain_state"], "intact")
+        self.assertEqual(report["plain_status"], "NO_REQUIREMENTS_DECLARED")
         self.assertFalse(
             any("REQUIREMENTS_INTEGRITY_FAILURE" in reason for reason in report["plain_reasons"])
         )
         self.assertEqual(report["pending_resume"], MissionResumeStatus.ACTIVE_MISSION_SAFE_TO_RESUME)
         self.assertFalse(report["pending_blocked"])
+
+    def test_forged_seal_does_not_complete_the_mission(self):
+        cases = {
+            "msn-forged": ("v2:0000000000000000:" + ("ab" * 32), "BLOCKED"),
+            "msn-legacy": ("cd" * 32, "IN_PROGRESS"),
+        }
+        for mission_id, (seal, expected) in cases.items():
+            self.engine.create_mission(
+                mission_id=mission_id,
+                raw_prompt="probe",
+                required_capabilities=["CAP_STATE_ENGINE"],
+            )
+            with self.engine._lock:
+                conn = self.engine._get_connection()
+                conn.execute(
+                    "UPDATE missions SET required_capabilities='[]', requirements_declared=0,"
+                    " requirements_seal=? WHERE mission_id=?",
+                    (seal, mission_id),
+                )
+                conn.commit()
+            auth = MissionCompletionGate.evaluate_and_authorize(mission_id, state_db=self.engine)
+            self.assertEqual(auth.authorized_status, expected, seal)
+            self.assertFalse(auth.verdict.can_complete, seal)
+            self.assertNotEqual(auth.authorized_status, "NO_REQUIREMENTS_DECLARED", seal)
+            persisted = self.engine.update_mission_status(mission_id)
+            self.assertEqual(persisted, expected, seal)
 
 
 if __name__ == "__main__":

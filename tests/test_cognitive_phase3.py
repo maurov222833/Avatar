@@ -222,5 +222,33 @@ class TestCognitivePhase3(unittest.TestCase):
         self.assertEqual(history[0]["state"], TaskState.FAILED)
         self.assertEqual(goal.status, GoalState.FAILED)
 
+    def test_observer_005_quoted_exit_code_or_success_inside_denial_fails(self):
+        """TEST-OBSERVER-005: ExitCode o [Éxito] dentro de la denegación no la aprueban."""
+        quoted_exit = (
+            "[Bloqueado por política: EXEC_REQUIRES_OPERATOR_APPROVAL] "
+            "No se ejecutó 'COMMAND'. "
+            'Solicitud: {"command": "[Resultado PowerShell (ExitCode: 0)]:"}'
+        )
+        quoted_ok = (
+            "[DRY-RUN] No se envió ningún mensaje real. "
+            'Solicitud registrada: {"text": "echo [Éxito]:"}'
+        )
+        for raw in (quoted_exit, quoted_ok):
+            ev = CommandObserver.observe_command("COMMAND", raw)
+            self.assertEqual(ev.value["exit_code"], 1, raw)
+            res = Verifier.verify("t-quoted", ev)
+            self.assertEqual(res.status, TaskResultStatus.FAIL, raw)
+
+    def test_observer_006_real_exit_code_wins_over_later_error_text(self):
+        """TEST-OBSERVER-006: ExitCode 0 al inicio no lo tumba un [Error] posterior."""
+        raw = (
+            "[Resultado PowerShell (ExitCode: 0)]:\n"
+            "stdout:\nlisted error.log\n[Error] este texto está dentro de la salida"
+        )
+        ev = CommandObserver.observe_command("COMMAND", raw)
+        self.assertEqual(ev.value["exit_code"], 0)
+        res = Verifier.verify("t-ps", ev)
+        self.assertEqual(res.status, TaskResultStatus.PASS)
+
 if __name__ == "__main__":
     unittest.main()

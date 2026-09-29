@@ -13,9 +13,10 @@ from core.cognitive.models import (
     TaskStateMachine,
 )
 
-# Informes que Avatar emite cuando la herramienta no corrió o falló, y que no
-# traen un ExitCode de PowerShell. Se miran al inicio del texto: un listado que
-# solo menciona la palabra "error" no es un fallo.
+# Informes que Avatar emite cuando la herramienta no corrió o falló.
+# Se miran al inicio del texto, después de espacios. Un listado que solo
+# menciona la palabra "error" no es un fallo. Un ExitCode citado dentro de
+# la solicitud denegada tampoco lo es: solo cuenta si el informe empieza por él.
 _DENIED_OR_ERROR_PREFIXES = (
     "[Bloqueado por política",
     "Bloqueado por política",
@@ -23,18 +24,29 @@ _DENIED_OR_ERROR_PREFIXES = (
     "[Seguridad]",
     "[Error",
     "RESULT:ERROR",
+    "[Aviso Web]",
+    "[Aviso Ollama]",
+    "[WhatsApp]: Mensaje vacio",
 )
 
-_POWERSHELL_EXIT_CODE = re.compile(
+_POWERSHELL_EXIT_CODE_AT_START = re.compile(
     r"\[Resultado PowerShell \(ExitCode:\s*(-?\d+)\)\]:"
 )
 
 
-def unstructured_tool_output_failed(raw_output: str) -> bool:
-    """True cuando el informe es una denegación o un error y no trae ExitCode."""
+def powershell_exit_code(raw_output: str) -> Optional[int]:
+    """ExitCode solo si el informe de la herramienta empieza por el marcador."""
     if not isinstance(raw_output, str) or not raw_output:
-        return False
-    if _POWERSHELL_EXIT_CODE.search(raw_output):
+        return None
+    match = _POWERSHELL_EXIT_CODE_AT_START.match(raw_output.lstrip())
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def unstructured_tool_output_failed(raw_output: str) -> bool:
+    """True cuando el informe empieza por una denegación o un error de Avatar."""
+    if not isinstance(raw_output, str) or not raw_output:
         return False
     head = raw_output.lstrip()
     return any(head.startswith(prefix) for prefix in _DENIED_OR_ERROR_PREFIXES)
@@ -107,11 +119,11 @@ class CognitiveAdapter:
         stdout = raw_output
         stderr = ""
 
-        # El ExitCode de PowerShell manda. Sin él, una denegación o un error
-        # del propio Avatar no puede quedar como éxito (exit_code 0 → PASS).
-        match = _POWERSHELL_EXIT_CODE.search(raw_output)
-        if match:
-            exit_code = int(match.group(1))
+        # El ExitCode manda solo si el informe empieza por él. Una denegación
+        # que cita un ExitCode dentro de la solicitud no es una ejecución.
+        code = powershell_exit_code(raw_output)
+        if code is not None:
+            exit_code = code
         elif unstructured_tool_output_failed(raw_output):
             exit_code = 1
             stderr = raw_output.strip()

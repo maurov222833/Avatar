@@ -144,5 +144,31 @@ class TestCognitiveAdapter(unittest.TestCase):
         result = CognitiveAdapter.build_task_result("t-ps", evidence)
         self.assertEqual(result.status, TaskResultStatus.PASS)
 
+    def test_cg_015_exit_code_quoted_inside_a_denial_is_not_success(self):
+        """TEST-CG-015: Un ExitCode citado en la solicitud denegada no es una ejecución."""
+        raw_output = (
+            "[Bloqueado por política: EXEC_REQUIRES_OPERATOR_APPROVAL] "
+            "No se ejecutó 'COMMAND'. "
+            'Solicitud: {"command": "[Resultado PowerShell (ExitCode: 0)]:"}'
+        )
+        evidence = CognitiveAdapter.create_evidence_from_tool_output("COMMAND", raw_output)
+        result = CognitiveAdapter.build_task_result("t-quoted", evidence)
+        self.assertEqual(evidence.value["exit_code"], 1)
+        self.assertEqual(result.status, TaskResultStatus.FAIL)
+        self.assertFalse(result.status.is_success())
+
+    def test_cg_016_web_and_empty_whatsapp_reports_are_not_pass(self):
+        """TEST-CG-016: Un aviso de búsqueda caída o un envío vacío no es éxito."""
+        samples = [
+            "[Aviso Web]: Búsqueda no disponible en este momento (403).",
+            "[Aviso Ollama]: No se pudo conectar a Ollama local en http://127.0.0.1:11434.",
+            "[WhatsApp]: Mensaje vacio, no enviado.",
+        ]
+        for raw_output in samples:
+            evidence = CognitiveAdapter.create_evidence_from_tool_output("TOOL", raw_output)
+            result = CognitiveAdapter.build_task_result("t-aviso", evidence)
+            self.assertEqual(result.status, TaskResultStatus.FAIL, raw_output)
+            self.assertFalse(result.status.is_success(), raw_output)
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,6 @@
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
-from core.cognitive.adapter import _POWERSHELL_EXIT_CODE, unstructured_tool_output_failed
+from core.cognitive.adapter import powershell_exit_code, unstructured_tool_output_failed
 from core.cognitive.models import TaskEvidence
 
 class CommandObserver:
@@ -25,25 +25,26 @@ class CommandObserver:
 
         if "[Error]: El comando tardó demasiado (Timeout de 120s)." in raw_output:
             is_timeout = True
-            exit_code = 124
             stderr = raw_output
             stdout = ""
-        if "[Error" in raw_output or "Error:" in raw_output:
+        # Una denegación al inicio gana sobre un ExitCode o un [Éxito]
+        # citados más abajo, dentro de la solicitud que no se ejecutó.
+        if unstructured_tool_output_failed(raw_output):
             exit_code = 1
-            stderr = raw_output
+            stderr = raw_output.strip()
             stdout = ""
-        elif "[Éxito]:" in raw_output or raw_output.startswith("[Éxito]"):
-            exit_code = 0
-            stdout = raw_output
-            stderr = ""
         else:
-            match = _POWERSHELL_EXIT_CODE.search(raw_output)
-            if match:
-                exit_code = int(match.group(1))
-            elif unstructured_tool_output_failed(raw_output):
+            code = powershell_exit_code(raw_output)
+            if code is not None:
+                exit_code = code
+            elif "[Error" in raw_output or "Error:" in raw_output:
                 exit_code = 1
-                stderr = raw_output.strip()
+                stderr = raw_output
                 stdout = ""
+            elif "[Éxito]:" in raw_output or raw_output.startswith("[Éxito]"):
+                exit_code = 0
+                stdout = raw_output
+                stderr = ""
             else:
                 exit_code = 0
 

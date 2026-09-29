@@ -1,6 +1,7 @@
 import json
 import re
 import os
+import uuid
 from typing import Dict, Any, List, Optional
 from core.cognitive.tool_registry import ToolRegistry
 
@@ -119,7 +120,8 @@ class StructuredActionRecoveryLayer:
             "raw_part": {
                 "functionCall": {
                     "name": tool_name,
-                    "args": normalized_args
+                    "args": normalized_args,
+                    "id": f"call_{uuid.uuid4().hex[:24]}",
                 }
             }
         }

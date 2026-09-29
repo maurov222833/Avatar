@@ -370,7 +370,17 @@ class OpenAICompatibleAdapter(BaseAdapter):
                     })
 
         o_messages = [{"role": "system", "content": system_prompt}]
-        sliced_contents = contents[-10:] if contents else []
+        sliced_contents = list(contents[-10:] if contents else [])
+        # A short window can start on a tool result whose call was cut off. Drop those
+        # orphans so the OpenAI payload never pairs a result with a missing call id.
+        while sliced_contents:
+            first_parts = sliced_contents[0].get("parts") or []
+            first = first_parts[0] if first_parts else None
+            if isinstance(first, dict) and "functionResponse" in first:
+                sliced_contents = sliced_contents[1:]
+            else:
+                break
+        pending_call_id = None
         for msg in sliced_contents:
             role = msg.get("role")
             parts = msg.get("parts", [])
@@ -386,16 +396,19 @@ class OpenAICompatibleAdapter(BaseAdapter):
                     fn_resp = p["functionResponse"]
 
             if fn_resp:
+                tool_call_id = fn_resp.get("id") or pending_call_id or "call_default"
+                pending_call_id = None
                 o_messages.append({
                     "role": "tool",
-                    "tool_call_id": fn_resp.get("id", "call_default"),
+                    "tool_call_id": tool_call_id,
                     "content": json.dumps(fn_resp.get("response", {}))
                 })
             elif fn_call:
+                pending_call_id = fn_call.get("id") or "call_default"
                 o_messages.append({
                     "role": "assistant",
                     "tool_calls": [{
-                        "id": fn_call.get("id", "call_default"),
+                        "id": pending_call_id,
                         "type": "function",
                         "function": {
                             "name": fn_call.get("name"),
@@ -404,6 +417,7 @@ class OpenAICompatibleAdapter(BaseAdapter):
                     }]
                 })
             else:
+                pending_call_id = None
                 o_role = "assistant" if role in ["model", "assistant"] else "user"
                 o_messages.append({"role": o_role, "content": text_content})
 

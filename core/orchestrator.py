@@ -533,15 +533,34 @@ class AvatarOrchestrator:
                     "inv_step_res": inv_step_res
                 })
 
+                raw_part = llm_result.get("raw_part")
+                if not isinstance(raw_part, dict):
+                    raw_part = {
+                        "functionCall": {
+                            "name": tool_name,
+                            "args": args,
+                        }
+                    }
+                    llm_result["raw_part"] = raw_part
+                fn_call = raw_part.get("functionCall")
+                if not isinstance(fn_call, dict):
+                    fn_call = {"name": tool_name, "args": args}
+                    raw_part["functionCall"] = fn_call
+                call_id = fn_call.get("id")
+                if not isinstance(call_id, str) or not call_id.strip():
+                    call_id = f"call_{uuid.uuid4().hex[:24]}"
+                    fn_call["id"] = call_id
+
                 contents.append({
                     "role": "model",
-                    "parts": [llm_result.get("raw_part")]
+                    "parts": [raw_part]
                 })
                 contents.append({
                     "role": "user",
                     "parts": [{
                         "functionResponse": {
                             "name": tool_name,
+                            "id": call_id,
                             "response": {"output": tool_output}
                         }
                     }]

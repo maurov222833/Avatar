@@ -66,7 +66,17 @@ class ContinuousExecutionEngine:
                             tool_args=task.arguments
                         )
                     except Exception as chk_err:
-                        print(f"[ContinuousExecutionEngine Warning]: Pre-checkpoint failed: {chk_err}")
+                        # Without a durable pre-checkpoint the tool must not run.
+                        print(f"[ContinuousExecutionEngine]: Pre-checkpoint failed; aborting tool: {chk_err}")
+                        last_output = f"[Checkpoint]: no se pudo guardar el estado previo ({chk_err})"
+                        last_result = TaskResult(
+                            task_id=task.task_id,
+                            status=TaskResultStatus.FAIL,
+                            error=str(chk_err),
+                            outputs={"checkpoint": "PRE_TOOL_FAILED"},
+                        )
+                        queue.mark_failed(task.task_id, last_result)
+                        break
 
                 # Ejecución nativa del comando
                 tool_output = self.tool_dispatcher(task.tool, task.arguments)

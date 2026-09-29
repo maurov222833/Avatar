@@ -301,22 +301,25 @@ class AvatarOrchestrator:
             planner = Planner()
             plan = planner.create_plan_from_task_specs(current_goal, multi_specs)
 
-            # Persistir plan de tareas en StateEngine
+            # Persistir plan de tareas en StateEngine con el mismo id que usará el checkpoint.
+            # task_id es PRIMARY KEY global: el id corto "T1" choca entre misiones y con el
+            # id "T1_<prefijo>" que se creaba aquí mientras el motor guardaba solo "T1".
             if self.state_db and current_mission_id:
-                for idx, spec in enumerate(multi_specs):
-                    t_id = f"T{idx+1}_{current_mission_id[:8]}"
+                self._scope_plan_task_ids(plan, current_mission_id)
+                for idx, task in enumerate(plan.tasks):
                     try:
                         self.state_db.create_planner_task(
-                            task_id=t_id,
+                            task_id=task.task_id,
                             mission_id=current_mission_id,
                             step_index=idx + 1,
-                            description=spec.get("description", f"Paso {idx+1}"),
-                            tool_name=spec.get("tool", "COMMAND"),
-                            tool_args=spec.get("args", {}),
+                            description=task.description,
+                            tool_name=task.tool,
+                            tool_args=task.arguments,
                             status="PENDING"
                         )
-                    except Exception:
-                        pass
+                    except Exception as persist_err:
+                        print(f"[AvatarOrchestrator]: No se pudo persistir {task.task_id}: {persist_err}")
+                        raise
 
             engine = ContinuousExecutionEngine(
                 tool_dispatcher=self._dispatch_native_tool,
@@ -331,21 +334,20 @@ class AvatarOrchestrator:
                 f"- **Tareas Exitosas:** {res['summary']['completed']}/{res['summary']['total']}\n"
             ]
             for step in res["trace"]:
-                t_id_short = step["task_id"]
+                t_id = step["task_id"]
                 desc = step["description"]
                 tool = step["tool"]
                 st = step["state"].value if hasattr(step["state"], "value") else str(step["state"])
                 out = step["output"]
-                lines.append(f"### Tarea `{t_id_short}`: {desc}")
+                lines.append(f"### Tarea `{t_id}`: {desc}")
                 lines.append(f"- **Herramienta:** `{tool}` | **Estado:** `{st}`")
                 lines.append(f"- **Salida:**\n```\n{out}\n```\n")
 
                 if self.state_db and current_mission_id:
-                    t_db_id = f"{t_id_short}_{current_mission_id[:8]}"
                     try:
-                        self.state_db.update_planner_task(t_db_id, status=st, execution_output=out)
-                    except Exception:
-                        pass
+                        self.state_db.update_planner_task(t_id, status=st, execution_output=out)
+                    except Exception as upd_err:
+                        print(f"[AvatarOrchestrator]: No se pudo actualizar {t_id}: {upd_err}")
 
             if self.state_db and current_mission_id:
                 self._reconcile_mission(current_mission_id)
@@ -1044,6 +1046,23 @@ class AvatarOrchestrator:
             task_id=task_id,
             execution_id=execution_id,
         )
+
+    @staticmethod
+    def _scope_plan_task_ids(plan, mission_id: str) -> None:
+        """Make every plan task_id unique across missions (planner_tasks PK is global)."""
+        if not mission_id:
+            return
+        id_map = {}
+        for task in plan.tasks:
+            old = task.task_id
+            if old.endswith(f"_{mission_id}"):
+                id_map[old] = old
+                continue
+            new = f"{old}_{mission_id}"
+            id_map[old] = new
+            task.task_id = new
+        for task in plan.tasks:
+            task.dependencies = [id_map.get(dep, dep) for dep in (task.dependencies or [])]
 
     def _local_multi_task_body(self, user_input: str, channel: str) -> Optional[str]:
         """Return the text after the explicit prefix, or None when multi-task must not run."""

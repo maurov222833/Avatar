@@ -74,6 +74,30 @@ class ToolRegistry:
             execution_mode="sync",
             timeout=30
         ))
+        self.register_tool(ToolDefinition(
+            name="WHATSAPP_STATUS",
+            description="Estado real de la sesión de WhatsApp Web.",
+            input_schema={},
+            risk_level=RiskLevel.LOW,
+            execution_mode="sync",
+            timeout=120
+        ))
+        self.register_tool(ToolDefinition(
+            name="WHATSAPP_READ",
+            description="Lee mensajes de un chat de WhatsApp.",
+            input_schema={"chat": "str", "limit": "str"},
+            risk_level=RiskLevel.LOW,
+            execution_mode="sync",
+            timeout=180
+        ))
+        self.register_tool(ToolDefinition(
+            name="WHATSAPP_SEND",
+            description="Envía por navegador dedicado con verificación.",
+            input_schema={"message": "str", "chat": "str"},
+            risk_level=RiskLevel.MEDIUM,
+            execution_mode="sync",
+            timeout=180
+        ))
 
     def register_tool(self, tool_def: ToolDefinition):
         tool_def.validate()
@@ -87,6 +111,11 @@ class ToolRegistry:
 
     def list_registered_tools(self) -> List[str]:
         return list(self._tools.keys())
+
+    @classmethod
+    def list_tools(cls) -> List[str]:
+        """Alias de clase usado por StructuredActionRecoveryLayer."""
+        return default_tool_registry.list_registered_tools()
 
 # Instancia global por defecto
 default_tool_registry = ToolRegistry()

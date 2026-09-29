@@ -49,6 +49,7 @@ Task Scheduler "AvatarWhatsApp247" = arranca el supervisor al iniciar sesión.
 
 - Logs: `%TEMP%\opencode\wa_live.log` (corridas manuales) / salida de la tarea.
 - Heartbeat: `memory/whatsapp_heartbeat.json` (ts, polls, processed, replied).
+- Estado sin hablarle: `GET /api/whatsapp/status` (heartbeat + últimos acts + modo).
 - Ledger: tabla `acts` (`SEND_WHATSAPP` con `policy_reason`; `OBSERVED` solo con
   `[READBACK_VERIFIED]`).
 - Parada limpia: crear `memory\AVATAR_WA_STOP` (el loop termina solo).
@@ -56,6 +57,15 @@ Task Scheduler "AvatarWhatsApp247" = arranca el supervisor al iniciar sesión.
   ligera: re-respondería mensajes viejos).
 - Si el teléfono se desvincula: el supervisor avisa `QR_REQUIRED` y reintenta
   cada 5 min hasta re-escanear.
+
+## 3b. Reglas duras (aprendidas a golpes)
+
+- UN solo dueño del navegador: la tarea 24/7 manda; la app bajo demanda recibe
+  `PERFIL_OCUPADO` honesto si choca. Dos navegadores = ventanas en blanco.
+- El chat NO recibe fontanería: `format_whatsapp_reply` suprime silencios y
+  conclusiones de relleno, y recorta a 1000 caracteres. Lo suprimido queda en
+  logs, no en el teléfono.
+- Recovery: primer reintento a los 15s (`BACKOFFS = [15, 60, 300, 900]`).
 
 ## 4. Troubleshooting (todo lo que ya dolió, con su fix)
 

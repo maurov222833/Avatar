@@ -68,8 +68,8 @@ class StructuredActionRecoveryLayer:
             tool_name = "LIST_DIR"
 
         # 1. Validación contra ToolRegistry
-        available_tools = ToolRegistry.list_tools() if hasattr(ToolRegistry, 'list_tools') else ["COMMAND", "READ_FILE", "WRITE_FILE", "LIST_DIR", "WEB_SEARCH", "FETCH_URL", "PLAY_AUDIO", "SEND_WHATSAPP"]
-        if tool_name not in available_tools and tool_name not in ["COMMAND", "READ_FILE", "WRITE_FILE", "LIST_DIR", "WEB_SEARCH", "FETCH_URL", "PLAY_AUDIO", "SEND_WHATSAPP"]:
+        available_tools = ToolRegistry.list_tools() if hasattr(ToolRegistry, 'list_tools') else ["COMMAND", "READ_FILE", "WRITE_FILE", "LIST_DIR", "WEB_SEARCH", "FETCH_URL", "PLAY_AUDIO", "SEND_WHATSAPP", "WHATSAPP_STATUS", "WHATSAPP_READ", "WHATSAPP_SEND"]
+        if tool_name not in available_tools and tool_name not in ["COMMAND", "READ_FILE", "WRITE_FILE", "LIST_DIR", "WEB_SEARCH", "FETCH_URL", "PLAY_AUDIO", "SEND_WHATSAPP", "WHATSAPP_STATUS", "WHATSAPP_READ", "WHATSAPP_SEND"]:
             return None
 
         # Normalize alias args keys

@@ -68,6 +68,12 @@ ACT_TYPES: Dict[str, str] = {
     "WRITE_FILE": ActRisk.LOCAL_WRITE,
     "COMMAND": ActRisk.EXEC,
     "SEND_WHATSAPP": ActRisk.EXTERNAL_MESSAGE,
+    # WhatsApp por navegador dedicado (verificado por relectura), en vez de
+    # improvisar con COMMAND+python. STATUS/READ son observación; SEND exige
+    # consentimiento como todo mensaje externo.
+    "WHATSAPP_STATUS": ActRisk.READ,
+    "WHATSAPP_READ": ActRisk.READ,
+    "WHATSAPP_SEND": ActRisk.EXTERNAL_MESSAGE,
 }
 
 #: Risk levels that require the operator to opt in before they may run.
@@ -174,6 +180,20 @@ def _observe_command(args: Dict[str, Any], result: str) -> Dict[str, Any]:
             "verified": exit_code == 0}
 
 
+def _observe_whatsapp_report(args: Dict[str, Any], result: str) -> Dict[str, Any]:
+    """
+    Los ejecutores WHATSAPP_STATUS/READ reportan 'RESULT:OK ...' o 'RESULT:ERROR ...'.
+    Verificado = el ejecutor afirma OK sin marcas de error. Determinista y testeable.
+    """
+    text = result or ""
+    lowered = text.lower()
+    looks_like_error = text.startswith("RESULT:ERROR") or any(
+        t in lowered for t in ("error", "denegad", "no se pudo", "fall"))
+    ok = text.startswith("RESULT:OK") and not looks_like_error
+    return {"report": text[:300], "looks_like_error": looks_like_error,
+            "verified": ok}
+
+
 def _observe_external_message(args: Dict[str, Any], result: str) -> Dict[str, Any]:
     """
     For external messages there is no system-side signal of delivery, so the observer
@@ -251,6 +271,9 @@ class ActChokepoint:
         self.observers.setdefault("WRITE_FILE", _observe_write_file)
         self.observers.setdefault("COMMAND", _observe_command)
         self.observers.setdefault("SEND_WHATSAPP", _observe_external_message)
+        self.observers.setdefault("WHATSAPP_STATUS", _observe_whatsapp_report)
+        self.observers.setdefault("WHATSAPP_READ", _observe_whatsapp_report)
+        self.observers.setdefault("WHATSAPP_SEND", _observe_external_message)
 
     def list_acts(self, mission_id: Optional[str] = None) -> List[Dict[str, Any]]:
         if not self.state_db:

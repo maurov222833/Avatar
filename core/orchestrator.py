@@ -132,10 +132,47 @@ AVATAR_TOOLS_SCHEMA = [
                     },
                     "required": ["message"]
                 }
+            },
+            {
+                "name": "WHATSAPP_STATUS",
+                "description": "Consulta el estado real de la sesión de WhatsApp Web (LOGGED_IN o QR_REQUIRED). Úsala SIEMPRE antes de leer o enviar: nunca afirmes estado sin llamarla.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {},
+                    "required": []
+                }
+            },
+            {
+                "name": "WHATSAPP_READ",
+                "description": "Lee los últimos mensajes del chat de WhatsApp indicado (por defecto el configurado). Solo lectura, no envía nada.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "chat": {"type": "STRING", "description": "Nombre o número del chat. Opcional."},
+                        "limit": {"type": "STRING", "description": "Máximo de mensajes (número, por defecto 10). Opcional."}
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "WHATSAPP_SEND",
+                "description": "Envía un mensaje al chat de WhatsApp por navegador dedicado, con verificación por relectura. PROHIBIDO improvisar envíos con COMMAND+python o scripts sueltos: este es el único camino.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "message": {"type": "STRING", "description": "Texto a enviar."},
+                        "chat": {"type": "STRING", "description": "Nombre o número del chat. Opcional."}
+                    },
+                    "required": ["message"]
+                }
             }
         ]
     }
 ]
+
+#: Herramientas de pura observación local. Una racha solo con estas, sin hechos
+#: verificados nuevos, es relleno: jamás debe presentarse como tarea completada.
+_READ_ONLY_FILLER = {"READ_FILE", "LIST_DIR"}
 
 class AvatarOrchestrator:
     """
@@ -355,6 +392,7 @@ class AvatarOrchestrator:
 
         step_count = 0
         empty_streak = 0  # respuestas vacías seguidas del proveedor en este turno
+        filler_streak = 0  # turnos seguidos solo con lecturas sin hallazgo
         final_user_response = ""
         executed_tools_summary = []
         verified_facts_history: List[VerifiedFact] = []
@@ -531,6 +569,21 @@ class AvatarOrchestrator:
                         or not raw_text.strip()
                         or raw_text.strip().lower() in _EMPTY_TEXTS):
                     empty_streak += 1
+                    # Racha de relleno: todo lo ejecutado en este turno fueron lecturas
+                    # locales, sin texto útil del modelo. No es progreso: es dar vueltas.
+                    if (executed_tools_summary and all(
+                            e.get("tool_name") in _READ_ONLY_FILLER
+                            for e in executed_tools_summary)):
+                        filler_streak += 1
+                    else:
+                        filler_streak = 0
+                    if filler_streak >= 2:
+                        final_user_response = (
+                            "🔍 Llevo varios turnos solo leyendo archivos y carpetas "
+                            "sin avanzar hacia tu objetivo. Pauso aquí para no generar "
+                            "ruido: dime el siguiente paso concreto "
+                            "(p. ej. qué archivo, qué chat, qué enviar).")
+                        break
                     if empty_streak >= 2:
                         final_user_response = (
                             "⚠️ El proveedor devolvió respuestas vacías "
@@ -672,7 +725,13 @@ class AvatarOrchestrator:
                 ok = bool(last["task_result"].status.is_success())
             except Exception:
                 ok = False
-            if ok:
+            if ok and tool in _READ_ONLY_FILLER and not last.get("verified_fact"):
+                # Lectura sin hallazgo: observar no es completar. Decirlo tal cual
+                # impide que el relleno (LIST_DIR/READ_FILE en bucle) pose como avance.
+                base = (f"🔍 Solo observé con `{tool}`, sin cambios ni hallazgos nuevos.\n"
+                        f"Lo visto: {excerpt or 'sin salida'}\n"
+                        "Dime el siguiente paso concreto o qué busco exactamente.")
+            elif ok:
                 base = (f"✅ Tarea completada: `{tool}` ejecutada y verificada.\n"
                         f"Evidencia: {excerpt}\n"
                         "Dime si seguimos con lo siguiente.")
@@ -757,6 +816,103 @@ class AvatarOrchestrator:
         return self._dispatch_native_tool(tool_name, args or {},
                                           mission_id=mission_id, task_id=task_id)
 
+    def _wa_profile_dir(self) -> str:
+        import os as _os
+        return _os.path.join(_os.path.dirname(_os.path.dirname(
+            _os.path.abspath(__file__))), "memory", "whatsapp_profile")
+
+    def _wa_target_chat(self, args: Dict[str, Any]) -> str:
+        cfg = {}
+        try:
+            cfg = (self.config or {}).get("whatsapp", {}) or {}
+        except Exception:
+            pass
+        return (args.get("chat") or cfg.get("target_chat")
+                or "Mauro Vanegas 2025")
+
+    def _exec_whatsapp_status(self, args: Dict[str, Any]) -> str:
+        """Estado real de sesión. Una llamada = un navegador fresco (lento pero seguro)."""
+        from bridges.whatsapp_reader import (
+            WhatsAppWebReader, WhatsAppReadError, run_blocking)
+
+        def _do():
+            reader = WhatsAppWebReader(profile_dir=self._wa_profile_dir())
+            reader.launch()
+            try:
+                return f"RESULT:OK estado={reader.login_state()}"
+            finally:
+                try:
+                    reader.close()
+                except Exception:
+                    pass
+
+        try:
+            return run_blocking(_do)
+        except WhatsAppReadError as exc:
+            return f"RESULT:ERROR {exc.code}: {exc.detail}"
+        except Exception as exc:
+            return f"RESULT:ERROR inesperado: {exc}"[:300]
+
+    def _exec_whatsapp_read(self, args: Dict[str, Any]) -> str:
+        from bridges.whatsapp_reader import (
+            WhatsAppWebReader, WhatsAppReadError, run_blocking)
+        try:
+            limit = max(1, min(30, int(args.get("limit", 10))))
+        except Exception:
+            limit = 10
+        chat = self._wa_target_chat(args)
+
+        def _do():
+            reader = WhatsAppWebReader(profile_dir=self._wa_profile_dir())
+            reader.launch()
+            try:
+                reader.open_chat(chat)
+                msgs = reader.read_recent(limit=limit)
+                lines = [f"RESULT:OK {len(msgs)} mensajes de '{chat}':"]
+                for m in msgs:
+                    tag = "ENTRANTE" if m.incoming else "saliente"
+                    lines.append(f"[{tag}] {m.sender}: {m.text[:200]}")
+                return "\n".join(lines)
+            finally:
+                try:
+                    reader.close()
+                except Exception:
+                    pass
+
+        try:
+            return run_blocking(_do)
+        except WhatsAppReadError as exc:
+            return f"RESULT:ERROR {exc.code}: {exc.detail}"
+        except Exception as exc:
+            return f"RESULT:ERROR inesperado: {exc}"[:300]
+
+    def _exec_whatsapp_send(self, args: Dict[str, Any]) -> str:
+        from bridges.whatsapp_reader import (
+            WhatsAppWebReader, WhatsAppReadError, run_blocking)
+        message = (args.get("message") or "").strip()
+        if not message:
+            return "RESULT:ERROR mensaje vacío"
+        chat = self._wa_target_chat(args)
+
+        def _do():
+            reader = WhatsAppWebReader(profile_dir=self._wa_profile_dir())
+            reader.launch()
+            try:
+                reader.open_chat(chat)
+                return reader.send_text(message)
+            finally:
+                try:
+                    reader.close()
+                except Exception:
+                    pass
+
+        try:
+            return run_blocking(_do)
+        except WhatsAppReadError as exc:
+            return f"RESULT:ERROR {exc.code}: {exc.detail}"
+        except Exception as exc:
+            return f"RESULT:ERROR inesperado: {exc}"[:300]
+
     def _build_chokepoint(self):
         """
         Build the act chokepoint: the single place a side effect may occur.
@@ -801,6 +957,9 @@ class AvatarOrchestrator:
                 else AudioTool.play_online_music(a.get("audio_source") or a.get("params") or "")),
             "SEND_WHATSAPP": lambda a: WhatsAppAutoReply.send_reply(
                 a.get("message") or a.get("params") or ""),
+            "WHATSAPP_STATUS": lambda a: self._exec_whatsapp_status(a or {}),
+            "WHATSAPP_READ": lambda a: self._exec_whatsapp_read(a or {}),
+            "WHATSAPP_SEND": lambda a: self._exec_whatsapp_send(a or {}),
         }
         return ActChokepoint(state_db=self.state_db, policy=policy, executors=executors)
 

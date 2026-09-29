@@ -14,6 +14,9 @@ class TestLLMProviderRouting(unittest.TestCase):
 
     def setUp(self):
         self.provider = LLMProvider()
+        # Hermético: la cascada local depende del config real de la máquina;
+        # estos tests verifican el comportamiento base sin ella.
+        self.provider.config.setdefault("providers", {})["local_fallback"] = False
 
     def test_001_provider_selection_persists(self):
         self.provider.config["default_provider"] = "groq"

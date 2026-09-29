@@ -187,7 +187,6 @@ def execute_terminal_command(req: CommandRequest):
 
 class MissionResumeRequest(BaseModel):
     mission_id: str
-
 @app.post("/api/missions/resume")
 def resume_mission(req: MissionResumeRequest):
     """
@@ -207,6 +206,32 @@ def resume_mission(req: MissionResumeRequest):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
     return result
+
+@app.get("/api/whatsapp/status")
+def whatsapp_status():
+    """
+    Estado del puente 24/7: heartbeat del supervisor + últimos acts + modo.
+    Solo lectura. Permite saber si el puente vive sin tener que hablarle.
+    """
+    heartbeat = {}
+    try:
+        hb_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "memory", "whatsapp_heartbeat.json")
+        if os.path.exists(hb_path):
+            with open(hb_path, "r", encoding="utf-8") as f:
+                heartbeat = json.load(f)
+    except Exception:
+        heartbeat = {"status": "UNKNOWN"}
+    recent = []
+    try:
+        if orchestrator.chokepoint is not None:
+            for a in orchestrator.chokepoint.list_acts()[-5:]:
+                recent.append({"act_type": a["act_type"], "status": a["status"],
+                               "created_at": a.get("created_at", "")})
+    except Exception:
+        pass
+    return {"heartbeat": heartbeat, "recent_acts": recent,
+            "mode": orchestrator.operating_mode().get("mode", "?")}
 
 @app.get("/api/projects")
 def list_projects():

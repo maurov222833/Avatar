@@ -128,6 +128,54 @@ class TestProviderRepair(unittest.TestCase):
         res = p.generate_response_with_tools("sys", [{"role": "user"}], TOOLS)
         self.assertEqual(res["type"], "text")
 
+    def test_local_cascade_off_by_default(self):
+        """Sin opt-in, un provider_error se devuelve (comportamiento histórico)."""
+        from core.llm_provider import ProviderHealth
+
+        p, adapter = _provider_with([
+            {"type": "provider_error", "error": "HTTP 429 quota exceeded"},
+        ])
+        self.assertFalse(p._local_fallback_enabled())
+
+    def test_local_cascade_uses_healthy_ollama(self):
+        from core.llm_provider import ProviderHealth
+
+        p, adapter = _provider_with([
+            {"type": "provider_error", "error": "HTTP 429 quota exceeded"},
+        ])
+        p.config.setdefault("providers", {})["local_fallback"] = True
+
+        answered = {"type": "text", "provider": "ollama",
+                    "text": "respuesta local"}
+
+        class HealthyLocal(FakeAdapter):
+            def check_health(self):
+                return ProviderHealth(provider_name="ollama", status="ACTIVE",
+                                      message="ok")
+
+        p.manager.adapters["ollama"] = HealthyLocal([answered])
+        res = p.generate_response_with_tools("sys", [{"role": "user"}], TOOLS)
+        self.assertEqual(res, answered)
+
+    def test_local_cascade_skips_unhealthy_and_returns_original(self):
+        from core.llm_provider import ProviderHealth
+
+        p, adapter = _provider_with([
+            {"type": "provider_error", "error": "HTTP 503 down"},
+        ])
+        p.config.setdefault("providers", {})["local_fallback"] = True
+
+        class DeadLocal(FakeAdapter):
+            def check_health(self):
+                return ProviderHealth(provider_name="ollama", status="OFFLINE",
+                                      message="no")
+
+        p.manager.adapters["ollama"] = DeadLocal(
+            [{"type": "text", "provider": "ollama", "text": "nunca"}])
+        res = p.generate_response_with_tools("sys", [{"role": "user"}], TOOLS)
+        self.assertEqual(res["type"], "provider_error")
+        self.assertIn("503", res["error"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

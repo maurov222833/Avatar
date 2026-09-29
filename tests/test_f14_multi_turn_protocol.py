@@ -17,6 +17,7 @@ class TestF14MultiTurnProtocol(unittest.TestCase):
 
     def setUp(self):
         self.orc = AvatarOrchestrator()
+        self.orc.llm.config.setdefault("providers", {})["local_fallback"] = False
         self.goal = Goal(goal_id="g1", objective="Misión Abierta de Prueba", status=GoalState.EXECUTING)
 
     # ------------------------------------------------------------------
@@ -139,6 +140,7 @@ class TestF14MultiTurnProtocol(unittest.TestCase):
     # ------------------------------------------------------------------
     def test_g_http_400_does_not_silently_fallback_to_text(self):
         llm = LLMProvider()
+        llm.config.setdefault("providers", {})["local_fallback"] = False
         contents = [{"role": "user", "parts": [{"text": "Paso 1"}]}]
         with patch("requests.post") as mock_post:
             mock_res = MagicMock()
@@ -156,6 +158,7 @@ class TestF14MultiTurnProtocol(unittest.TestCase):
     # ------------------------------------------------------------------
     def test_h_provider_failure_explicitly_classified(self):
         llm = LLMProvider()
+        llm.config.setdefault("providers", {})["local_fallback"] = False
         contents = [{"role": "user", "parts": [{"text": "Paso 1"}]}]
         with patch("requests.post") as mock_post:
             mock_res = MagicMock()

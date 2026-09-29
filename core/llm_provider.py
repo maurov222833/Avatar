@@ -682,6 +682,14 @@ class LLMProvider:
     def get_health_report(self) -> Dict[str, Dict[str, Any]]:
         return self.manager.check_all_health()
 
+    def _local_fallback_enabled(self) -> bool:
+        """Cascada a modelos locales solo con opt-in explícito (no cambia el
+        comportamiento por defecto: sin flag, un provider_error se devuelve)."""
+        try:
+            return bool((self.config or {}).get("providers", {}).get("local_fallback", False))
+        except Exception:
+            return False
+
     def generate_response(self, system_prompt: str, prompt: str, history: List[Dict[str, str]] = None) -> str:
         provider = self.get_active_provider()
         adapter = self.manager.get_adapter(provider)
@@ -728,4 +736,24 @@ class LLMProvider:
                 res_gemini = gemini_adapter.generate_response_with_tools(system_prompt, contents, tools)
                 if res_gemini.get("type") != "provider_error":
                     return res_gemini
+
+        # Última red: modelos locales (sin costo, sin red). Solo con opt-in, solo si
+        # están sanos, y devolviendo el error original si también fallan.
+        if res.get("type") == "provider_error" and self._local_fallback_enabled():
+            for local_name in ("ollama", "lmstudio"):
+                if local_name == provider:
+                    continue
+                try:
+                    local_adapter = self.manager.get_adapter(local_name)
+                    if local_adapter is None:
+                        continue
+                    if local_adapter.check_health().status != "ACTIVE":
+                        continue
+                    print(f"[LLMProvider]: Cayendo al modelo local '{local_name}'...")
+                    res_local = local_adapter.generate_response_with_tools(
+                        system_prompt, contents, tools)
+                    if res_local.get("type") != "provider_error":
+                        return res_local
+                except Exception:
+                    continue
         return res

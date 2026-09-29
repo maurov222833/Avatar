@@ -267,6 +267,21 @@ class TestLiveLoop(unittest.TestCase):
         self.assertTrue(sent)
         self.assertIn(sent[:40], seen)
 
+    def test_reply_policy_suppresses_plumbing_and_trims(self):
+        from bridges.whatsapp_bridge import WhatsAppBridge as WB
+        send, _ = WB.format_whatsapp_reply(
+            "🔍 Solo observé con `LIST_DIR`, sin cambios.")
+        self.assertFalse(send, "el relleno no sale al chat")
+        send, _ = WB.format_whatsapp_reply(
+            "⚠️ El proveedor devolvió respuestas vacías 2 veces.")
+        self.assertFalse(send)
+        send, shaped = WB.format_whatsapp_reply("Hola Mauro, puente activo.")
+        self.assertTrue(send)
+        self.assertIn("puente activo", shaped)
+        send, shaped = WB.format_whatsapp_reply("x" * 2000)
+        self.assertTrue(send)
+        self.assertLessEqual(len(shaped), WB.MAX_REPLY_CHARS + 60)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

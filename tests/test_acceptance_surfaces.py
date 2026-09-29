@@ -92,6 +92,23 @@ class TestHttpSurface(unittest.TestCase):
             self.assertEqual(acts[-1]["status"], ActStatus.OBSERVED,
                              "a zero-exit command must be observed as successful")
 
+    def test_whatsapp_status_endpoint_reports_read_only(self):
+        """Proves: GET /api/whatsapp/status informa sin efectos."""
+        try:
+            from fastapi.testclient import TestClient
+        except ImportError:
+            self.skipTest("fastapi/testclient not installed")
+
+        with _TempWorld():
+            import server
+            client = TestClient(server.app)
+            r = client.get("/api/whatsapp/status")
+            self.assertEqual(r.status_code, 200)
+            body = r.json()
+            self.assertIn("heartbeat", body)
+            self.assertIn("recent_acts", body)
+            self.assertIn("mode", body)
+
     def test_config_update_does_not_return_secrets_in_clear(self):
         """
         Proves: POST /api/config/update redacts secrets like GET /api/config does.

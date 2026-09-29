@@ -31,7 +31,8 @@ os.chdir(BASE_DIR)
 
 HEARTBEAT_PATH = os.path.join(BASE_DIR, "memory", "whatsapp_heartbeat.json")
 STOP_PATH = os.path.join(BASE_DIR, "memory", "AVATAR_WA_STOP")
-BACKOFFS = [30, 60, 300, 900]
+# Primer reintento rápido (calle): 15s; luego se espacía hasta 15 min.
+BACKOFFS = [15, 60, 300, 900]
 QR_RETRY_S = 300
 
 
@@ -130,6 +131,29 @@ def supervise(once=False):
 
 if __name__ == "__main__":
     once = "--once" in sys.argv[1:]
+    _logf = open(os.path.join(BASE_DIR, "memory", "whatsapp_24x7.log"),
+                 "a", encoding="utf-8")
+
+    class _Tee:
+        def __init__(self, *streams):
+            self.streams = streams
+
+        def write(self, data):
+            for s in self.streams:
+                try:
+                    s.write(data)
+                except Exception:
+                    pass
+
+        def flush(self):
+            for s in self.streams:
+                try:
+                    s.flush()
+                except Exception:
+                    pass
+
+    sys.stdout = _Tee(sys.stdout, _logf)
+    sys.stderr = sys.stdout
     log("arranque 24/7" + (" (una vez)" if once else ""))
     try:
         supervise(once=once)

@@ -171,6 +171,37 @@ class WhatsAppBridge:
         "No obtuve respuesta del proveedor",
     )
 
+    #: Respuestas que son fontanería interna (conclusiones de relleno del
+    #: orquestador): jamás salen al chat. Contrato estable con el fallback
+    #: ejecutivo — si cambia su prefijo, este filtro debe actualizarse.
+    SUPPRESS_PREFIXES = (
+        "🔍 Solo observé",
+    )
+
+    #: Longitud máxima de una respuesta de WhatsApp: lo que exceda se recorta
+    #: con aviso en vez de volcar bloques técnicos al teléfono.
+    MAX_REPLY_CHARS = 1000
+
+    @classmethod
+    def format_whatsapp_reply(cls, response: str):
+        """
+        Política de respuesta del canal: devuelve (enviar: bool, texto).
+
+        - Silencio del proveedor o relleno interno -> no enviar (ruido).
+        - Resto -> texto recortado a lo esencial, sin bloques de evidencia.
+        """
+        text = (response or "").strip()
+        if not text:
+            return False, ""
+        if any(m in text for m in cls.SILENCE_MARKERS):
+            return False, ""
+        if text.startswith(cls.SUPPRESS_PREFIXES):
+            return False, ""
+        if len(text) > cls.MAX_REPLY_CHARS:
+            text = (text[:cls.MAX_REPLY_CHARS].rsplit(" ", 1)[0]
+                    + "… (continúo por aquí si me lo pides)")
+        return True, text
+
     def _poll_loop(self, reader, target_chat: str, max_polls: int,
                    heartbeat_cb=None, stop_path: str = "") -> dict:
         polls = 0
@@ -218,12 +249,13 @@ class WhatsAppBridge:
                 processed += 1
                 try:
                     response = self.orchestrator.process_user_input(msg.text)
-                    if any(m in response for m in self.SILENCE_MARKERS):
-                        print(f"[WhatsAppBridge] proveedor mudo ante {msg.msg_id}; "
-                              "no envío nada (reenvía el mensaje para reintentar).")
+                    send, shaped = self.format_whatsapp_reply(response)
+                    if not send:
+                        print(f"[WhatsAppBridge] respuesta suprimida por política "
+                              f"({msg.msg_id}): {response[:80]!r}")
                     else:
                         self._deliver(sender=msg.sender, message_body=msg.text,
-                                      response=response)
+                                      response=shaped)
                     replied += 1
                 except Exception as exc:
                     print(f"[WhatsAppBridge] fallo procesando {msg.msg_id}: {exc}")

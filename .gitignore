@@ -8,6 +8,9 @@
 # Secretos (claves reales en local, jamás al repo)
 .env
 config.json
+token.txt
+telegram_bot_config.json
+telegram_config.txt
 
 # Estado runtime: SQLite, sesiones, capturas, conocimiento local
 memory/

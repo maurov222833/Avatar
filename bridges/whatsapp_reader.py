@@ -111,6 +111,10 @@ def _text_key(s: str) -> str:
 class WhatsAppWebReader:
     """Reads and sends via WhatsApp Web DOM in a persistent Chromium profile."""
 
+    #: Segundos tras los cuales un lock sin refrescar se considera rancio
+    #: (el dueño murió sin limpiar). Evita esperas eternas.
+    LOCK_TTL_S = 180.0
+
     def __init__(self, profile_dir: str, headless: bool = False,
                  launch_timeout_ms: int = 60000):
         self.profile_dir = profile_dir
@@ -123,6 +127,45 @@ class WhatsAppWebReader:
         # Textos que ESTE lector envió (normalizados): el loop no los reprocesa.
         self.sent_texts = set()
 
+    def _lock_path(self) -> str:
+        return os.path.abspath(self.profile_dir) + ".lock"
+
+    def _take_lock(self) -> None:
+        """Un solo dueño del perfil: sin esto dos navegadores pelean y mueren en blanco."""
+        import json as _json
+        import time as _time
+        path = self._lock_path()
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = _json.load(f)
+            age = _time.time() - float(data.get("ts", 0))
+            if age < self.LOCK_TTL_S:
+                raise WhatsAppReadError(
+                    WhatsAppReadError.BROWSER_LAUNCH_FAILED,
+                    f"PERFIL_OCUPADO: otro proceso lo tomó hace {age:.0f}s; "
+                    "detén la tarea 24/7 o espera y reintenta")
+        except FileNotFoundError:
+            pass
+        except WhatsAppReadError:
+            raise
+        except Exception:
+            pass  # lock corrupto = rancio: se toma por encima
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                _json.dump({"pid": os.getpid(), "ts": _time.time()}, f)
+        except Exception as exc:
+            raise WhatsAppReadError(
+                WhatsAppReadError.BROWSER_LAUNCH_FAILED,
+                f"no se pudo tomar el lock: {exc}"[:200])
+
+    def _release_lock(self) -> None:
+        try:
+            if os.path.exists(self._lock_path()):
+                os.remove(self._lock_path())
+        except Exception:
+            pass
+
     # -- lifecycle ------------------------------------------------------
     def launch(self) -> None:
         # Idempotente: si ya hay página viva, no relanzar (evita doble lock del perfil).
@@ -131,7 +174,9 @@ class WhatsAppWebReader:
                 return
         except Exception:
             pass
+        self._take_lock()
         if not HAS_PLAYWRIGHT:
+            self._release_lock()
             raise WhatsAppReadError(
                 WhatsAppReadError.BROWSER_LAUNCH_FAILED,
                 "playwright no instalado")
@@ -182,13 +227,17 @@ class WhatsAppWebReader:
         self._context = None
         self._pw = None
         self._page = None
-        if worker.is_alive():
-            print("[WhatsAppReader] cierre colgado; mato solo procesos de ESTE perfil...",
+        # Barrido garantizado: tras cada cierre no debe quedar chromium de ESTE
+        # perfil. Sin esto cada herramienta deja ventanas blancas huerfanas.
+        leftovers = self._own_chromium_pids()
+        if worker.is_alive() or leftovers:
+            print("[WhatsAppReader] barriendo chromium propio restante...",
                   flush=True)
             self._kill_own_chromium()
+        self._release_lock()
 
-    def _kill_own_chromium(self) -> None:
-        """Mata únicamente chromium cuyo cmdline use nuestro profile_dir. Nunca el del usuario."""
+    def _own_chromium_pids(self) -> list:
+        """PIDs de chromium cuyo cmdline usa nuestro profile_dir. Solo lectura."""
         import subprocess
         marker = os.path.abspath(self.profile_dir).lower()
         try:
@@ -198,20 +247,28 @@ class WhatsAppWebReader:
                 capture_output=True, text=True, timeout=20)
         except Exception as exc:
             print(f"[WhatsAppReader] wmic no disponible: {exc}", flush=True)
-            return
+            return []
+        pids = []
         for line in (out.stdout or "").splitlines():
             low = line.lower()
             if marker in low and "wmic" not in low:
-                parts = [p.strip() for p in line.split(",")]
-                pid = next((p for p in parts if p.isdigit()), "")
-                if pid:
-                    try:
-                        subprocess.run(["taskkill", "/PID", pid, "/F"],
-                                       capture_output=True, timeout=10)
-                        print(f"[WhatsAppReader] proceso propio {pid} terminado.",
-                              flush=True)
-                    except Exception:
-                        pass
+                parts = [p.strip().strip('"') for p in line.rsplit(",", 1)]
+                pid = parts[-1] if parts else ""
+                if pid.isdigit():
+                    pids.append(pid)
+        return pids
+
+    def _kill_own_chromium(self) -> None:
+        # Mata unicamente los PIDs de _own_chromium_pids. Nunca el del usuario.
+        import subprocess
+        for pid in self._own_chromium_pids():
+            try:
+                subprocess.run(['taskkill', '/PID', pid, '/F'],
+                               capture_output=True, timeout=10)
+                print(f'[WhatsAppReader] proceso propio {pid} terminado.',
+                      flush=True)
+            except Exception:
+                pass
 
     def _require_page(self):
         if self._page is None:
@@ -460,6 +517,36 @@ class WhatsAppWebReader:
         raise WhatsAppReadError(
             WhatsAppReadError.SEND_UNVERIFIED,
             "texto pegado pero no aparece como saliente tras Enter ni botón")
+
+
+def run_blocking(fn, timeout_s: float = 300.0):
+    """
+    Ejecuta fn en un hilo dedicado SIN event loop y espera el resultado.
+
+    La Sync API de Playwright se niega a correr dentro de un loop asyncio
+    (la GUI FastAPI/uvicorn invoca al orquestador desde uno). Un hilo fresco no
+    tiene loop, así que el lector funciona igual dentro y fuera de la app.
+    """
+    import threading
+    result: Dict[str, Any] = {}
+    errors: Dict[str, Any] = {}
+
+    def _worker():
+        try:
+            result["value"] = fn()
+        except Exception as exc:  # noqa: BLE001 - se propaga al llamador
+            errors["error"] = exc
+
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+    thread.join(timeout_s)
+    if thread.is_alive():
+        raise WhatsAppReadError(
+            WhatsAppReadError.BROWSER_LAUNCH_FAILED,
+            f"timeout {timeout_s}s esperando al navegador")
+    if "error" in errors:
+        raise errors["error"]
+    return result.get("value")
 
 
 def probe_environment() -> Dict[str, Any]:

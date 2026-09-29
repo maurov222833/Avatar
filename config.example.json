@@ -39,5 +39,11 @@
     "bot_token": "",
     "bot_username": "",
     "allowed_chat_ids": []
+  },
+  "watchdog": {
+    "enabled": true,
+    "auto_resume_safe": true,
+    "interval_seconds": 60,
+    "max_resumes_per_tick": 3
   }
 }

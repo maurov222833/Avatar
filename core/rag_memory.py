@@ -58,9 +58,12 @@ class RAGMemory:
             if history:
                 self.state_db.sync_history(history)
 
-            # 2. Guardar en JSON (Fallback Secundario)
+            # 2. El JSON es el respaldo del log completo. La lista en memoria es solo
+            # la ventana reciente; escribirla truncaría el archivo y una migración
+            # posterior, con SQLite vacío, reimportaría solo esa ventana.
+            stored = self.state_db.load_history(limit=None)
             with open(self.history_file, "w", encoding="utf-8") as f:
-                json.dump(history, f, indent=2, ensure_ascii=False)
+                json.dump(stored, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"[Error guardando memoria]: {e}")
 

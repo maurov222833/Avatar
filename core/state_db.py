@@ -19,6 +19,12 @@ def _is_legacy_requirements_seal(seal: str) -> bool:
     """Hex HMAC from before the seal carried a database key id."""
     return _is_hex(seal, 64)
 
+
+# Turns returned by a default load. A no-id resend of this window plus a short
+# tail is treated as new turns; a longer identical resend can still be ambiguous.
+_HISTORY_WINDOW = 50
+_HISTORY_TAIL_SLACK = 20
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from core.cognitive.gate_authorization import GateAuthorization
     from core.cognitive.gate_types import INITIAL_MISSION_STATUSES
@@ -1023,7 +1029,9 @@ class StateEngine:
         The in-memory list is a window, often the last 50 turns. Replacing the table
         with that window deletes everything older. Entries that already carry a stored
         id stay. A list with no ids appends only the suffix that is not already the tail,
-        so a repeated save of the same window does not duplicate it.
+        so a repeated save of the same window does not duplicate it. A no-id list whose
+        first 50 turns are exactly the end of the log, and which is only a short tail
+        longer than that window, appends the tail even when the text repeats.
         """
         incoming = [
             entry for entry in history
@@ -1058,6 +1066,17 @@ class StateEngine:
                             overlap = size
                             break
                     to_insert = incoming[overlap:]
+                    # The longest suffix match cannot tell a new copy of the same text
+                    # from a row already stored. When the list is the default window
+                    # plus a short tail, and that window is exactly the end of the log,
+                    # nothing after it is stored yet: the tail is new.
+                    window = _HISTORY_WINDOW
+                    if (
+                        len(stored_pairs) > len(incoming_pairs) > window
+                        and len(incoming_pairs) <= window + _HISTORY_TAIL_SLACK
+                        and stored_pairs[-window:] == incoming_pairs[:window]
+                    ):
+                        to_insert = incoming[window:]
                 for entry in to_insert:
                     cursor.execute(
                         "INSERT INTO history_entries (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
@@ -1070,8 +1089,8 @@ class StateEngine:
                 conn.rollback()
                 raise e
 
-    def load_history(self, session_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, str]]:
-        """The most recent `limit` turns, oldest of that window first."""
+    def load_history(self, session_id: Optional[str] = None, limit: Optional[int] = _HISTORY_WINDOW) -> List[Dict[str, str]]:
+        """The most recent `limit` turns, oldest of that window first. None returns the full log."""
         if limit is not None and int(limit) < 1:
             return []
         with self._lock:

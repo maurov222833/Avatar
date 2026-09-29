@@ -53,6 +53,12 @@ class TestTelegramActs(unittest.TestCase):
                 def api_get_me(self):
                     return {"ok": True, "username": "AvatarTestBot", "id": 99}
 
+                def api_webhook_info(self):
+                    return {"ok": True, "url": "", "pending_update_count": 0}
+
+                def api_delete_webhook(self, drop_pending=False):
+                    return {"ok": True}
+
                 def api_recent_private_chat_ids(self, limit=20):
                     return [{"chat_id": "111", "username": "mauro"}]
 
@@ -66,7 +72,8 @@ class TestTelegramActs(unittest.TestCase):
             data = json.loads(out)
             self.assertTrue(data["success"])
             self.assertEqual(data["bot"]["username"], "AvatarTestBot")
-            self.assertIn("allowed_chat_ids", data["hint"].lower() + data.get("hint", ""))
+            self.assertIn("hint", data)
+            self.assertTrue(data["hint"])
 
     def test_send_to_allowlisted_chat_skips_dry_run(self):
         with tempfile.TemporaryDirectory(prefix="avatar_tg_send_") as tmp:

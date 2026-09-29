@@ -106,9 +106,43 @@ def command_matches_allowlist(command: str, allowlist: Tuple[str, ...]) -> bool:
     return any(text == " ".join((entry or "").split()).lower() for entry in allowlist or ())
 
 
+def _normalized_parts(path: str) -> List[str]:
+    parts = []
+    for i, part in enumerate(path.replace("\\", "/").split("/")):
+        if i > 0 or not (len(part) == 2 and part[1] == ":"):
+            part = part.split(":", 1)[0]  # NTFS stream suffix: name::$DATA is the file itself
+        # Win32 drops trailing dots and spaces, so ".git." and ".git " open ".git".
+        parts.append(part.rstrip(" .").casefold())
+    return parts
+
+
+def _is_git_metadata(parts: List[str]) -> bool:
+    if ".git" in parts or ".gitconfig" in parts or (parts and parts[-1] == "gitconfig"):
+        return True
+    return any(parts[i:i + 2] == [".config", "git"] for i in range(len(parts) - 1))
+
+
 def _touches_git_dir(path: str) -> bool:
-    parts = os.path.normcase(os.path.abspath(path)).replace("\\", "/").split("/")
-    return ".git" in parts or ".gitconfig" in parts
+    """
+    Defence in depth for WRITE_FILE: git config and hooks run code during later git commands.
+
+    Checks the lexical path and the resolved one (symlinks, and 8.3 short names on Windows),
+    and refuses to write through an existing hard link. The EXEC approval gate stays the
+    primary control; this only narrows what an unattended write can prepare.
+    """
+    if not path:
+        return False
+    lexical = os.path.abspath(path)
+    try:
+        resolved = os.path.realpath(path)
+    except (OSError, ValueError):
+        return True
+    if _is_git_metadata(_normalized_parts(lexical)) or _is_git_metadata(_normalized_parts(resolved)):
+        return True
+    try:
+        return os.path.isfile(resolved) and os.stat(resolved).st_nlink > 1
+    except OSError:
+        return False
 
 
 def _is_within_root(target: str, root: str) -> bool:
@@ -157,8 +191,7 @@ class ActPolicy:
                 return True, "ALLOWED_BY_EXEC_ALLOWLIST"
             return False, EXEC_APPROVAL_REASON
         if act_type == "WRITE_FILE" and _touches_git_dir(args.get("file_path") or ""):
-            # Git config and hooks run code on later, allowlisted git commands.
-            return False, "WRITE_TO_GIT_METADATA_DENIED"
+            return False, "WRITE_TO_PROTECTED_PATH_DENIED"
         if risk == ActRisk.LOCAL_WRITE and self.allowed_workspace_root:
             root = os.path.abspath(self.allowed_workspace_root)
             target = args.get("file_path") or args.get("audio_source") or ""

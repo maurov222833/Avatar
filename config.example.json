@@ -32,7 +32,7 @@
     "auto_approve_safe_commands": true,
     "allowed_workspace": "",
     "exec_requires_approval": true,
-    "exec_allowlist": ["git status", "git status --short", "git log --oneline -20", "Get-ChildItem"]
+    "exec_allowlist": []
   },
   "telegram": {
     "enabled": true,

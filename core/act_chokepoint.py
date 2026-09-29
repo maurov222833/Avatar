@@ -116,10 +116,45 @@ def _normalized_parts(path: str) -> List[str]:
     return parts
 
 
+def _xdg_git_dir() -> str:
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.abspath(os.path.join(base, "git"))
+
+
 def _is_git_metadata(parts: List[str]) -> bool:
-    if ".git" in parts or ".gitconfig" in parts or (parts and parts[-1] == "gitconfig"):
+    if ".git" in parts or ".gitconfig" in parts:
         return True
-    return any(parts[i:i + 2] == [".config", "git"] for i in range(len(parts) - 1))
+    if parts[-2:] == ["etc", "gitconfig"]:
+        return True
+    xdg = _normalized_parts(_xdg_git_dir())
+    return parts[:len(xdg)] == xdg
+
+
+def _git_metadata_inodes(path: str) -> set:
+    """(st_dev, st_ino) of git config and hook files a hard link could alias."""
+    candidates = [os.path.join(os.path.expanduser("~"), ".gitconfig"),
+                  os.path.join(_xdg_git_dir(), "config")]
+    current = os.path.dirname(os.path.abspath(path))
+    while True:
+        git_dir = os.path.join(current, ".git")
+        if os.path.isdir(git_dir):
+            candidates.append(os.path.join(git_dir, "config"))
+            hooks = os.path.join(git_dir, "hooks")
+            if os.path.isdir(hooks):
+                candidates.extend(os.path.join(hooks, n) for n in os.listdir(hooks))
+            break
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    inodes = set()
+    for candidate in candidates:
+        try:
+            st = os.stat(candidate)
+            inodes.add((st.st_dev, st.st_ino))
+        except OSError:
+            continue
+    return inodes
 
 
 def _touches_git_dir(path: str) -> bool:
@@ -127,8 +162,8 @@ def _touches_git_dir(path: str) -> bool:
     Defence in depth for WRITE_FILE: git config and hooks run code during later git commands.
 
     Checks the lexical path and the resolved one (symlinks, and 8.3 short names on Windows),
-    and refuses to write through an existing hard link. The EXEC approval gate stays the
-    primary control; this only narrows what an unattended write can prepare.
+    and refuses to write through a hard link to a git config or hook file. The EXEC approval
+    gate stays the primary control; this only narrows what an unattended write can prepare.
     """
     if not path:
         return False
@@ -140,9 +175,12 @@ def _touches_git_dir(path: str) -> bool:
     if _is_git_metadata(_normalized_parts(lexical)) or _is_git_metadata(_normalized_parts(resolved)):
         return True
     try:
-        return os.path.isfile(resolved) and os.stat(resolved).st_nlink > 1
+        st = os.stat(resolved)
     except OSError:
         return False
+    if st.st_nlink <= 1:
+        return False
+    return (st.st_dev, st.st_ino) in _git_metadata_inodes(resolved)
 
 
 def _is_within_root(target: str, root: str) -> bool:

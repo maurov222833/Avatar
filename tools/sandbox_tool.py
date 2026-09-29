@@ -2,17 +2,21 @@ import os
 import sys
 import subprocess
 import shutil
+from typing import Optional
+
+from core.paths import sandbox_dir as default_sandbox_dir
 
 class SandboxTool:
     """
     MÓDULO 4: Entorno de Pruebas Aislado (Sandbox Venv) para Proyecto Avatar.
     Permite probar código experimental en una caja de cristal aislada sin riesgo para Windows.
     """
-    def __init__(self, sandbox_dir: str = "b:/PROYECTOS ANTIGRAVITY/Avatar/sandbox_env"):
-        self.sandbox_dir = sandbox_dir
+    def __init__(self, sandbox_dir: Optional[str] = None):
+        self.sandbox_dir = sandbox_dir if sandbox_dir is not None else default_sandbox_dir()
 
+    @staticmethod
     def create_sandbox() -> str:
-        sandbox_path = "b:/PROYECTOS ANTIGRAVITY/Avatar/sandbox_env"
+        sandbox_path = default_sandbox_dir()
         try:
             if not os.path.exists(sandbox_path):
                 subprocess.run([sys.executable, "-m", "venv", sandbox_path], check=True)
@@ -23,7 +27,10 @@ class SandboxTool:
 
     @staticmethod
     def run_in_sandbox(script_path: str) -> str:
-        sandbox_python = os.path.join("b:/PROYECTOS ANTIGRAVITY/Avatar/sandbox_env", "Scripts", "python.exe")
+        sandbox_path = default_sandbox_dir()
+        sandbox_python = os.path.join(sandbox_path, "Scripts", "python.exe")
+        if not os.path.exists(sandbox_python):
+            sandbox_python = os.path.join(sandbox_path, "bin", "python")
         if not os.path.exists(sandbox_python):
             SandboxTool.create_sandbox()
             

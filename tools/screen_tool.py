@@ -8,7 +8,10 @@ class ScreenTool:
     Soporta múltiples métodos de captura para garantizar compatibilidad total en Windows.
     """
     @staticmethod
-    def take_screenshot(output_path: str = "b:/PROYECTOS ANTIGRAVITY/Avatar/memory/screenshot.png") -> str:
+    def take_screenshot(output_path: str = None) -> str:
+        if output_path is None:
+            from core.paths import memory_dir
+            output_path = os.path.join(memory_dir(), "screenshot.png")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
         # Método 1: PIL ImageGrab
@@ -44,7 +47,7 @@ class ScreenTool:
             img = Image.new('RGB', (1280, 720), color=(15, 23, 42))
             d = ImageDraw.Draw(img)
             d.text((50, 50), "⚡ AVATAR AI - CAPTURA DE PANTALLA Y ESTADO DEL SISTEMA", fill=(56, 189, 248))
-            d.text((50, 100), f"Estado de PC: Activo | Proyecto: b:/PROYECTOS ANTIGRAVITY/Avatar", fill=(226, 232, 240))
+            d.text((50, 100), f"Estado de PC: Activo | Proyecto: {os.path.dirname(os.path.dirname(output_path))}", fill=(226, 232, 240))
             d.text((50, 150), "Sistemas de Inteligencia y Pasarela de Telegram Operativos 100%", fill=(52, 211, 153))
             img.save(output_path, "PNG")
             return output_path

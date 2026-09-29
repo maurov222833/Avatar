@@ -102,8 +102,11 @@ def switch_model_menu(console, orchestrator, arg: str = ""):
     # Actualizar configuración dinámicamente
     cfg["default_provider"] = new_provider
     import json
-    with open(orchestrator.llm.config_path, "w", encoding="utf-8") as f:
+    from core.paths import config_path as resolve_config_path
+    path = resolve_config_path()
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
+    orchestrator.llm.config_path = path
 
     orchestrator.llm.load_config()
     console.print(f"\n✅ [bold green]Motor de IA cambiado exitosamente a: {new_provider.upper()}[/bold green]\n")

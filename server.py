@@ -17,6 +17,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from core.orchestrator import AvatarOrchestrator
 from tools.shell_tool import ShellTool
 from tools.file_tool import FileTool
+from core.paths import config_path as resolve_config_path, projects_base
 
 app = FastAPI(title="Avatar AI GUI Backend", version="1.0.0")
 
@@ -161,8 +162,9 @@ def update_config(req: ConfigUpdateRequest):
     if req.ollama_url is not None:
         cfg.setdefault("ollama", {})["url"] = req.ollama_url.strip()
         
-    with open(orchestrator.llm.config_path, "w", encoding="utf-8") as f:
+    with open(resolve_config_path(), "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
+    orchestrator.llm.config_path = resolve_config_path()
         
     orchestrator.llm.load_config(force=True)
     # Nunca devolver secretos en claro: /api/config los redacta y este endpoint debe igualarlo.
@@ -177,8 +179,9 @@ def set_provider(req: ModelChangeRequest):
     
     cfg = orchestrator.llm.config
     cfg["default_provider"] = provider
-    with open(orchestrator.llm.config_path, "w", encoding="utf-8") as f:
+    with open(resolve_config_path(), "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
+    orchestrator.llm.config_path = resolve_config_path()
     
     orchestrator.llm.load_config(force=True)
     return {"status": "success", "active_provider": provider}
@@ -296,7 +299,7 @@ def whatsapp_status():
 
 @app.get("/api/projects")
 def list_projects():
-    base_dir = "b:/PROYECTOS ANTIGRAVITY"
+    base_dir = projects_base()
     try:
         if os.path.exists(base_dir):
             items = [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))]
@@ -307,7 +310,7 @@ def list_projects():
 
 @app.post("/api/workspace/set")
 def set_active_workspace(req: WorkspaceRequest):
-    target_path = os.path.join("b:/PROYECTOS ANTIGRAVITY", req.project_name)
+    target_path = os.path.join(projects_base(), req.project_name)
     if os.path.exists(target_path):
         return {"status": "success", "workspace": target_path, "project": req.project_name}
     return {"status": "warning", "message": f"Carpeta {req.project_name} no encontrada, usando workspace actual."}

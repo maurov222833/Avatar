@@ -669,8 +669,9 @@ class LLMProvider:
     LLM Provider Manager & Router Agnóstico (Fachada Principal).
     Mantiene compatibilidad 100% con la interfaz previa mientras delega en ProviderManager.
     """
-    def __init__(self, config_path: str = "b:/PROYECTOS ANTIGRAVITY/Avatar/config.json"):
-        self.config_path = config_path
+    def __init__(self, config_path: Optional[str] = None):
+        from core.paths import config_path as default_config_path
+        self.config_path = config_path if config_path is not None else default_config_path()
         self.load_config()
         self.manager = ProviderManager(self)
 
@@ -680,8 +681,8 @@ class LLMProvider:
         A test or a shell export must win over the file. Otherwise a developer's real
         key replaces the fake key a test just installed, and the test calls the real provider.
         """
-        env_path = env_path or os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+        from core.paths import env_path as default_env_path
+        env_path = env_path or default_env_path()
         if os.path.exists(env_path):
             try:
                 with open(env_path, "r", encoding="utf-8") as f:

@@ -28,7 +28,8 @@ class TelegramBridge:
     """
     def __init__(self, bot_token: str = None, allowed_chat_id: str = None,
                  allowed_chat_ids=None):
-        self.config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
+        from core.paths import config_path as resolve_config_path
+        self.config_path = resolve_config_path()
         self.bot_token = bot_token or self._load_token_from_config()
         entries = list(allowed_chat_ids) if allowed_chat_ids is not None else self._load_allowlist()
         if allowed_chat_id:

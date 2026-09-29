@@ -2,6 +2,7 @@ import os
 import json
 from typing import List, Dict, Any, Optional
 from core.state_db import StateEngine
+from core.paths import memory_dir as default_memory_dir
 
 class RAGMemory:
     """
@@ -9,8 +10,8 @@ class RAGMemory:
     Integrado con StateEngine (SQLite WAL) como backend persistente autoritativo de estado operacional.
     Preserva el 100% de la API pública existente y mantiene compatibilidad con history.json/context.json.
     """
-    def __init__(self, memory_dir: str = "b:/PROYECTOS ANTIGRAVITY/Avatar/memory", state_db: Optional[StateEngine] = None):
-        self.memory_dir = memory_dir
+    def __init__(self, memory_dir: Optional[str] = None, state_db: Optional[StateEngine] = None):
+        self.memory_dir = memory_dir if memory_dir is not None else default_memory_dir()
         os.makedirs(self.memory_dir, exist_ok=True)
         self.history_file = os.path.join(self.memory_dir, "history.json")
         self.context_file = os.path.join(self.memory_dir, "context.json")

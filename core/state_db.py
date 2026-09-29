@@ -41,9 +41,10 @@ class StateEngine:
 
     def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
-            memory_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "memory")
-            os.makedirs(memory_dir, exist_ok=True)
-            db_path = os.path.join(memory_dir, "state_engine.db")
+            from core.paths import memory_dir
+            mem = memory_dir()
+            os.makedirs(mem, exist_ok=True)
+            db_path = os.path.join(mem, "state_engine.db")
         
         self.db_path = db_path
         self._lock = threading.Lock()

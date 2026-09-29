@@ -9,10 +9,11 @@ class ShellTool:
     """
     @staticmethod
     def get_allowed_workspace() -> str:
-        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
-        if os.path.exists(config_path):
+        from core.paths import config_path as resolve_config_path
+        path = resolve_config_path()
+        if os.path.exists(path):
             try:
-                with open(config_path, "r", encoding="utf-8") as f:
+                with open(path, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
                     return os.path.abspath(cfg.get("security", {}).get("allowed_workspace", os.getcwd()))
             except Exception:

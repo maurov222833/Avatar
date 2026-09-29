@@ -229,8 +229,13 @@ class AvatarOrchestrator:
         )
 
     def _load_config(self):
-        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
-        if os.path.exists(config_path):
+        config_path = None
+        try:
+            from core.paths import config_path as resolve_config_path
+            config_path = resolve_config_path()
+        except Exception:
+            config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
+        if config_path and os.path.exists(config_path):
             try:
                 with open(config_path, "r", encoding="utf-8") as f:
                     return json.load(f)

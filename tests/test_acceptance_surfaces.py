@@ -23,26 +23,37 @@ from core.act_chokepoint import ActChokepoint, ActStatus
 
 
 class _TempWorld:
-    """Redirects implicit DB paths for the duration of a test."""
+    """Redirects implicit DB and AVATAR_HOME paths for the duration of a test."""
 
     def __init__(self):
         self.dir = tempfile.mkdtemp(prefix="avatar_surf_")
         self._e = None
         self._r = None
+        self._prev_home = None
 
     def __enter__(self):
+        import json
         import core.state_db as sd
         import core.rag_memory as rm
         self._e = sd.StateEngine.__init__
         self._r = rm.RAGMemory.__init__
+        self._prev_home = os.environ.get("AVATAR_HOME")
+        os.environ["AVATAR_HOME"] = self.dir
+        os.makedirs(os.path.join(self.dir, "memory"), exist_ok=True)
+        with open(os.path.join(self.dir, "config.json"), "w", encoding="utf-8") as handle:
+            json.dump({
+                "default_provider": "gemini",
+                "gemini": {"api_key": "", "model": "gemini-3.6-flash"},
+                "security": {"exec_requires_approval": True, "exec_allowlist": []},
+            }, handle, indent=2)
         world = self
 
         def engine_init(self, db_path=None, *a, **k):
-            return world._e(self, os.path.join(world.dir, "state_engine.db")
+            return world._e(self, os.path.join(world.dir, "memory", "state_engine.db")
                             if db_path is None else db_path)
 
         def rag_init(self, memory_dir=None, state_db=None, *a, **k):
-            return world._r(self, memory_dir or world.dir, state_db)
+            return world._r(self, memory_dir or os.path.join(world.dir, "memory"), state_db)
 
         sd.StateEngine.__init__ = engine_init
         rm.RAGMemory.__init__ = rag_init
@@ -53,6 +64,10 @@ class _TempWorld:
         import core.rag_memory as rm
         sd.StateEngine.__init__ = self._e
         rm.RAGMemory.__init__ = self._r
+        if self._prev_home is None:
+            os.environ.pop("AVATAR_HOME", None)
+        else:
+            os.environ["AVATAR_HOME"] = self._prev_home
         shutil.rmtree(self.dir, ignore_errors=True)
         return False
 

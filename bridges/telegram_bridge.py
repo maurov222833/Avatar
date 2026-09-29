@@ -201,6 +201,45 @@ class TelegramBridge:
         except Exception as e:
             return {"ok": False, "error": "REQUEST_FAILED", "detail": self._redact(e)}
 
+    def api_webhook_info(self) -> dict:
+        if not self.base_url:
+            return {"ok": False, "error": "TOKEN_NOT_CONFIGURED"}
+        try:
+            r = requests.get(f"{self.base_url}/getWebhookInfo", timeout=15)
+            data = r.json() if r.content else {}
+            if r.status_code == 200 and data.get("ok"):
+                result = data.get("result") or {}
+                return {
+                    "ok": True,
+                    "url": result.get("url") or "",
+                    "pending_update_count": result.get("pending_update_count", 0),
+                    "last_error_message": result.get("last_error_message") or "",
+                }
+            return {"ok": False, "error": f"HTTP_{r.status_code}"}
+        except Exception as e:
+            return {"ok": False, "error": "REQUEST_FAILED", "detail": self._redact(e)}
+
+    def api_delete_webhook(self, drop_pending: bool = False) -> dict:
+        """
+        Polling (getUpdates) receives nothing while a webhook is set.
+        Always clear webhook before listening.
+        """
+        if not self.base_url:
+            return {"ok": False, "error": "TOKEN_NOT_CONFIGURED"}
+        try:
+            r = requests.get(
+                f"{self.base_url}/deleteWebhook",
+                params={"drop_pending_updates": "true" if drop_pending else "false"},
+                timeout=15,
+            )
+            data = r.json() if r.content else {}
+            return {
+                "ok": bool(r.status_code == 200 and data.get("ok")),
+                "description": (data.get("description") or "")[:200],
+            }
+        except Exception as e:
+            return {"ok": False, "error": "REQUEST_FAILED", "detail": self._redact(e)}
+
     def api_recent_private_chat_ids(self, limit: int = 20) -> list:
         """
         Peek getUpdates for recent private chats (owner likely messaged /start).
@@ -314,6 +353,15 @@ class TelegramBridge:
             print("[TelegramBridge]: Para activar Telegram, agrega tu 'bot_token' en config.json.")
             return
 
+        # If a webhook is set, getUpdates is empty forever — silent "bot ignores me".
+        wh = self.api_webhook_info()
+        if wh.get("ok") and wh.get("url"):
+            print(f"[Telegram Bridge]: Webhook activo ({wh.get('url')[:80]}). "
+                  f"Lo borro para poder usar getUpdates.")
+        deleted = self.api_delete_webhook(drop_pending=False)
+        if not deleted.get("ok"):
+            print(f"[Telegram Bridge]: deleteWebhook falló: {deleted}")
+
         if not self.allowed_chat_ids:
             if self.auto_enroll_first_private:
                 print("[Telegram Bridge]: Allowlist vacía — el primer chat privado humano se auto-enrolará.")
@@ -326,13 +374,23 @@ class TelegramBridge:
         else:
             print(f"[Telegram Bridge]: getMe falló ({me.get('error')}); igual intento getUpdates.")
         print(f"[Telegram Bridge]: Escuchando ordenes remotas via Telegram {bot_label}...")
+        idle_loops = 0
         while True:
             try:
                 url = f"{self.base_url}/getUpdates?offset={self.last_update_id + 1}&timeout=30"
                 response = requests.get(url, timeout=35)
                 if response.status_code == 200:
                     data = response.json()
-                    for result in data.get("result", []):
+                    results = data.get("result", []) if data.get("ok") else []
+                    if not results:
+                        idle_loops += 1
+                        if idle_loops in (1, 10, 30):
+                            print(f"[Telegram Bridge]: sin updates nuevos (loop vacío #{idle_loops}). "
+                                  f"Escribe a {bot_label} en privado.")
+                    else:
+                        idle_loops = 0
+                        print(f"[Telegram Bridge]: {len(results)} update(s) recibidos.")
+                    for result in results:
                         self.last_update_id = result["update_id"]
                         self.handle_message(result.get("message", {}) or {})
                 elif response.status_code == 409:

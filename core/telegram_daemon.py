@@ -50,6 +50,10 @@ def status() -> Dict[str, Any]:
     if _bridge is None:
         info["token_configured"] = False
         info["allowed_chat_ids"] = []
+        info["hint"] = (
+            "Daemon no arrancado. Reinicia Avatar o POST /api/telegram/start. "
+            "Si usas código viejo, actualiza la rama cursor/u1-contencion-5763."
+        )
         return info
     info["token_configured"] = bool(_bridge.bot_token)
     info["allowed_chat_ids"] = sorted(_bridge.allowed_chat_ids)
@@ -59,4 +63,23 @@ def status() -> Dict[str, Any]:
         info["bot"] = me
     except Exception as e:
         info["bot"] = {"ok": False, "error": str(e)[:120]}
+    try:
+        wh = _bridge.api_webhook_info()
+        info["webhook"] = wh
+        if wh.get("ok") and wh.get("url"):
+            info["hint"] = (
+                "Hay un webhook activo: getUpdates no recibe chats. "
+                "Reinicia Avatar (borra el webhook al arrancar) o dile TELEGRAM_STATUS."
+            )
+        elif not running:
+            info["hint"] = "Token OK pero el listener no corre. POST /api/telegram/start o reinicia."
+        elif not info["allowed_chat_ids"]:
+            info["hint"] = (
+                "Listener activo, allowlist vacía: escribe /start al bot en privado "
+                f"(@{(info.get('bot') or {}).get('username') or 'tu_bot'}) para auto-enrolarte."
+            )
+        else:
+            info["hint"] = "Listener activo. Escribe al bot en privado."
+    except Exception as e:
+        info["webhook"] = {"ok": False, "error": str(e)[:120]}
     return info

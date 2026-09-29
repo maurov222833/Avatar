@@ -1445,25 +1445,53 @@ class AvatarOrchestrator:
         bridge = self._telegram_bridge()
         if action == "status":
             me = bridge.api_get_me()
+            wh = bridge.api_webhook_info() if bridge.bot_token else {}
+            if wh.get("ok") and wh.get("url"):
+                bridge.api_delete_webhook(drop_pending=False)
+                wh = bridge.api_webhook_info()
             recent = bridge.api_recent_private_chat_ids() if me.get("ok") else []
+            try:
+                from core import telegram_daemon
+                daemon = telegram_daemon.status()
+            except Exception:
+                daemon = {"running": False, "status": "UNKNOWN"}
+            if not daemon.get("running") and bridge.bot_token:
+                try:
+                    from core.telegram_daemon import ensure_telegram_daemon
+                    daemon = ensure_telegram_daemon(orchestrator=self)
+                except Exception as e:
+                    daemon = {"running": False, "error": str(e)[:120]}
             payload = {
                 "success": bool(me.get("ok")),
                 "verified": bool(me.get("ok")),
                 "bot": me,
+                "webhook": wh,
+                "daemon": daemon,
                 "token_configured": bool(bridge.bot_token),
                 "allowed_chat_ids": sorted(bridge.allowed_chat_ids),
                 "recent_private_chats": recent[:5],
-                "hint": (
-                    "OK: token válido."
-                    if me.get("ok") else
-                    "Token inválido o ausente: usa UPDATE_CONFIG telegram.bot_token."
-                ),
+                "hint": "",
             }
-            if me.get("ok") and not bridge.allowed_chat_ids:
+            if not me.get("ok"):
+                payload["hint"] = "Token inválido o ausente: UPDATE_CONFIG telegram.bot_token."
+            elif wh.get("ok") and wh.get("url"):
+                payload["hint"] = "Webhook aún activo tras delete; reinicia Avatar."
+            elif not daemon.get("running"):
                 payload["hint"] = (
-                    "Token OK, pero falta telegram.allowed_chat_ids. "
-                    "Mauro debe escribir /start al bot en privado; "
-                    "luego UPDATE_CONFIG con su chat_id numérico y TELEGRAM_TEST."
+                    "Token OK pero el listener NO corre. Reinicia Avatar completo "
+                    "(una sola ventana) o POST /api/telegram/start."
+                )
+            elif not bridge.allowed_chat_ids:
+                uname = me.get("username") or "tu_bot"
+                payload["hint"] = (
+                    f"Listener activo. Escribe /start a @{uname} en privado; "
+                    "el primer chat se auto-enrola. Si no llega nada, mira la consola "
+                    "por '409 Conflict' (otro Avatar abierto)."
+                )
+            else:
+                payload["hint"] = (
+                    f"Listo. Habla en privado con @{me.get('username')}. "
+                    f"Allowlist: {sorted(bridge.allowed_chat_ids)}."
                 )
             return json.dumps(payload, ensure_ascii=False)[:4000]
 

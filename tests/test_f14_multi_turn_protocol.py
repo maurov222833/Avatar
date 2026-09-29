@@ -18,7 +18,16 @@ class TestF14MultiTurnProtocol(unittest.TestCase):
     def setUp(self):
         self.orc = AvatarOrchestrator()
         self.orc.llm.config.setdefault("providers", {})["local_fallback"] = False
+        # Hermetic: never depend on a real GEMINI_API_KEY from the host (F-22).
+        self.orc.llm.config.setdefault("gemini", {})["api_key"] = "TEST_GEMINI_KEY_FOR_UNITTESTS"
         self.goal = Goal(goal_id="g1", objective="Misión Abierta de Prueba", status=GoalState.EXECUTING)
+
+    def _llm_with_fake_gemini(self) -> LLMProvider:
+        llm = LLMProvider()
+        llm.config.setdefault("providers", {})["local_fallback"] = False
+        llm.config["default_provider"] = "gemini"
+        llm.config.setdefault("gemini", {})["api_key"] = "TEST_GEMINI_KEY_FOR_UNITTESTS"
+        return llm
 
     # ------------------------------------------------------------------
     # TEST A: Estructura USER -> MODEL functionCall -> USER functionResponse
@@ -45,8 +54,7 @@ class TestF14MultiTurnProtocol(unittest.TestCase):
     # TEST B: Payload de segundo turno no contiene role='function'
     # ------------------------------------------------------------------
     def test_b_second_turn_payload_schema_validity(self):
-        llm = LLMProvider()
-        llm.config["default_provider"] = "gemini"
+        llm = self._llm_with_fake_gemini()
         contents = [
             {"role": "user", "parts": [{"text": "Misión"}]},
             {"role": "model", "parts": [{"functionCall": {"name": "LIST_DIR", "args": {"dir_path": "."}}}]},
@@ -95,8 +103,7 @@ class TestF14MultiTurnProtocol(unittest.TestCase):
     # TEST D: Las herramientas (tools) se conservan en cada llamada
     # ------------------------------------------------------------------
     def test_d_tools_preservation_in_payload(self):
-        llm = LLMProvider()
-        llm.config["default_provider"] = "gemini"
+        llm = self._llm_with_fake_gemini()
         contents = [{"role": "user", "parts": [{"text": "Hola"}]}]
         with patch("requests.post") as mock_post:
             mock_res = MagicMock()
@@ -139,8 +146,7 @@ class TestF14MultiTurnProtocol(unittest.TestCase):
     # TEST G: Error HTTP 400 no produce fallback silencioso a texto
     # ------------------------------------------------------------------
     def test_g_http_400_does_not_silently_fallback_to_text(self):
-        llm = LLMProvider()
-        llm.config.setdefault("providers", {})["local_fallback"] = False
+        llm = self._llm_with_fake_gemini()
         contents = [{"role": "user", "parts": [{"text": "Paso 1"}]}]
         with patch("requests.post") as mock_post:
             mock_res = MagicMock()
@@ -157,8 +163,7 @@ class TestF14MultiTurnProtocol(unittest.TestCase):
     # TEST H: Provider failure queda explícitamente clasificado
     # ------------------------------------------------------------------
     def test_h_provider_failure_explicitly_classified(self):
-        llm = LLMProvider()
-        llm.config.setdefault("providers", {})["local_fallback"] = False
+        llm = self._llm_with_fake_gemini()
         contents = [{"role": "user", "parts": [{"text": "Paso 1"}]}]
         with patch("requests.post") as mock_post:
             mock_res = MagicMock()

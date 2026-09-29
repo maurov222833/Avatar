@@ -21,6 +21,14 @@ class FileTool:
     @staticmethod
     def is_within_workspace(filepath: str, workspace: str) -> bool:
         try:
+            # On POSIX, a Windows drive path (C:\...) must not resolve as a child of the repo.
+            raw = str(filepath).strip()
+            if os.name != "nt":
+                if len(raw) >= 2 and raw[1] == ":" and raw[0].isalpha():
+                    return False
+                norm = raw.replace("\\", "/")
+                if norm.startswith("//") or norm.startswith("\\\\"):
+                    return False
             target_abs = os.path.abspath(filepath).lower()
             ws_abs = os.path.abspath(workspace).lower()
             return os.path.commonpath([target_abs, ws_abs]) == ws_abs

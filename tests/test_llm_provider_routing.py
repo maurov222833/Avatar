@@ -17,6 +17,8 @@ class TestLLMProviderRouting(unittest.TestCase):
         # Hermético: la cascada local depende del config real de la máquina;
         # estos tests verifican el comportamiento base sin ella.
         self.provider.config.setdefault("providers", {})["local_fallback"] = False
+        # Fake key so mocked HTTP paths are reached (F-22); never a real credential.
+        self.provider.config.setdefault("gemini", {})["api_key"] = "TEST_GEMINI_KEY_FOR_UNITTESTS"
 
     def test_001_provider_selection_persists(self):
         self.provider.config["default_provider"] = "groq"

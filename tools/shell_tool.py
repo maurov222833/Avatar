@@ -23,6 +23,14 @@ class ShellTool:
     @staticmethod
     def is_within_workspace(target_path: str, workspace_path: str) -> bool:
         try:
+            # On POSIX, a Windows drive path (C:\...) must not resolve as a child of the repo.
+            raw = str(target_path).strip()
+            if os.name != "nt":
+                if len(raw) >= 2 and raw[1] == ":" and raw[0].isalpha():
+                    return False
+                norm = raw.replace("\\", "/")
+                if norm.startswith("//") or norm.startswith("\\\\"):
+                    return False
             target_abs = os.path.abspath(target_path).lower()
             ws_abs = os.path.abspath(workspace_path).lower()
             return os.path.commonpath([target_abs, ws_abs]) == ws_abs
@@ -35,6 +43,10 @@ class ShellTool:
         if not cwd:
             cwd = workspace
         else:
+            # Reject Windows drive / UNC paths on POSIX before abspath turns them into
+            # a fake child of the repo (F-22).
+            if not ShellTool.is_within_workspace(cwd, workspace):
+                return f"[Seguridad]: Intento de ejecución fuera del workspace permitido ({workspace})."
             cwd = os.path.abspath(cwd)
 
         if not ShellTool.is_within_workspace(cwd, workspace):

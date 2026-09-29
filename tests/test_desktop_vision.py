@@ -27,6 +27,12 @@ class TestDesktopVisionPhase3(unittest.TestCase):
         img = Image.new("RGB", (400, 200), color=(255, 255, 255))
         img.save(self.sample_img_path)
 
+    def _require_pyautogui(self):
+        try:
+            import pyautogui  # noqa: F401
+        except ImportError:
+            self.skipTest("pyautogui not installed (desktop automation optional on Linux CI)")
+
     def test_01_screentool_integration(self):
         """01. Verifies ScreenTool integration for taking screenshots."""
         out_path = os.path.join(self.temp_dir, "screenshot.png")
@@ -207,6 +213,7 @@ class TestDesktopVisionPhase3(unittest.TestCase):
 
     def test_20_invalid_target_handling(self):
         """20. Verifies TARGET_NOT_FOUND returned for invalid/unresolvable targets."""
+        self._require_pyautogui()
         res = self.control.execute_gui_action(
             action="click",
             target="NonExistentTargetElement12345",
@@ -241,6 +248,7 @@ class TestDesktopVisionPhase3(unittest.TestCase):
 
     def test_25_safe_failure_without_blind_clicking(self):
         """25. Verifies system refuses to click blindly when target resolution fails."""
+        self._require_pyautogui()
         res = self.control.execute_gui_action(
             action="click",
             target={"invalid_key": "invalid_val"},

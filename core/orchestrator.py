@@ -215,11 +215,15 @@ class AvatarOrchestrator:
             "Eres AVATAR AI, el Agente de Inteligencia Artificial Soberano, Ultra-Inteligente y Autónomo en la PC de Mauro.\n\n"
             "IDENTIDAD Y REGLAS DE AUTONOMÍA ABSOLUTA:\n"
             "- Eres AVATAR AI, un software e IDE de desarrollo soberano instalado localmente en la PC de Mauro (b:\\PROYECTOS ANTIGRAVITY\\Avatar).\n"
-            "- TIENTES AUTONOMÍA TOTAL Y PROACTIVA: Tienes acceso completo para modificar archivos (WRITE_FILE), ejecutar comandos PowerShell (COMMAND), leer archivos (READ_FILE), listar directorios (LIST_DIR) y gestionar WhatsApp (SEND_WHATSAPP). NUNCA te autolimites con declaraciones de 'MODO READ-ONLY' ni te niegues a editar o crear código cuando sea necesario.\n"
+            "- Trabajas con autonomía práctica dentro de la política del chokepoint: puedes "
+            "proponer WRITE_FILE, COMMAND, READ_FILE, LIST_DIR y SEND_WHATSAPP, pero los actos "
+            "de riesgo (EXEC, escritura, mensajes externos) pueden exigir aprobación del dueño, "
+            "sobre todo si el contexto se contaminó con contenido web o de mensajería.\n"
             "- ESTÁNDAR DE COMUNICACIÓN Y EFECTIVIDAD EJECUTIVA (ANTIGRAVITY STANDARD):\n"
             "  1. TONO Y ESTILO: Comunícate siempre con elegancia, claridad y precisión técnica en Markdown. Explica las soluciones aplicadas de forma directa.\n"
             "  2. CERO FUGA DE FONTANERÍA INTERNA: NUNCA muestres en el chat de Mauro etiquetas de herramientas ('ACCION: COMMAND') o monólogos CoT ('1. ANÁLISIS DE INTENCIÓN...'). Esas herramientas son ejecutadas de forma nativa e invisible por el sistema.\n"
-            "  3. CERO PREGUNTAS DE CONFIRMACIÓN: Si Mauro pide una solución o tarea, ejecuta las herramientas necesarias de forma autónoma hasta completar el objetivo.\n"
+            "  3. Si Mauro pide una solución, avanza con las herramientas permitidas; si la política "
+            "bloquea un acto, explica el bloqueo con honestidad en lugar de inventar que se ejecutó.\n"
             "  4. ENVIAR MENSAJES DE WHATSAPP: Invoca la herramienta SEND_WHATSAPP directamente cuando sea solicitado enviarle mensajes a su teléfono.\n"
             "- RUTAS CON ESPACIOS EN WINDOWS: En comandos COMMAND, SIEMPRE coloca entre comillas dobles cualquier ruta de archivo que contenga espacios (ej: python \"b:\\PROYECTOS ANTIGRAVITY\\Avatar\\script.py\").\n"
             "- VISOR DE CÓDIGO EN TIEMPO REAL (MONACO EDITOR): Tu interfaz gráfica YA TIENE integrado Monaco Editor a la derecha. Cuando generas o modificas código, la interfaz abre y carga automáticamente ese código en Monaco Editor.\n"
@@ -256,6 +260,10 @@ class AvatarOrchestrator:
             return self._process_user_input_unlocked(user_input, max_steps=max_steps, channel=channel)
 
     def _process_user_input_unlocked(self, user_input: str, max_steps: int = 5, channel: str = "local") -> str:
+        # Fresh provenance for each user turn (F-06): prior web/chat reads do not leak.
+        if self.chokepoint is not None:
+            self.chokepoint.clear_contamination()
+
         # 0. Clasificar tipo de interacción PRIMERO (Autoridad Semántica de Precedencia)
         interaction_type = SemanticMissionEngine.classify_interaction(user_input)
         print(f"[AvatarOrchestrator]: Clasificación Semántica -> InteractionType.{interaction_type.value}")
@@ -478,6 +486,9 @@ class AvatarOrchestrator:
                     task_id=task.task_id,
                     execution_id=f"exec-{task.task_id}",
                 )
+                provenance = "trusted"
+                if self.chokepoint is not None:
+                    provenance = self.chokepoint.note_tool_provenance(tool_name, args)
 
                 task.transition_to(TaskState.OBSERVING)
                 evidence = CognitiveAdapter.create_evidence_from_tool_output(tool_name, tool_output)
@@ -576,7 +587,10 @@ class AvatarOrchestrator:
                         "functionResponse": {
                             "name": tool_name,
                             "id": call_id,
-                            "response": {"output": tool_output}
+                            "response": {
+                                "output": tool_output,
+                                "provenance": provenance,
+                            }
                         }
                     }]
                 })
@@ -1038,6 +1052,7 @@ class AvatarOrchestrator:
             # DRY_RUN only covers external messages; commands are governed separately.
             "exec": "APPROVAL_REQUIRED" if p.exec_requires_approval else "UNRESTRICTED",
             "exec_allowlist": list(p.exec_allowlist),
+            "context_contaminated": bool(p.context_contaminated),
             "act_types": dict(ACT_TYPE_RISKS),
         }
 

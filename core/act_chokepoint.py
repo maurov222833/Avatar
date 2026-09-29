@@ -82,6 +82,14 @@ ACT_TYPES: Dict[str, str] = {
 RISKS_REQUIRING_CONSENT = {ActRisk.EXTERNAL_MESSAGE}
 
 EXEC_APPROVAL_REASON = "EXEC_REQUIRES_OPERATOR_APPROVAL"
+CONTAMINATED_APPROVAL_REASON = "CONTAMINATED_CONTEXT_REQUIRES_APPROVAL"
+
+#: Tools whose outputs are untrusted instruction sources (F-06 / D4).
+UNTRUSTED_INPUT_ACTS = frozenset({
+    "FETCH_URL",
+    "WEB_SEARCH",
+    "WHATSAPP_READ",
+})
 
 #: Characters that let one command line smuggle another (PowerShell and POSIX shells).
 #: An allowlisted prefix followed by any of these is not the allowlisted command anymore.
@@ -184,6 +192,13 @@ def _touches_git_dir(path: str) -> bool:
 
 
 def _is_within_root(target: str, root: str) -> bool:
+    raw = str(target or "").strip()
+    if os.name != "nt":
+        if len(raw) >= 2 and raw[1] == ":" and raw[0].isalpha():
+            return False
+        norm = raw.replace("\\", "/")
+        if norm.startswith("//") or norm.startswith("\\\\"):
+            return False
     target_abs = os.path.normcase(os.path.abspath(target))
     root_abs = os.path.normcase(os.path.abspath(root))
     try:
@@ -213,6 +228,9 @@ class ActPolicy:
     max_acts_per_mission: Optional[int] = None
     exec_requires_approval: bool = True
     exec_allowlist: Tuple[str, ...] = ()
+    #: Set when the mission has ingested untrusted text (web, WhatsApp, off-workspace files).
+    #: While True, EXEC / LOCAL_WRITE / EXTERNAL_MESSAGE need operator approval (F-06).
+    context_contaminated: bool = False
 
     def decide(self, act_type: str, args: Dict[str, Any]) -> Tuple[bool, str]:
         """Return `(allowed, reason)`. `reason` is always populated so refusals are explainable."""
@@ -223,6 +241,12 @@ class ActPolicy:
             return False, "ACT_TYPE_DENIED_BY_POLICY"
         if risk in RISKS_REQUIRING_CONSENT and not self.allow_external_messages:
             return False, "EXTERNAL_EFFECT_REQUIRES_OPERATOR_CONSENT"
+        if self.context_contaminated and risk in (
+            ActRisk.EXEC, ActRisk.LOCAL_WRITE, ActRisk.EXTERNAL_MESSAGE,
+        ):
+            # Contaminated missions never trust the allowlist alone: the model may have been
+            # steered by untrusted text into asking for a "safe-looking" command.
+            return False, CONTAMINATED_APPROVAL_REASON
         if risk == ActRisk.EXEC and self.exec_requires_approval:
             command = args.get("command") or args.get("params") or ""
             if command_matches_allowlist(command, self.exec_allowlist):
@@ -411,6 +435,36 @@ class ActChokepoint:
         self.observers.setdefault("WHATSAPP_READ", _observe_whatsapp_report)
         self.observers.setdefault("WHATSAPP_SEND", _observe_external_message)
 
+    def mark_contaminated(self, reason: str = "") -> None:
+        """Mark the active context as having ingested untrusted text (F-06)."""
+        self.policy.context_contaminated = True
+        if reason:
+            print(f"[ActChokepoint]: contexto contaminado -> {reason}")
+
+    def clear_contamination(self) -> None:
+        """Reset provenance for a new user turn."""
+        self.policy.context_contaminated = False
+
+    def note_tool_provenance(self, act_type: str, args: Optional[Dict[str, Any]] = None) -> str:
+        """
+        After a tool returns into the model context, classify its provenance.
+
+        Untrusted sources (web, WhatsApp read, files outside the workspace) contaminate
+        the mission so later EXEC/WRITE/EXTERNAL acts need approval.
+        """
+        args = args or {}
+        if act_type in UNTRUSTED_INPUT_ACTS:
+            self.mark_contaminated(act_type)
+            return "untrusted"
+        if act_type == "READ_FILE":
+            path = args.get("file_path") or args.get("params") or ""
+            root = self.policy.allowed_workspace_root or os.getcwd()
+            if path and not _is_within_root(path, root):
+                self.mark_contaminated(f"READ_FILE:{path}")
+                return "untrusted"
+            return "workspace"
+        return "trusted"
+
     def list_acts(self, mission_id: Optional[str] = None) -> List[Dict[str, Any]]:
         if not self.state_db:
             return []
@@ -467,7 +521,11 @@ class ActChokepoint:
         )
 
         allowed, reason = self.policy.decide(act_type, args or {})
-        if not allowed and reason == EXEC_APPROVAL_REASON and self.approver is not None:
+        if (
+            not allowed
+            and reason in (EXEC_APPROVAL_REASON, CONTAMINATED_APPROVAL_REASON)
+            and self.approver is not None
+        ):
             try:
                 approved = bool(self.approver(act_type, dict(args or {})))
             except Exception:

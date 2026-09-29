@@ -657,7 +657,8 @@ class LLMProvider:
                             k, v = line.split("=", 1)
                             k_str = k.strip()
                             v_str = v.strip().strip("'\"")
-                            if k_str and v_str and not os.environ.get(k_str):
+                            # An empty value already in the process is still "set": the file must not fill it.
+                            if k_str and v_str and k_str not in os.environ:
                                 os.environ[k_str] = v_str
             except Exception:
                 pass

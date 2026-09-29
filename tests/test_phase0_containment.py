@@ -50,6 +50,9 @@ class TestHttpGuard(unittest.TestCase):
         local = self.client.get("/api/config", headers={
             **self.headers, "origin": "http://127.0.0.1:8000"})
         self.assertEqual(local.status_code, 200)
+        disguised = self.client.get("/api/config", headers={
+            **self.headers, "host": "[::1]evil.example"})
+        self.assertEqual(disguised.status_code, 403)
 
 
 class TestMultiTaskChannel(unittest.TestCase):
@@ -102,6 +105,9 @@ class TestDotenvDoesNotOverride(unittest.TestCase):
         with mock.patch.dict(os.environ, {key: "from-env"}):
             provider._load_env(path)
             self.assertEqual(os.environ[key], "from-env")
+        with mock.patch.dict(os.environ, {key: ""}):
+            provider._load_env(path)
+            self.assertEqual(os.environ[key], "")
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop(key, None)
             provider._load_env(path)

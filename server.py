@@ -32,11 +32,20 @@ def auth_headers() -> Dict[str, str]:
 
 
 def _host_name(value: str) -> str:
+    """Return the host, without a numeric port. Anything else is returned unchanged so it fails closed."""
     text = (value or "").strip().lower()
     if text.startswith("["):
         end = text.find("]")
-        return text[:end + 1] if end != -1 else text
-    return text.split(":", 1)[0]
+        if end == -1:
+            return text
+        rest = text[end + 1:]
+        if rest and not (rest.startswith(":") and rest[1:].isdigit()):
+            return text
+        return text[:end + 1]
+    name, sep, port = text.partition(":")
+    if sep and not port.isdigit():
+        return text
+    return name
 
 
 def _token_matches(presented: str) -> bool:

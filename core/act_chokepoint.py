@@ -97,10 +97,12 @@ CONTAMINATED_APPROVAL_REASON = "CONTAMINATED_CONTEXT_REQUIRES_APPROVAL"
 APPROVAL_GATE_REASONS = frozenset({EXEC_APPROVAL_REASON, CONTAMINATED_APPROVAL_REASON})
 
 #: Tools whose outputs are untrusted instruction sources (F-06 / D4).
+#: Personal messaging (WhatsApp / Telegram) is trusted by owner decision (2026-09-29):
+#: those channels are private and allowlisted; contaminating them forced extra approvals
+#: and slowed day-to-day talk with Avatar. Web / browser content stays untrusted.
 UNTRUSTED_INPUT_ACTS = frozenset({
     "FETCH_URL",
     "WEB_SEARCH",
-    "WHATSAPP_READ",
     "BROWSER_OBSERVE",
 })
 
@@ -521,8 +523,10 @@ class ActChokepoint:
         """
         After a tool returns into the model context, classify its provenance.
 
-        Untrusted sources (web, WhatsApp read, files outside the workspace) contaminate
-        the mission so later EXEC/WRITE/EXTERNAL acts need approval.
+        Untrusted sources are web/internet (FETCH_URL, WEB_SEARCH, BROWSER_OBSERVE)
+        and files outside the workspace. Personal messaging reads (WhatsApp) do not
+        contaminate: the owner treat those as trusted personal channels.
+        While contaminated, later EXEC/WRITE/EXTERNAL acts need approval.
         """
         args = args or {}
         if act_type in UNTRUSTED_INPUT_ACTS:
@@ -535,6 +539,8 @@ class ActChokepoint:
                 self.mark_contaminated(f"READ_FILE:{path}")
                 return "untrusted"
             return "workspace"
+        if act_type in ("WHATSAPP_READ", "WHATSAPP_STATUS", "WHATSAPP_SEND", "SEND_WHATSAPP"):
+            return "personal_channel"
         return "trusted"
 
     def list_acts(self, mission_id: Optional[str] = None) -> List[Dict[str, Any]]:

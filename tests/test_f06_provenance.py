@@ -88,6 +88,42 @@ class TestF06ProvenanceContamination(unittest.TestCase):
         self.assertNotIn("CERO PREGUNTAS DE CONFIRMACIÓN", orch.system_prompt)
         self.assertNotIn("AUTONOMÍA TOTAL", orch.system_prompt)
         self.assertIn("contamin", orch.system_prompt.lower())
+        self.assertIn("internet", orch.system_prompt.lower())
+
+    def test_whatsapp_read_does_not_contaminate_personal_channel(self):
+        """Owner decision: WhatsApp/Telegram are trusted personal channels."""
+        from core.act_chokepoint import UNTRUSTED_INPUT_ACTS
+        self.assertNotIn("WHATSAPP_READ", UNTRUSTED_INPUT_ACTS)
+        root = tempfile.mkdtemp()
+        target = os.path.join(root, "x.py")
+        cp = ActChokepoint(
+            policy=ActPolicy(dry_run=False, exec_requires_approval=False,
+                             allowed_workspace_root=root),
+            executors={
+                "WHATSAPP_READ": lambda a: "RESULT:OK hola Mauro",
+                "COMMAND": lambda a: f"ran:{a['command']}",
+                "WRITE_FILE": lambda a: "wrote",
+            },
+        )
+        self.assertEqual(
+            cp.note_tool_provenance("WHATSAPP_READ", {}), "personal_channel")
+        self.assertFalse(cp.policy.context_contaminated)
+        self.assertEqual(cp.perform("COMMAND", {"command": "echo hi"}), "ran:echo hi")
+        self.assertEqual(
+            cp.perform("WRITE_FILE", {"file_path": target, "content": "ok"}), "wrote")
+
+    def test_web_and_browser_still_contaminate(self):
+        from core.act_chokepoint import UNTRUSTED_INPUT_ACTS
+        for act in ("FETCH_URL", "WEB_SEARCH", "BROWSER_OBSERVE"):
+            self.assertIn(act, UNTRUSTED_INPUT_ACTS)
+        cp = ActChokepoint(
+            policy=ActPolicy(dry_run=False, exec_requires_approval=False),
+            executors={"COMMAND": lambda a: "no"},
+        )
+        self.assertEqual(cp.note_tool_provenance("BROWSER_OBSERVE", {}), "untrusted")
+        self.assertTrue(cp.policy.context_contaminated)
+        blocked = cp.perform("COMMAND", {"command": "echo hi"})
+        self.assertIn(CONTAMINATED_APPROVAL_REASON, blocked)
 
 
 if __name__ == "__main__":

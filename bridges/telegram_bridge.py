@@ -20,10 +20,11 @@ class TelegramBridge:
     Pasarela de comunicación remota para el Proyecto Avatar vía Telegram Bot.
     Permite enviar mensajes, capturas de pantalla y comandos desde cualquier lugar a tu PC.
 
-    Solo obedece a los chats de la allowlist (`telegram.allowed_chat_ids` en config.json o
-    TELEGRAM_ALLOWED_CHAT_IDS, separados por comas). Cada entrada es un chat_id numérico o
-    un @usuario. Sin allowlist rechaza todo y registra el chat_id de quien escribe, para que
-    el dueño pueda añadir el suyo.
+    Solo obedece a los usuarios de la allowlist (`telegram.allowed_chat_ids` en config.json o
+    TELEGRAM_ALLOWED_CHAT_IDS, separados por comas), y solo en chat privado con el bot. Cada
+    entrada es un ID numérico de usuario (en un chat privado coincide con el chat_id). Los
+    @usuario no se aceptan porque Telegram permite reasignarlos. Sin allowlist rechaza todo y
+    registra el ID de quien escribe, para que el dueño pueda añadir el suyo.
     """
     def __init__(self, bot_token: str = None, allowed_chat_id: str = None,
                  allowed_chat_ids=None):
@@ -32,16 +33,14 @@ class TelegramBridge:
         entries = list(allowed_chat_ids) if allowed_chat_ids is not None else self._load_allowlist()
         if allowed_chat_id:
             entries.append(allowed_chat_id)
-        self.allowed_chat_ids = {self._normalize_entry(e) for e in entries if str(e).strip()}
+        self.allowed_chat_ids = {str(e).strip() for e in entries if str(e).strip().isdigit()}
+        ignored = [e for e in entries if str(e).strip() and not str(e).strip().isdigit()]
+        if ignored:
+            print(f"[Telegram]: Entradas de allowlist ignoradas (se requiere ID numérico): {ignored}")
         self.orchestrator = AvatarOrchestrator()
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}" if self.bot_token else ""
         self.last_update_id = 0
         self._reported_chats = set()
-
-    @staticmethod
-    def _normalize_entry(entry) -> str:
-        text = str(entry).strip()
-        return text.lower() if text.startswith("@") else text
 
     def _load_allowlist(self) -> list:
         env_val = os.getenv("TELEGRAM_ALLOWED_CHAT_IDS", "")
@@ -59,25 +58,31 @@ class TelegramBridge:
         return []
 
     def is_authorized(self, message: dict) -> bool:
-        chat_id = str(message.get("chat", {}).get("id", ""))
-        username = (message.get("from", {}) or {}).get("username") or ""
-        if not self.allowed_chat_ids:
+        chat = message.get("chat", {}) or {}
+        sender = message.get("from", {}) or {}
+        user_id = str(sender.get("id", ""))
+        if not self.allowed_chat_ids or not user_id or sender.get("is_bot"):
             return False
-        if chat_id and chat_id in self.allowed_chat_ids:
-            return True
-        return bool(username) and f"@{username}".lower() in self.allowed_chat_ids
+        # Group members cannot inherit the owner's authority through a shared chat id.
+        if chat.get("type") != "private" or str(chat.get("id", "")) != user_id:
+            return False
+        return user_id in self.allowed_chat_ids
 
     def _report_rejected(self, message: dict):
-        chat_id = str(message.get("chat", {}).get("id", ""))
-        username = (message.get("from", {}) or {}).get("username") or "?"
-        if chat_id in self._reported_chats:
+        chat = message.get("chat", {}) or {}
+        sender = message.get("from", {}) or {}
+        user_id = str(sender.get("id", "?"))
+        key = (str(chat.get("id", "")), user_id)
+        if key in self._reported_chats:
             return
-        self._reported_chats.add(chat_id)
+        self._reported_chats.add(key)
+        where = f"chat {chat.get('id', '?')} ({chat.get('type', '?')})"
         if self.allowed_chat_ids:
-            print(f"[Telegram]: Mensaje rechazado de chat no autorizado {chat_id} (@{username}).")
+            print(f"[Telegram]: Mensaje rechazado del usuario {user_id} en {where}.")
         else:
-            print(f"[Telegram]: Sin allowlist configurada; rechazado chat {chat_id} (@{username}). "
-                  f"Si eres tú, añade \"{chat_id}\" a telegram.allowed_chat_ids en config.json.")
+            print(f"[Telegram]: Sin allowlist configurada; rechazado usuario {user_id} en {where}. "
+                  f"Si eres tú, escribe al bot en privado y añade \"{user_id}\" a "
+                  f"telegram.allowed_chat_ids en config.json.")
 
     def _redact(self, text) -> str:
         return redact_secret_text(str(text), [self.bot_token] if self.bot_token else [])

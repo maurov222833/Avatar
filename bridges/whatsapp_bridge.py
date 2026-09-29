@@ -262,10 +262,12 @@ class WhatsAppBridge:
                         self._deliver(sender=msg.sender, message_body=msg.text,
                                       response=shaped)
                     replied += 1
+                    # Solo marcar respondido tras éxito o supresión deliberada (F-19).
+                    self._replied_ids.add(msg.msg_id)
+                    self._save_state()
                 except Exception as exc:
+                    # No marcar: el mensaje debe poder reintentarse en el siguiente poll.
                     print(f"[WhatsAppBridge] fallo procesando {msg.msg_id}: {exc}")
-                self._replied_ids.add(msg.msg_id)
-                self._save_state()
             if heartbeat_cb is not None:
                 try:
                     heartbeat_cb({"polls": polls, "processed": processed,

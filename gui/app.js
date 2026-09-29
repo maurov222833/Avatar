@@ -42,7 +42,7 @@ function loadCodeIntoMonaco(codeText, language = "python", filename = "live_code
         panel.classList.remove("hidden");
     }
     
-    document.getElementById("code-viewer-filename").innerHTML = `<i class="fa-solid fa-code text-cyan-400"></i> ${filename}`;
+    document.getElementById("code-viewer-filename").innerHTML = `<i class="fa-solid fa-code text-cyan-400"></i> ${escapeHtml(String(filename || ""))}`;
     
     if (monacoEditorInstance) {
         monaco.editor.setModelLanguage(monacoEditorInstance.getModel(), language);
@@ -186,7 +186,7 @@ async function loadProjects() {
                 const item = document.createElement("div");
                 item.className = "px-2 py-1.5 rounded hover:bg-gray-800/60 text-gray-300 flex items-center space-x-2 cursor-pointer";
                 item.onclick = () => selectProject(proj);
-                item.innerHTML = `<i class="fa-solid fa-folder text-cyan-400"></i> <span>${proj}</span>`;
+                item.innerHTML = `<i class="fa-solid fa-folder text-cyan-400"></i> <span>${escapeHtml(String(proj))}</span>`;
                 listEl.appendChild(item);
             });
         }
@@ -345,14 +345,14 @@ function appendAvatarMessage(markdownText, provider = "gemini") {
     const msgDiv = document.createElement("div");
     msgDiv.className = "flex justify-start mb-4";
     
-    const parsedHtml = marked.parse(markdownText);
+    const parsedHtml = sanitizeMarkdownHtml(marked.parse(markdownText || ""));
     const msgId = "msg-" + Date.now();
     
     msgDiv.innerHTML = `
         <div class="max-w-3xl chat-bubble-avatar p-5 text-gray-200 text-sm shadow-xl w-full relative">
             <div class="text-[11px] text-emerald-400 font-bold mb-2 flex items-center justify-between border-b border-gray-800 pb-2">
                 <span class="flex items-center gap-1.5">
-                    <i class="fa-solid fa-atom text-cyan-400"></i> AVATAR ENGINE (${provider.toUpperCase()})
+                    <i class="fa-solid fa-atom text-cyan-400"></i> AVATAR ENGINE (${escapeHtml(String(provider || "").toUpperCase())})
                 </span>
                 <div class="flex items-center space-x-2">
                     <button onclick="copyMessageText('${msgId}')" class="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 text-[10px] flex items-center gap-1 transition">
@@ -522,5 +522,23 @@ function showAppInfo() {
 }
 
 function escapeHtml(str) {
-    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    return String(str == null ? "" : str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+/** F-07: never insert model/markdown HTML without sanitizing scripts/handlers. */
+function sanitizeMarkdownHtml(html) {
+    if (window.DOMPurify && typeof window.DOMPurify.sanitize === "function") {
+        return window.DOMPurify.sanitize(html, {
+            USE_PROFILES: { html: true },
+            FORBID_TAGS: ["script", "iframe", "object", "embed", "form"],
+            FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "style"],
+        });
+    }
+    // Fallback if CDN blocked: escape everything (safe, loses formatting).
+    return escapeHtml(html);
 }

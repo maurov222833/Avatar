@@ -721,10 +721,17 @@ class LLMProvider:
 
     def generate_response_with_tools(self, system_prompt: str, contents: List[Dict[str, Any]], tools: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         res = self._generate_response_with_tools_unredacted(system_prompt, contents, tools)
-        if isinstance(res, dict) and res.get("type") == "provider_error":
-            res = dict(res)
-            res["error"] = self.redact(res.get("error", ""))
-        return res
+        return self._redact_structure(res, self._known_secrets())
+
+    @staticmethod
+    def _redact_structure(value, secrets):
+        if isinstance(value, str):
+            return redact_secret_text(value, secrets)
+        if isinstance(value, dict):
+            return {k: LLMProvider._redact_structure(v, secrets) for k, v in value.items()}
+        if isinstance(value, list):
+            return [LLMProvider._redact_structure(v, secrets) for v in value]
+        return value
 
     def _generate_response_with_tools_unredacted(self, system_prompt: str, contents: List[Dict[str, Any]], tools: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         provider = self.get_active_provider()

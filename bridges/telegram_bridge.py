@@ -60,9 +60,11 @@ class TelegramBridge:
     def is_authorized(self, message: dict) -> bool:
         chat = message.get("chat", {}) or {}
         sender = message.get("from", {}) or {}
-        user_id = str(sender.get("id", ""))
-        if not self.allowed_chat_ids or not user_id or sender.get("is_bot"):
+        if not self.allowed_chat_ids or sender.get("is_bot") is not False:
             return False
+        if not isinstance(sender.get("id"), int) or isinstance(sender.get("id"), bool):
+            return False
+        user_id = str(sender["id"])
         # Group members cannot inherit the owner's authority through a shared chat id.
         if chat.get("type") != "private" or str(chat.get("id", "")) != user_id:
             return False

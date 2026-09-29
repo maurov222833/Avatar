@@ -445,7 +445,7 @@ class WhatsAppWebReader:
         # "[12:03, 28/09/2026] Mauro: " -> ("Mauro", "12:03 28/09/2026")
         try:
             head, _, sender = meta.partition("] ")
-            return sender.strip().rstrip(":").strip() or "?", head.lstrip("[").strip()
+            return sender.strip().removesuffix(":").strip() or "?", head.lstrip("[").strip()
         except Exception:
             return "?", ""
 

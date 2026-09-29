@@ -94,6 +94,7 @@ def _msg(mid, sender, text, incoming=True):
 
 def _bridge(reader, **kw):
     tmp = tempfile.mkdtemp(prefix="avatar_wa_state_")
+    kw.setdefault("authorized_senders", ["Mauro"])
     b = WhatsAppBridge(reader=reader, poll_seconds=0,
                        state_path=os.path.join(tmp, "state.json"), **kw)
     b.orchestrator.process_user_input = lambda text: f"eco: {text}"
@@ -216,7 +217,7 @@ class TestLiveLoop(unittest.TestCase):
     def test_max_replies_none_means_unlimited(self):
         with _TempWorld():
             reader = FakeReader([[ _msg("a1", "M", "uno") ], [ _msg("a2", "M", "dos") ]])
-            b = _bridge(reader, max_replies=None)
+            b = _bridge(reader, max_replies=None, authorized_senders=["M"])
             n = []
             b.orchestrator.process_user_input = lambda m: n.append(m) or "ok"
             b._deliver = lambda **k: "d"

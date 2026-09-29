@@ -48,9 +48,11 @@ class WhatsAppBridge:
         self.orchestrator = AvatarOrchestrator()
         self.reader = reader  # inyectable para tests; si None se crea al arrancar
         self.state_path = state_path
+        # None = solo el propio chat objetivo (en un chat 1:1 el remitente entrante lleva el
+        # nombre del chat). En un grupo cualquier otro remitente queda rechazado.
         self.authorized_senders = (
             list(authorized_senders) if authorized_senders is not None else None
-        )  # None = cualquiera en el chat objetivo (chat 1:1 de Mauro)
+        )
         self.poll_seconds = poll_seconds
         self.max_replies = max_replies
         self.observe_only = observe_only
@@ -208,6 +210,8 @@ class WhatsAppBridge:
         processed = 0
         replied = 0
         stop_file = stop_path or os.path.join(base_dir, "memory", "AVATAR_WA_STOP")
+        allowed_senders = (self.authorized_senders if self.authorized_senders is not None
+                           else [target_chat])
         while not self._stop:
             if max_polls and polls >= max_polls:
                 break
@@ -231,8 +235,8 @@ class WhatsAppBridge:
                     continue
                 if msg.msg_id in self._replied_ids:
                     continue  # dedup: ya respondido (o descartado) antes
-                if (self.authorized_senders is not None
-                        and msg.sender not in self.authorized_senders):
+                # Los salientes salen de la cuenta del dueño; solo los entrantes se filtran.
+                if msg.incoming and msg.sender not in allowed_senders:
                     print(f"[WhatsAppBridge] remitente no autorizado: {msg.sender}")
                     self._replied_ids.add(msg.msg_id)
                     self._save_state()

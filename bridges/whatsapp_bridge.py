@@ -16,7 +16,7 @@ if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
     except Exception:
         pass
 
-from core.orchestrator import AvatarOrchestrator
+from core.runtime import get_shared_orchestrator
 from tools.whatsapp_auto_reply import WhatsAppAutoReply
 from bridges.whatsapp_reader import (
     WhatsAppReadError,
@@ -43,9 +43,10 @@ class WhatsAppBridge:
                  reader=None, state_path: str = DEFAULT_STATE_PATH,
                  authorized_senders=None, poll_seconds: int = 8,
                  max_replies: int = 50, observe_only: bool = False,
-                 respond_to_own_outgoing: bool = False):
+                 respond_to_own_outgoing: bool = False,
+                 orchestrator=None):
         self.bridge_url = bridge_url
-        self.orchestrator = AvatarOrchestrator()
+        self.orchestrator = orchestrator if orchestrator is not None else get_shared_orchestrator()
         self.reader = reader  # inyectable para tests; si None se crea al arrancar
         self.state_path = state_path
         # None = solo el propio chat objetivo (en un chat 1:1 el remitente entrante lleva el

@@ -165,7 +165,8 @@ class TestWhatsAppSurface(unittest.TestCase):
         from bridges.whatsapp_bridge import WhatsAppBridge
 
         with _TempWorld():
-            bridge = WhatsAppBridge()
+            # Own orchestrator so policy/LLM stubs do not mutate the process singleton (F-16).
+            bridge = WhatsAppBridge(orchestrator=AvatarOrchestrator())
             # Denegación hermética: no depende del config de la máquina.
             bridge.orchestrator.chokepoint.policy.allow_external_messages = False
             bridge.orchestrator.chokepoint.policy.dry_run = True

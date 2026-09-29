@@ -11,7 +11,7 @@ if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
     except Exception:
         pass
 
-from core.orchestrator import AvatarOrchestrator
+from core.runtime import get_shared_orchestrator
 from core.redaction import redact_secret_text
 from tools.reasoning_engine import ReasoningEngine
 
@@ -27,7 +27,7 @@ class TelegramBridge:
     registra el ID de quien escribe, para que el dueño pueda añadir el suyo.
     """
     def __init__(self, bot_token: str = None, allowed_chat_id: str = None,
-                 allowed_chat_ids=None):
+                 allowed_chat_ids=None, orchestrator=None):
         from core.paths import config_path as resolve_config_path
         self.config_path = resolve_config_path()
         self.bot_token = bot_token or self._load_token_from_config()
@@ -38,7 +38,7 @@ class TelegramBridge:
         ignored = [e for e in entries if str(e).strip() and not str(e).strip().isdigit()]
         if ignored:
             print(f"[Telegram]: Entradas de allowlist ignoradas (se requiere ID numérico): {ignored}")
-        self.orchestrator = AvatarOrchestrator()
+        self.orchestrator = orchestrator if orchestrator is not None else get_shared_orchestrator()
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}" if self.bot_token else ""
         self.last_update_id = 0
         self._reported_chats = set()

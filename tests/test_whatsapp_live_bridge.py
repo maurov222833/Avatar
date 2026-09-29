@@ -93,8 +93,11 @@ def _msg(mid, sender, text, incoming=True):
 
 
 def _bridge(reader, **kw):
+    from core.orchestrator import AvatarOrchestrator
     tmp = tempfile.mkdtemp(prefix="avatar_wa_state_")
     kw.setdefault("authorized_senders", ["Mauro"])
+    # Fresh orchestrator per bridge so stubs do not mutate the process singleton (F-16).
+    kw.setdefault("orchestrator", AvatarOrchestrator())
     b = WhatsAppBridge(reader=reader, poll_seconds=0,
                        state_path=os.path.join(tmp, "state.json"), **kw)
     b.orchestrator.process_user_input = lambda text, **kw: f"eco: {text}"

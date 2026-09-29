@@ -2,6 +2,7 @@ import json
 import re
 import sys
 import os
+import threading
 from typing import Dict, Any, List, Optional
 import datetime
 import hashlib
@@ -196,6 +197,9 @@ class AvatarOrchestrator:
             self.capability_registry = CapabilityEvidenceRegistry()
         self.history = self.memory.load_history()
         self.config = self._load_config()
+        # Serializes turns so concurrent HTTP/bridge callers cannot interleave
+        # history appends or mission fields on this instance (F-16).
+        self._input_lock = threading.RLock()
         # The chokepoint is the single sanctioned route to a side effect. It is built eagerly
         # so that "what can Avatar do" is answerable from a running instance, and so that a
         # configuration error surfaces at startup rather than mid-turn.
@@ -248,6 +252,10 @@ class AvatarOrchestrator:
     MULTI_TASK_PREFIX = "avatar-exec:"
 
     def process_user_input(self, user_input: str, max_steps: int = 5, channel: str = "local") -> str:
+        with self._input_lock:
+            return self._process_user_input_unlocked(user_input, max_steps=max_steps, channel=channel)
+
+    def _process_user_input_unlocked(self, user_input: str, max_steps: int = 5, channel: str = "local") -> str:
         # 0. Clasificar tipo de interacción PRIMERO (Autoridad Semántica de Precedencia)
         interaction_type = SemanticMissionEngine.classify_interaction(user_input)
         print(f"[AvatarOrchestrator]: Clasificación Semántica -> InteractionType.{interaction_type.value}")

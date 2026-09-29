@@ -16,7 +16,6 @@ try:
 except ImportError:
     RICH_AVAILABLE = False
 
-from core.orchestrator import AvatarOrchestrator
 
 def print_banner(console, orchestrator):
     cfg = orchestrator.llm.config
@@ -135,7 +134,8 @@ def run_cli():
             pass
 
     console = Console(force_terminal=True, color_system="truecolor") if RICH_AVAILABLE else None
-    orchestrator = AvatarOrchestrator()
+    from core.runtime import get_shared_orchestrator
+    orchestrator = get_shared_orchestrator()
     try:
         interactive = sys.stdin is not None and sys.stdin.isatty()
     except Exception:

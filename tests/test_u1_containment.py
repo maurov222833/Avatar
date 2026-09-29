@@ -235,8 +235,13 @@ class TestTelegramAllowlist(unittest.TestCase):
 
     def _bridge(self, **kw):
         from bridges.telegram_bridge import TelegramBridge
+        from core.orchestrator import AvatarOrchestrator
         with mock.patch.dict(os.environ, {"TELEGRAM_ALLOWED_CHAT_IDS": ""}):
-            b = TelegramBridge(bot_token="123456:TEST", **kw)
+            b = TelegramBridge(
+                bot_token="123456:TEST",
+                orchestrator=AvatarOrchestrator(),
+                **kw,
+            )
         b.sent = []
         b.send_message = lambda chat_id, text: b.sent.append((chat_id, text))
         b.send_photo = lambda chat_id, path, caption="": b.sent.append((chat_id, "PHOTO"))
@@ -281,8 +286,9 @@ class TestTelegramAllowlist(unittest.TestCase):
 
     def test_allowlist_from_env(self):
         from bridges.telegram_bridge import TelegramBridge
+        from core.orchestrator import AvatarOrchestrator
         with _TempWorld(), mock.patch.dict(os.environ, {"TELEGRAM_ALLOWED_CHAT_IDS": "111, 444"}):
-            b = TelegramBridge(bot_token="123456:TEST")
+            b = TelegramBridge(bot_token="123456:TEST", orchestrator=AvatarOrchestrator())
             self.assertTrue(b.is_authorized(_tg_message(user_id=444)))
             self.assertFalse(b.is_authorized(_tg_message(user_id=555)))
 
@@ -311,9 +317,13 @@ class TestTelegramAllowlist(unittest.TestCase):
 
     def test_loop_errors_do_not_print_the_token(self):
         from bridges.telegram_bridge import TelegramBridge
+        from core.orchestrator import AvatarOrchestrator
         with _TempWorld():
-            b = TelegramBridge(bot_token="987654321:AAHsecretTOKENvalue_abcdefghijklmnop",
-                               allowed_chat_ids=["111"])
+            b = TelegramBridge(
+                bot_token="987654321:AAHsecretTOKENvalue_abcdefghijklmnop",
+                allowed_chat_ids=["111"],
+                orchestrator=AvatarOrchestrator(),
+            )
             err = requests.ConnectionError(
                 f"HTTPSConnectionPool: Max retries exceeded with url: {b.base_url}/getUpdates")
             self.assertNotIn("AAHsecretTOKEN", b._redact(err))
@@ -339,8 +349,14 @@ class TestWhatsAppDefaultSenders(unittest.TestCase):
                 return self.batches.pop(0) if self.batches else []
 
         with _TempWorld() as world:
-            b = WhatsAppBridge(reader=Reader(), poll_seconds=0, respond_to_own_outgoing=True,
-                               state_path=os.path.join(world.dir, "state.json"))
+            from core.orchestrator import AvatarOrchestrator
+            b = WhatsAppBridge(
+                reader=Reader(),
+                poll_seconds=0,
+                respond_to_own_outgoing=True,
+                state_path=os.path.join(world.dir, "state.json"),
+                orchestrator=AvatarOrchestrator(),
+            )
             seen = []
             b.orchestrator.process_user_input = lambda m, **kw: seen.append(m) or "ok"
             b._deliver = lambda **k: "delivered"
@@ -364,8 +380,13 @@ class TestWhatsAppDefaultSenders(unittest.TestCase):
         reader = WhatsAppWebReader(profile_dir=tempfile.mkdtemp())
         reader._page = Page()
         with _TempWorld() as world:
-            b = WhatsAppBridge(reader=reader, poll_seconds=0,
-                               state_path=os.path.join(world.dir, "state.json"))
+            from core.orchestrator import AvatarOrchestrator
+            b = WhatsAppBridge(
+                reader=reader,
+                poll_seconds=0,
+                state_path=os.path.join(world.dir, "state.json"),
+                orchestrator=AvatarOrchestrator(),
+            )
             seen = []
             b.orchestrator.process_user_input = lambda m, **kw: seen.append(m) or "ok"
             b._deliver = lambda **k: "delivered"

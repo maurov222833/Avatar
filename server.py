@@ -14,7 +14,7 @@ from typing import Optional, List, Dict
 # Asegurar path de Avatar
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from core.orchestrator import AvatarOrchestrator
+from core.runtime import get_shared_orchestrator
 from tools.shell_tool import ShellTool
 from tools.file_tool import FileTool
 from core.paths import config_path as resolve_config_path, projects_base
@@ -71,8 +71,8 @@ async def local_http_guard(request: Request, call_next):
         return JSONResponse({"detail": "HTTP_TOKEN_REQUIRED"}, status_code=401)
     return await call_next(request)
 
-# Instancia del Orquestador
-orchestrator = AvatarOrchestrator()
+# Instancia del Orquestador (única en el proceso; puentes Telegram/WhatsApp la reutilizan)
+orchestrator = get_shared_orchestrator()
 
 # ----------------------------------------------------------------------
 # Secret redaction

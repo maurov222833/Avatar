@@ -640,8 +640,14 @@ class LLMProvider:
         self.load_config()
         self.manager = ProviderManager(self)
 
-    def _load_env(self):
-        env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    def _load_env(self, env_path: str = None):
+        """Load `.env` without overriding variables already set in the process.
+
+        A test or a shell export must win over the file. Otherwise a developer's real
+        key replaces the fake key a test just installed, and the test calls the real provider.
+        """
+        env_path = env_path or os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
         if os.path.exists(env_path):
             try:
                 with open(env_path, "r", encoding="utf-8") as f:
@@ -651,7 +657,8 @@ class LLMProvider:
                             k, v = line.split("=", 1)
                             k_str = k.strip()
                             v_str = v.strip().strip("'\"")
-                            os.environ[k_str] = v_str
+                            if k_str and v_str and not os.environ.get(k_str):
+                                os.environ[k_str] = v_str
             except Exception:
                 pass
 

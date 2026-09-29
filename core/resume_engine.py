@@ -186,7 +186,11 @@ class ResumeEngine:
         mission = self.state_db.get_mission(mission_id)
         
         if status == MissionResumeStatus.ACTIVE_MISSION_COMPLETED:
-            return {"status": "COMPLETED", "mission_id": mission_id, "message": "La misión ya fue completada exitosamente.", "executed_trace": [], "target_task": None}
+            # The tasks are finished. The reported status is the one the gate persisted,
+            # which can be BLOCKED or still open when the seal does not authorize completion.
+            persisted = (mission or {}).get("status") or "IN_PROGRESS"
+            return {"status": persisted, "mission_id": mission_id, "message": reason,
+                    "executed_trace": [], "target_task": None}
 
         if status == MissionResumeStatus.ACTIVE_MISSION_UNCERTAIN:
             return {"status": "UNCERTAIN_EXECUTION", "mission_id": mission_id, "target_task": target_task, "reason": reason, "executed_trace": []}

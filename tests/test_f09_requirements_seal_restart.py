@@ -156,6 +156,55 @@ class TestF09RequirementsSealRestart(unittest.TestCase):
             persisted = self.engine.update_mission_status(mission_id)
             self.assertEqual(persisted, expected, seal)
 
+    def test_resume_does_not_report_completion_for_a_forged_seal(self):
+        mission = self.engine.create_mission(
+            mission_id="msn-resume-forged",
+            raw_prompt="probe",
+            required_capabilities=["CAP_STATE_ENGINE"],
+        )
+        self.engine.create_planner_task(
+            task_id="task-verified",
+            mission_id=mission,
+            step_index=0,
+            description="hecha",
+            tool_name="LIST_DIR",
+            tool_args={"path": "."},
+            status="VERIFIED",
+        )
+        forged = "v2:0000000000000000:" + ("ab" * 32)
+        with self.engine._lock:
+            conn = self.engine._get_connection()
+            conn.execute(
+                "UPDATE missions SET required_capabilities='[]', requirements_declared=0,"
+                " requirements_seal=? WHERE mission_id=?",
+                (forged, mission),
+            )
+            conn.commit()
+        result = ResumeEngine(state_db=self.engine).resume_active_mission(mission)
+        self.assertNotIn(result["status"], ("COMPLETED", "NO_REQUIREMENTS_DECLARED"))
+        self.assertEqual(self.engine.get_mission(mission)["status"], "BLOCKED")
+
+    def test_status_write_matches_the_row_that_was_checked(self):
+        mission = self.engine.create_mission(
+            mission_id="msn-race",
+            raw_prompt="probe",
+            declare_no_requirements=True,
+        )
+        snapshot = self.engine.get_mission(mission)
+        with self.engine._lock:
+            conn = self.engine._get_connection()
+            conn.execute(
+                "UPDATE missions SET required_capabilities='[]', requirements_declared=0,"
+                " requirements_seal='' WHERE mission_id=?",
+                (mission,),
+            )
+            conn.commit()
+        persisted = self.engine._persist_mission_status(
+            mission, "NO_REQUIREMENTS_DECLARED", snapshot=snapshot
+        )
+        self.assertEqual(persisted, "BLOCKED")
+        self.assertEqual(self.engine.get_mission(mission)["status"], "BLOCKED")
+
 
 if __name__ == "__main__":
     if len(sys.argv) == 2 and sys.argv[1].endswith(".db"):

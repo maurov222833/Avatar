@@ -31,15 +31,8 @@ from core.cognitive.gate_types import MissionGateResult, MissionStatus
 from core.state_db import StateEngine
 
 
-def read_mission_requirements(state_db: StateEngine, mission_id: str) -> Tuple[List[str], bool]:
-    """
-    Read the sovereign requirement set for a mission.
-
-    Returns `(required_capabilities, requirements_declared)`. When the mission row is absent
-    an empty, *declared* requirement set is not assumed: the caller must handle the missing
-    mission explicitly.
-    """
-    row = state_db.get_mission(mission_id)
+def requirements_from_row(row: Optional[Dict[str, Any]]) -> Tuple[List[str], bool]:
+    """Requirements as stored on one mission row. A missing row is not a declared empty set."""
     if not row:
         return [], False
     raw = row.get("required_capabilities")
@@ -54,6 +47,17 @@ def read_mission_requirements(state_db: StateEngine, mission_id: str) -> Tuple[L
         caps = []
     declared = bool(row.get("requirements_declared", 1))
     return [str(c) for c in caps], declared
+
+
+def read_mission_requirements(state_db: StateEngine, mission_id: str) -> Tuple[List[str], bool]:
+    """
+    Read the sovereign requirement set for a mission.
+
+    Returns `(required_capabilities, requirements_declared)`. When the mission row is absent
+    an empty, *declared* requirement set is not assumed: the caller must handle the missing
+    mission explicitly.
+    """
+    return requirements_from_row(state_db.get_mission(mission_id))
 
 
 def requirements_are_intact(state_db: StateEngine, mission_id: str) -> bool:

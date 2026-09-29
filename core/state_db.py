@@ -231,11 +231,10 @@ class StateEngine:
         direct SQL edit that empties the requirement list is detectable on the next read.
 
         LIMITATION, stated precisely: this detects *inconsistency*, it does not stop an
-        adversary. Anyone able to write to the SQLite file, or to call the signing helper,
-        can recompute a valid seal. Protection against that adversary requires an
-        out-of-process boundary, which is out of scope here. What this does guarantee is
-        that requirements cannot be quietly rewritten by a path that does not know about the
-        seal, and that such tampering blocks completion rather than silently succeeding.
+        adversary who can read the seal-key file beside the database and rewrite the row.
+        A SQL edit that only changes the requirement columns, or that plants another
+        key id, fails the check and blocks completion. A legacy 64-hex seal cannot be
+        checked: the mission stays open and is not marked complete.
         """
         mac = self._seal_mac({
             "mission_id": mission_id,
@@ -564,7 +563,7 @@ class StateEngine:
         from core.cognitive.gate_authorization import GateAuthorization
         from core.cognitive.mission_completion_gate import (
             MissionCompletionGate,
-            read_mission_requirements,
+            requirements_from_row,
         )
         from core.cognitive.capability_registry import CapabilityEvidenceRegistry
 
@@ -572,7 +571,7 @@ class StateEngine:
         if not mission:
             raise KeyError(f"Mission not found: {mission_id}")
 
-        required_capabilities, requirements_declared = read_mission_requirements(self, mission_id)
+        required_capabilities, requirements_declared = requirements_from_row(mission)
         registry = CapabilityEvidenceRegistry(state_db=self)
 
         # D-5: a bad seal must not be completed and must not be reinterpreted as
@@ -632,25 +631,57 @@ class StateEngine:
         final_status = verdict.mission_status
         if final_status == "MISSION_COMPLETED":
             final_status = "COMPLETED"
-        return self._persist_mission_status(mission_id, final_status)
+        return self._persist_mission_status(mission_id, final_status, snapshot=mission)
 
-    def _persist_mission_status(self, mission_id: str, final_status: str) -> str:
-        """Single write path for a mission's persisted status (D-6)."""
+    def _persist_mission_status(
+        self,
+        mission_id: str,
+        final_status: str,
+        snapshot: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """
+        Single write path for a mission's persisted status (D-6).
+
+        When `snapshot` is given, the write lands only if the requirement columns and
+        the seal are still the ones that were evaluated. A concurrent edit does not
+        inherit that verdict.
+        """
         now = self._timestamp()
+        applied = False
         with self._lock:
             conn = self._get_connection()
             try:
                 cursor = conn.cursor()
-                cursor.execute(
-                    "UPDATE missions SET status = ?, updated_at = ? WHERE mission_id = ?",
-                    (final_status, now, mission_id)
-                )
+                if snapshot is None:
+                    cursor.execute(
+                        "UPDATE missions SET status = ?, updated_at = ? WHERE mission_id = ?",
+                        (final_status, now, mission_id)
+                    )
+                    applied = True
+                else:
+                    cursor.execute(
+                        """UPDATE missions SET status = ?, updated_at = ?
+                           WHERE mission_id = ?
+                             AND required_capabilities = ?
+                             AND requirements_declared = ?
+                             AND requirements_seal = ?""",
+                        (final_status, now, mission_id,
+                         snapshot.get("required_capabilities") or "[]",
+                         int(snapshot.get("requirements_declared") or 0),
+                         snapshot.get("requirements_seal") or "")
+                    )
+                    applied = cursor.rowcount == 1
                 conn.commit()
                 cursor.close()
             except Exception as e:
                 conn.rollback()
                 raise e
-        return final_status
+        if applied:
+            return final_status
+        fresh = self.get_mission(mission_id)
+        if fresh and self.requirements_seal_state(fresh) == "tampered":
+            return self._persist_mission_status(mission_id, "BLOCKED")
+        return (fresh or {}).get("status") or "IN_PROGRESS"
 
     def complete_mission_with_authorization(
         self,

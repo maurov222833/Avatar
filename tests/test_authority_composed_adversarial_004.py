@@ -464,7 +464,7 @@ class TestGroupERequirements(ComposedBase):
         certify_state_engine(self.db, self.registry, mission)
         original = self.db._persist_mission_status
 
-        def exploding(mission_id, status):
+        def exploding(mission_id, status, snapshot=None):
             raise RuntimeError("simulated storage failure")
 
         self.db._persist_mission_status = exploding

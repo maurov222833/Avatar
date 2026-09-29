@@ -323,7 +323,7 @@ class TestCheckpointResumePhase2(unittest.TestCase):
         self.assertEqual([e["task_id"] for e in first["executed_trace"]], ["T1"])
 
         second = self.resume_engine.resume_active_mission(msn_id, tool_dispatcher=lambda tool, args: "SHOULD NOT RUN")
-        self.assertEqual(second["status"], "COMPLETED")
+        self.assertEqual(second["status"], "NO_REQUIREMENTS_DECLARED")
         self.assertEqual(second["executed_trace"], [])
 
 if __name__ == "__main__":

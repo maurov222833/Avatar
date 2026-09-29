@@ -91,21 +91,24 @@ _COMMAND_CHAINING_TOKENS = (";", "&", "|", "`", "$", "(", ")", "{", "}", ">", "<
 
 def command_matches_allowlist(command: str, allowlist: Tuple[str, ...]) -> bool:
     """
-    True only if `command` is an allowlisted command, optionally followed by plain arguments.
+    True only if `command` is exactly one allowlisted command line.
 
-    Matching is case-insensitive on whitespace-normalised text, and any chaining or
-    redirection token disqualifies the command, so `git status; Remove-Item x` never matches
-    an allowlist entry of `git status`.
+    Matching is case-insensitive on whitespace-normalised text. Arguments are never implied:
+    options such as `git diff --output=...`, `--ext-diff` or `Get-ChildItem Env:` change what
+    a command does, so each permitted invocation must be listed in full. Chaining and
+    evaluation tokens disqualify a command even if an entry contains them.
     """
-    text = " ".join((command or "").split())
-    if not text or any(tok in (command or "") for tok in _COMMAND_CHAINING_TOKENS):
+    if any(tok in (command or "") for tok in _COMMAND_CHAINING_TOKENS):
         return False
-    lowered = text.lower()
-    for entry in allowlist or ():
-        norm = " ".join((entry or "").split()).lower()
-        if norm and (lowered == norm or lowered.startswith(norm + " ")):
-            return True
-    return False
+    text = " ".join((command or "").split()).lower()
+    if not text:
+        return False
+    return any(text == " ".join((entry or "").split()).lower() for entry in allowlist or ())
+
+
+def _touches_git_dir(path: str) -> bool:
+    parts = os.path.normcase(os.path.abspath(path)).replace("\\", "/").split("/")
+    return ".git" in parts or ".gitconfig" in parts
 
 
 def _is_within_root(target: str, root: str) -> bool:
@@ -153,6 +156,9 @@ class ActPolicy:
             if command_matches_allowlist(command, self.exec_allowlist):
                 return True, "ALLOWED_BY_EXEC_ALLOWLIST"
             return False, EXEC_APPROVAL_REASON
+        if act_type == "WRITE_FILE" and _touches_git_dir(args.get("file_path") or ""):
+            # Git config and hooks run code on later, allowlisted git commands.
+            return False, "WRITE_TO_GIT_METADATA_DENIED"
         if risk == ActRisk.LOCAL_WRITE and self.allowed_workspace_root:
             root = os.path.abspath(self.allowed_workspace_root)
             target = args.get("file_path") or args.get("audio_source") or ""

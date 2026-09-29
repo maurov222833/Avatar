@@ -117,9 +117,26 @@ class TestExecPolicy(unittest.TestCase):
         for alias in ("C:/repo/.git./hooks/pre-commit", "C:/repo/.git /hooks/x",
                       "C:/repo/.GIT.../config", "C:/Users/m/.gitconfig.",
                       "C:/Users/m/.gitconfig::$DATA", "C:/repo/.git::$INDEX_ALLOCATION/x",
-                      "C:/Users/m/.config/git/config", "C:/Program Files/Git/etc/gitconfig"):
+                      "C:/Program Files/Git/etc/gitconfig"):
             self.assertTrue(_is_git_metadata(_normalized_parts(alias)), alias)
-        self.assertFalse(_is_git_metadata(_normalized_parts("C:/repo/src/gitlab.py")))
+        xdg = tempfile.mkdtemp(prefix="avatar_xdg_")
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": xdg}):
+            self.assertFalse(policy.decide("WRITE_FILE", {
+                "file_path": os.path.join(xdg, "git", "config")})[0])
+            self.assertTrue(ActPolicy().decide("WRITE_FILE", {
+                "file_path": os.path.join(repo, "proj", ".config", "git", "README.md")})[0])
+
+    def test_git_guard_has_no_false_positives_on_ordinary_files(self):
+        from core.act_chokepoint import _is_git_metadata, _normalized_parts
+        for path in ("C:/repo/src/gitlab.py", "C:/repo/notes/gitconfig", "C:/repo/docs/GitConfig",
+                     "C:/repo/src/git/main.py", "C:/repo/my.gitconfig", "C:/repo/docs/.gitignore"):
+            self.assertFalse(_is_git_metadata(_normalized_parts(path)), path)
+        work = tempfile.mkdtemp(prefix="avatar_links_")
+        readme = os.path.join(work, "readme.txt")
+        with open(readme, "w") as f:
+            f.write("x")
+        os.link(readme, os.path.join(work, "readme-link.txt"))
+        self.assertTrue(ActPolicy().decide("WRITE_FILE", {"file_path": readme})[0])
 
     def test_approver_approves_and_rejects(self):
         cp, ran = _chokepoint()
@@ -432,6 +449,20 @@ class TestSecretRedaction(unittest.TestCase):
         res = self._tool_result({"functionCall": {"name": "WRITE_FILE", "args": dict(args)}})
         self.assertEqual(res["type"], "function_call")
         self.assertEqual(res["args"], args)
+
+    def test_short_configured_values_do_not_block_tool_calls(self):
+        from core.llm_provider import LLMProvider
+        p = LLMProvider(config_path=os.path.join(tempfile.mkdtemp(), "none.json"))
+        body = {"candidates": [{"content": {"parts": [{"functionCall": {
+            "name": "WRITE_FILE", "args": {"file_path": "a.py", "content": "print('hello')"}}}]}}]}
+        resp = mock.Mock(status_code=200, text="", json=lambda: body)
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "content"}), \
+                mock.patch("requests.post", return_value=resp):
+            p.config["default_provider"] = "gemini"
+            res = p.generate_response_with_tools(
+                "s", [{"role": "user", "parts": [{"text": "x"}]}],
+                [{"functionDeclarations": [{"name": "WRITE_FILE"}]}])
+        self.assertEqual(res["type"], "function_call")
 
     def test_text_responses_are_redacted(self):
         res = self._tool_result({"text": f"tu clave es {self.KEY}"})

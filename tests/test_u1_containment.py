@@ -182,7 +182,8 @@ class TestOrchestratorPolicy(unittest.TestCase):
             self.assertEqual(mode["exec"], "APPROVAL_REQUIRED")
             out = orch._dispatch_native_tool("COMMAND", {"command": "echo hi"})
             self.assertIn(EXEC_APPROVAL_REASON, out)
-            self.assertEqual(orch.chokepoint.list_acts()[-1]["status"], ActStatus.DENIED)
+            self.assertIn("PENDING_APPROVAL", out)
+            self.assertEqual(orch.chokepoint.list_acts()[-1]["status"], ActStatus.PENDING_APPROVAL)
 
     def test_config_allowlist_is_honored(self):
         from core.orchestrator import AvatarOrchestrator
@@ -213,7 +214,7 @@ class TestOrchestratorPolicy(unittest.TestCase):
                 orch._dispatch_native_tool("COMMAND", {"command": cmd})
             self.assertTrue(os.path.exists(target), "approved command must really run")
             statuses = [(a["policy_reason"], a["status"]) for a in orch.chokepoint.list_acts()]
-            self.assertEqual(statuses[0], (EXEC_APPROVAL_REASON, ActStatus.DENIED))
+            self.assertEqual(statuses[0], (EXEC_APPROVAL_REASON, ActStatus.PENDING_APPROVAL))
             self.assertEqual(statuses[1], ("APPROVED_BY_OPERATOR", ActStatus.OBSERVED))
 
     def test_cli_approver_defaults_to_no(self):

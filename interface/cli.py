@@ -34,9 +34,30 @@ def print_banner(console, orchestrator):
  [bold cyan] / /_\ \ |/ / /_\ | |/ _ \|   /  [/bold cyan]  [bold green]Version 1.0.0 (Antigravity Interactive TUI)[/bold green]
  [bold cyan]/_/   \_\___/_/   \_/_/ \_\_|_\\ [/bold cyan]  [dim]100% Privado | Multi-Modelo | Local Shell[/dim]
 """ + f"""
- 🧠 Motor Activo: {provider_badge}   🛡️ Seguridad: [bold green]Confirmación Humana ACTIVADA[/bold green]
+ 🧠 Motor Activo: {provider_badge}   🛡️ Seguridad: {_security_badge(orchestrator)}
     """
     console.print(Panel(banner_text, border_style="cyan", expand=False))
+
+def _security_badge(orchestrator) -> str:
+    mode = {}
+    try:
+        mode = orchestrator.operating_mode() or {}
+    except Exception:
+        mode = {}
+    exec_mode = mode.get("exec", "APPROVAL_REQUIRED")
+    pending_n = 0
+    try:
+        if orchestrator.chokepoint is not None:
+            pending_n = len(orchestrator.chokepoint.list_pending_approvals())
+    except Exception:
+        pending_n = 0
+    if exec_mode == "APPROVAL_REQUIRED":
+        base = "[bold green]Confirmación Humana ACTIVADA[/bold green]"
+    else:
+        base = "[bold red]Confirmación Humana DESACTIVADA[/bold red]"
+    if pending_n:
+        return f"{base}  ⏳ {pending_n} pendiente(s)"
+    return base
 
 def show_help(console):
     table = Table(title="📌 Comandos Interactivosa de Avatar Terminal", border_style="dim")
@@ -45,6 +66,9 @@ def show_help(console):
     
     table.add_row("/model [gemini|openai|ollama]", "Cambia al instante el cerebro de IA (Gemini, ChatGPT u Ollama).")
     table.add_row("/status", "Muestra el informe detallado del estado del sistema.")
+    table.add_row("/approvals", "Lista actos pendientes de tu aprobación.")
+    table.add_row("/approve <id>", "Aprueba y ejecuta un acto pendiente.")
+    table.add_row("/deny <id>", "Rechaza un acto pendiente.")
     table.add_row("/clear", "Limpia la pantalla y redibuja el panel principal.")
     table.add_row("/help", "Muestra esta guía de comandos.")
     table.add_row("/exit", "Cierra la sesión de Avatar.")
@@ -54,7 +78,18 @@ def show_help(console):
 def show_status(console, orchestrator):
     cfg = orchestrator.llm.config
     provider = cfg.get("default_provider", "gemini").upper()
-    
+    mode = {}
+    try:
+        mode = orchestrator.operating_mode() or {}
+    except Exception:
+        mode = {}
+    pending = []
+    try:
+        if orchestrator.chokepoint is not None:
+            pending = orchestrator.chokepoint.list_pending_approvals()
+    except Exception:
+        pending = []
+
     table = Table(title="⚙️ Estado del Sistema Avatar AI", border_style="green")
     table.add_column("Parámetro", style="bold yellow")
     table.add_column("Valor Configurado", style="white")
@@ -64,10 +99,25 @@ def show_status(console, orchestrator):
     table.add_row("Modelo Gemini", cfg.get("gemini", {}).get("model", "gemini-3.5-flash-lite"))
     table.add_row("Modelo OpenAI", cfg.get("openai", {}).get("model", "gpt-4o-mini"))
     table.add_row("Modelo Ollama Local", cfg.get("ollama", {}).get("model", "qwen2.5-coder:1.5b"))
-    table.add_row("Seguridad", "🛡️ Modo Confirmación Humana ACTIVADO")
-    table.add_row("Directorio de Trabajo", "b:\\PROYECTOS ANTIGRAVITY\\Avatar")
+    table.add_row("Modo", str(mode.get("mode", "?")))
+    table.add_row("EXEC", str(mode.get("exec", "?")))
+    table.add_row("Contaminado", "sí" if mode.get("context_contaminated") else "no")
+    table.add_row("Aprobaciones pendientes", str(len(pending)))
+    table.add_row("Seguridad", _security_badge(orchestrator))
+    try:
+        from core.paths import avatar_home
+        table.add_row("AVATAR_HOME", str(avatar_home()))
+    except Exception:
+        table.add_row("Directorio de Trabajo", os.getcwd())
 
     console.print(table)
+    if pending:
+        console.print("\n[bold yellow]Pendientes:[/bold yellow]")
+        for row in pending:
+            console.print(
+                f"  • {row['approval_id']}  {row['act_type']}  "
+                f"({row['reason']})  {row.get('request', '')[:80]}"
+            )
 
 def switch_model_menu(console, orchestrator, arg: str = ""):
     arg = arg.strip().lower()
@@ -195,13 +245,43 @@ def run_cli():
                 if RICH_AVAILABLE:
                     show_help(console)
                 else:
-                    print("Comandos disponibles: /model, /status, /help, /clear, /exit")
+                    print("Comandos: /model, /status, /approvals, /approve, /deny, /help, /clear, /exit")
                 continue
             elif cmd == "/status":
                 if RICH_AVAILABLE:
                     show_status(console, orchestrator)
                 else:
-                    print("Estado del sistema activo.")
+                    mode = orchestrator.operating_mode()
+                    pending = (
+                        orchestrator.chokepoint.list_pending_approvals()
+                        if orchestrator.chokepoint else []
+                    )
+                    print(f"modo={mode.get('mode')} exec={mode.get('exec')} pendientes={len(pending)}")
+                continue
+            elif cmd in ["/approvals", "/pending"]:
+                pending = (
+                    orchestrator.chokepoint.list_pending_approvals()
+                    if orchestrator.chokepoint else []
+                )
+                if not pending:
+                    print("No hay aprobaciones pendientes.")
+                else:
+                    for row in pending:
+                        print(f"{row['approval_id']}  {row['act_type']}  {row['reason']}  {row.get('request','')[:100]}")
+                continue
+            elif cmd in ["/approve", "/deny"]:
+                if not arg.strip():
+                    print(f"Uso: {cmd} <approval_id>")
+                    continue
+                if orchestrator.chokepoint is None:
+                    print("Chokepoint no disponible.")
+                    continue
+                result = orchestrator.chokepoint.resolve_approval(
+                    arg.strip(),
+                    approved=(cmd == "/approve"),
+                    resolver="cli",
+                )
+                print(result)
                 continue
             elif cmd in ["/clear", "cls", "clear"]:
                 os.system("cls" if os.name == "nt" else "clear")

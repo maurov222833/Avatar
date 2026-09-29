@@ -43,6 +43,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 class ActStatus:
     REQUESTED = "REQUESTED"
     DENIED = "DENIED"
+    PENDING_APPROVAL = "PENDING_APPROVAL"
     EXECUTED = "EXECUTED"
     FAILED = "FAILED"
     OBSERVED = "OBSERVED"
@@ -83,6 +84,7 @@ RISKS_REQUIRING_CONSENT = {ActRisk.EXTERNAL_MESSAGE}
 
 EXEC_APPROVAL_REASON = "EXEC_REQUIRES_OPERATOR_APPROVAL"
 CONTAMINATED_APPROVAL_REASON = "CONTAMINATED_CONTEXT_REQUIRES_APPROVAL"
+APPROVAL_GATE_REASONS = frozenset({EXEC_APPROVAL_REASON, CONTAMINATED_APPROVAL_REASON})
 
 #: Tools whose outputs are untrusted instruction sources (F-06 / D4).
 UNTRUSTED_INPUT_ACTS = frozenset({
@@ -424,6 +426,26 @@ class ActChokepoint:
                 "CREATE INDEX IF NOT EXISTS idx_acts_mission ON acts(mission_id)")
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_acts_created ON acts(created_at)")
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS approvals (
+                approval_id TEXT PRIMARY KEY,
+                act_id TEXT NOT NULL,
+                mission_id TEXT,
+                task_id TEXT,
+                execution_id TEXT,
+                act_type TEXT NOT NULL,
+                risk TEXT NOT NULL,
+                request TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                resolved_at TEXT,
+                resolver TEXT,
+                result TEXT
+            );
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status)")
             conn.commit()
 
     def _register_default_observers(self):
@@ -490,6 +512,218 @@ class ActChokepoint:
                 record.to_row())
             conn.commit()
 
+    def _persist_approval(
+        self,
+        *,
+        approval_id: str,
+        act_id: str,
+        mission_id: str,
+        task_id: str,
+        execution_id: str,
+        act_type: str,
+        risk: str,
+        request: Dict[str, Any],
+        reason: str,
+        status: str,
+        resolved_at: Optional[str] = None,
+        resolver: Optional[str] = None,
+        result: Optional[str] = None,
+    ) -> None:
+        if not self.state_db:
+            return
+        with self.state_db._lock:
+            conn = self.state_db._get_connection()
+            conn.execute(
+                "INSERT OR REPLACE INTO approvals ("
+                "approval_id, act_id, mission_id, task_id, execution_id, act_type, risk,"
+                " request, reason, status, created_at, resolved_at, resolver, result"
+                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    approval_id,
+                    act_id,
+                    mission_id or "",
+                    task_id or "",
+                    execution_id or "",
+                    act_type,
+                    risk,
+                    json.dumps(request, ensure_ascii=False)[:2000],
+                    reason,
+                    status,
+                    _now(),
+                    resolved_at,
+                    resolver,
+                    (result or "")[:4000] if result is not None else None,
+                ),
+            )
+            conn.commit()
+
+    def list_pending_approvals(self) -> List[Dict[str, Any]]:
+        return self.list_approvals(status="PENDING")
+
+    def list_approvals(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        if not self.state_db:
+            return []
+        with self.state_db._lock:
+            conn = self.state_db._get_connection()
+            if status:
+                cur = conn.execute(
+                    "SELECT * FROM approvals WHERE status = ? ORDER BY created_at",
+                    (status,),
+                )
+            else:
+                cur = conn.execute("SELECT * FROM approvals ORDER BY created_at")
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+    def get_approval(self, approval_id: str) -> Optional[Dict[str, Any]]:
+        if not self.state_db or not approval_id:
+            return None
+        with self.state_db._lock:
+            conn = self.state_db._get_connection()
+            cur = conn.execute(
+                "SELECT * FROM approvals WHERE approval_id = ?", (approval_id,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            cols = [d[0] for d in cur.description]
+            return dict(zip(cols, row))
+
+    def resolve_approval(
+        self,
+        approval_id: str,
+        approved: bool,
+        resolver: str = "operator",
+    ) -> Dict[str, Any]:
+        """
+        Approve or reject a queued act (F-18).
+
+        On approve, runs the original request through the registered executor and updates
+        both the approval row and the linked act record. On reject, marks both as denied.
+        """
+        row = self.get_approval(approval_id)
+        if row is None:
+            return {"ok": False, "error": "APPROVAL_NOT_FOUND", "approval_id": approval_id}
+        if row["status"] != "PENDING":
+            return {
+                "ok": False,
+                "error": "APPROVAL_NOT_PENDING",
+                "approval_id": approval_id,
+                "status": row["status"],
+            }
+
+        try:
+            request = json.loads(row["request"] or "{}")
+        except Exception:
+            request = {}
+
+        resolved_at = _now()
+        if not approved:
+            self._update_approval(
+                approval_id,
+                status="REJECTED",
+                resolved_at=resolved_at,
+                resolver=resolver,
+                result=None,
+            )
+            self._update_act_status(
+                row["act_id"],
+                status=ActStatus.DENIED,
+                policy_reason="REJECTED_BY_OPERATOR",
+            )
+            return {
+                "ok": True,
+                "approval_id": approval_id,
+                "status": "REJECTED",
+                "act_type": row["act_type"],
+                "result": None,
+            }
+
+        # Temporarily clear contamination / approval gates for this one resolved act:
+        # the operator already decided. Restore afterwards.
+        saved_contaminated = self.policy.context_contaminated
+        saved_exec = self.policy.exec_requires_approval
+        self.policy.context_contaminated = False
+        self.policy.exec_requires_approval = False
+        try:
+            output = self.perform(
+                act_type=row["act_type"],
+                args=request,
+                mission_id=row.get("mission_id") or "",
+                task_id=row.get("task_id") or "",
+                execution_id=row.get("execution_id") or "",
+            )
+        finally:
+            self.policy.context_contaminated = saved_contaminated
+            self.policy.exec_requires_approval = saved_exec
+
+        # The fresh perform() created a new act; keep the original pending act linked.
+        self._update_approval(
+            approval_id,
+            status="EXECUTED",
+            resolved_at=resolved_at,
+            resolver=resolver,
+            result=output,
+        )
+        self._update_act_status(
+            row["act_id"],
+            status=ActStatus.EXECUTED,
+            policy_reason="APPROVED_BY_OPERATOR",
+            executor_result=output,
+        )
+        return {
+            "ok": True,
+            "approval_id": approval_id,
+            "status": "EXECUTED",
+            "act_type": row["act_type"],
+            "result": output,
+        }
+
+    def _update_approval(
+        self,
+        approval_id: str,
+        *,
+        status: str,
+        resolved_at: str,
+        resolver: str,
+        result: Optional[str],
+    ) -> None:
+        if not self.state_db:
+            return
+        with self.state_db._lock:
+            conn = self.state_db._get_connection()
+            conn.execute(
+                "UPDATE approvals SET status = ?, resolved_at = ?, resolver = ?, result = ? "
+                "WHERE approval_id = ?",
+                (status, resolved_at, resolver, (result or "")[:4000] if result is not None else None,
+                 approval_id),
+            )
+            conn.commit()
+
+    def _update_act_status(
+        self,
+        act_id: str,
+        *,
+        status: str,
+        policy_reason: str,
+        executor_result: Optional[str] = None,
+    ) -> None:
+        if not self.state_db or not act_id:
+            return
+        with self.state_db._lock:
+            conn = self.state_db._get_connection()
+            if executor_result is not None:
+                conn.execute(
+                    "UPDATE acts SET status = ?, policy_reason = ?, executor_result = ? "
+                    "WHERE act_id = ?",
+                    (status, policy_reason, executor_result[:4000], act_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE acts SET status = ?, policy_reason = ? WHERE act_id = ?",
+                    (status, policy_reason, act_id),
+                )
+            conn.commit()
+
     # ---------------- the single entry point ----------------
     def perform(
         self,
@@ -521,17 +755,46 @@ class ActChokepoint:
         )
 
         allowed, reason = self.policy.decide(act_type, args or {})
-        if (
-            not allowed
-            and reason in (EXEC_APPROVAL_REASON, CONTAMINATED_APPROVAL_REASON)
-            and self.approver is not None
-        ):
-            try:
-                approved = bool(self.approver(act_type, dict(args or {})))
-            except Exception:
-                approved = False
-            allowed = approved
-            reason = "APPROVED_BY_OPERATOR" if approved else "REJECTED_BY_OPERATOR"
+        if not allowed and reason in APPROVAL_GATE_REASONS:
+            if self.approver is not None:
+                try:
+                    approved = bool(self.approver(act_type, dict(args or {})))
+                except Exception:
+                    approved = False
+                allowed = approved
+                reason = "APPROVED_BY_OPERATOR" if approved else "REJECTED_BY_OPERATOR"
+            else:
+                # No live operator on this surface: queue for later approval (F-18).
+                # Without a state DB there is nowhere to park the request — fail closed.
+                if self.state_db is None:
+                    record.policy_reason = reason
+                    record.status = ActStatus.DENIED
+                    return (
+                        f"[Bloqueado por política: {reason}] No se ejecutó '{act_type}'. "
+                        f"Solicitud: {json.dumps(args or {}, ensure_ascii=False)[:200]}"
+                    )
+                approval_id = f"apr_{uuid.uuid4().hex[:12]}"
+                record.policy_reason = reason
+                record.status = ActStatus.PENDING_APPROVAL
+                self._persist(record)
+                self._persist_approval(
+                    approval_id=approval_id,
+                    act_id=record.act_id,
+                    mission_id=record.mission_id,
+                    task_id=record.task_id,
+                    execution_id=record.execution_id,
+                    act_type=act_type,
+                    risk=risk,
+                    request=dict(args or {}),
+                    reason=reason,
+                    status="PENDING",
+                )
+                return (
+                    f"[PENDING_APPROVAL:{approval_id}] Motivo: {reason}. "
+                    f"No se ejecutó '{act_type}' aún. "
+                    f"Aprueba con /approve {approval_id} o POST /api/approvals/{approval_id}/resolve. "
+                    f"Solicitud: {json.dumps(args or {}, ensure_ascii=False)[:200]}"
+                )
         record.policy_reason = reason
         if not allowed:
             record.status = ActStatus.DENIED

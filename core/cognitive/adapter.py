@@ -20,6 +20,7 @@ from core.cognitive.models import (
 _DENIED_OR_ERROR_PREFIXES = (
     "[Bloqueado por política",
     "Bloqueado por política",
+    "[PENDING_APPROVAL:",
     "[DRY-RUN]",
     "[Seguridad]",
     "[Error",

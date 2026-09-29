@@ -271,6 +271,45 @@ def resume_mission(req: MissionResumeRequest):
         raise HTTPException(status_code=500, detail=str(e))
     return result
 
+class ApprovalResolveRequest(BaseModel):
+    approved: bool = True
+    resolver: Optional[str] = "http"
+
+
+@app.get("/api/approvals/pending")
+def list_pending_approvals():
+    """Lista actos que esperan confirmación humana (F-18)."""
+    if orchestrator.chokepoint is None:
+        return {"pending": []}
+    rows = orchestrator.chokepoint.list_pending_approvals()
+    # request is stored as JSON text; expose parsed when possible.
+    out = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["request"] = json.loads(row.get("request") or "{}")
+        except Exception:
+            pass
+        out.append(item)
+    return {"pending": out, "count": len(out)}
+
+
+@app.post("/api/approvals/{approval_id}/resolve")
+def resolve_approval(approval_id: str, req: ApprovalResolveRequest):
+    """Aprueba o rechaza un acto pendiente y, si procede, lo ejecuta."""
+    if orchestrator.chokepoint is None:
+        raise HTTPException(status_code=503, detail="chokepoint unavailable")
+    result = orchestrator.chokepoint.resolve_approval(
+        approval_id.strip(),
+        approved=bool(req.approved),
+        resolver=(req.resolver or "http"),
+    )
+    if not result.get("ok"):
+        code = 404 if result.get("error") == "APPROVAL_NOT_FOUND" else 409
+        raise HTTPException(status_code=code, detail=result)
+    return result
+
+
 @app.get("/api/whatsapp/status")
 def whatsapp_status():
     """

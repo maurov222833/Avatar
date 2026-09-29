@@ -102,9 +102,10 @@ class TestHttpSurface(unittest.TestCase):
             self.assertEqual(r.status_code, 200)
             acts = server.orchestrator.chokepoint.list_acts()
             self.assertEqual(acts[-1]["act_type"], "COMMAND")
-            self.assertEqual(acts[-1]["status"], ActStatus.DENIED,
-                             "commands need operator approval by default")
+            self.assertEqual(acts[-1]["status"], ActStatus.PENDING_APPROVAL,
+                             "commands need operator approval by default (queued, not silently denied)")
             self.assertEqual(acts[-1]["policy_reason"], "EXEC_REQUIRES_OPERATOR_APPROVAL")
+            self.assertIn("PENDING_APPROVAL", r.json()["output"])
 
             server.orchestrator.chokepoint.policy.exec_requires_approval = False
             r = client.post("/api/terminal/execute", json={"command": "echo AVATAR_ACCEPT_PROBE"}, headers=headers)
@@ -212,7 +213,8 @@ class TestLegacyTextPath(unittest.TestCase):
             orch = AvatarOrchestrator()
             out = orch._dispatch_tool_action("COMMAND", "echo LEGACY_DENY_PROBE")
             self.assertIn("EXEC_REQUIRES_OPERATOR_APPROVAL", out)
-            self.assertEqual(orch.chokepoint.list_acts()[-1]["status"], ActStatus.DENIED)
+            self.assertIn("PENDING_APPROVAL", out)
+            self.assertEqual(orch.chokepoint.list_acts()[-1]["status"], ActStatus.PENDING_APPROVAL)
 
     def test_text_parsed_whatsapp_is_blocked(self):
         """Proves: the legacy path cannot bypass the external-effect policy either."""

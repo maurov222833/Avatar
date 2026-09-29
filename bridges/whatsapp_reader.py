@@ -425,7 +425,8 @@ class WhatsAppWebReader:
                 continue
             meta = r.get("meta") or ""
             sender, timestamp = self._parse_meta(meta)
-            base = _synthetic_id(bool(r.get("incoming")), sender, timestamp, text)
+            base = _synthetic_id(bool(r.get("incoming")), self._id_sender(meta),
+                                 timestamp, text)
             # Desempata textos idénticos (p. ej. "Hola Avatar" x6): el occurrence
             # es estable mientras el lote no deslice esos mensajes fuera.
             occ = seen_counts.get(base, 0)
@@ -444,9 +445,18 @@ class WhatsAppWebReader:
         # "[12:03, 28/09/2026] Mauro: " -> ("Mauro", "12:03 28/09/2026")
         try:
             head, _, sender = meta.partition("] ")
-            return sender.rstrip(":").strip() or "?", head.lstrip("[").strip()
+            return sender.strip().rstrip(":").strip() or "?", head.lstrip("[").strip()
         except Exception:
             return "?", ""
+
+    @staticmethod
+    def _id_sender(meta: str) -> str:
+        # Frozen form used inside msg ids: changing it would re-key messages already
+        # persisted as replied and make the bridge process old orders again.
+        try:
+            return meta.partition("] ")[2].rstrip(":").strip() or "?"
+        except Exception:
+            return "?"
 
     # -- send -----------------------------------------------------------
     def send_text(self, text: str) -> str:

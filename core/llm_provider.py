@@ -183,27 +183,46 @@ class GeminiAdapter(BaseAdapter):
                 last_status = res.status_code
                 if res.status_code == 200:
                     data = res.json()
-                    candidates = data.get("candidates", [])
-                    if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        for part in parts:
-                            if "functionCall" in part:
-                                fn = part["functionCall"]
-                                return {
-                                    "type": "function_call",
-                                    "provider": "gemini",
-                                    "name": fn.get("name"),
-                                    "args": fn.get("args", {}),
-                                    "raw_part": part
-                                }
-                            elif "text" in part and part["text"].strip():
-                                return {
-                                    "type": "text",
-                                    "provider": "gemini",
-                                    "text": part["text"],
-                                    "raw_part": part
-                                }
-                        return {"type": "text", "provider": "gemini", "text": "Respuesta procesada correctamente."}
+                    candidates = data.get("candidates") or []
+                    if not candidates:
+                        block = (data.get("promptFeedback") or {}).get("blockReason")
+                        return {
+                            "type": "provider_empty",
+                            "provider": "gemini",
+                            "error": "La API respondió sin contenido aprovechable.",
+                            "reason": block or "NO_CANDIDATES",
+                            "finish_reason": block or "NO_CANDIDATES",
+                        }
+                    candidate = candidates[0] if isinstance(candidates[0], dict) else {}
+                    finish_reason = candidate.get("finishReason") or candidate.get("finish_reason")
+                    parts = (candidate.get("content") or {}).get("parts") or []
+                    for part in parts:
+                        if not isinstance(part, dict):
+                            continue
+                        if "functionCall" in part:
+                            fn = part["functionCall"]
+                            return {
+                                "type": "function_call",
+                                "provider": "gemini",
+                                "name": fn.get("name"),
+                                "args": fn.get("args", {}),
+                                "raw_part": part
+                            }
+                        elif "text" in part and part["text"].strip():
+                            return {
+                                "type": "text",
+                                "provider": "gemini",
+                                "text": part["text"],
+                                "raw_part": part
+                            }
+                    # A 200 with no usable part is silence or a block, never a fake success.
+                    return {
+                        "type": "provider_empty",
+                        "provider": "gemini",
+                        "error": "La API respondió sin contenido aprovechable.",
+                        "reason": finish_reason or "EMPTY_PARTS",
+                        "finish_reason": finish_reason or "EMPTY_PARTS",
+                    }
                 elif res.status_code in [503, 429]:
                     last_err = f"HTTP {res.status_code}: {res.text[:200]}"
                     continue
@@ -623,6 +642,7 @@ _EMPTY_TEXTS = frozenset([
     "", "respuesta vacía del proveedor.", "respuesta vacía de gemini.",
     "sin respuesta generada por gemini.", "sin respuesta.",
     "sin contenido devuelto.", "sin respuesta del modelo local.",
+    "respuesta procesada correctamente.",
 ])
 
 

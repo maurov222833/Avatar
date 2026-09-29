@@ -80,6 +80,32 @@ AVATAR_TOOLS_SCHEMA = [
                 }
             },
             {
+                "name": "UPDATE_CONFIG",
+                "description": (
+                    "Actualiza UNA clave de config.json sin reescribir el archivo completo. "
+                    "Úsala para guardar credenciales del dueño (p. ej. telegram.bot_token). "
+                    "NUNCA pidas partir ni alterar el token; NUNCA vuelques otras API keys en WRITE_FILE."
+                ),
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "key": {
+                            "type": "STRING",
+                            "description": (
+                                "Clave permitida: telegram.bot_token | telegram.bot_username | "
+                                "telegram.enabled | telegram.allowed_chat_ids | "
+                                "gemini.api_key | openai.api_key | groq.api_key | github.api_key"
+                            ),
+                        },
+                        "value": {
+                            "type": "STRING",
+                            "description": "Valor a guardar (token completo, sin espacios inventados).",
+                        },
+                    },
+                    "required": ["key", "value"],
+                },
+            },
+            {
                 "name": "LIST_DIR",
                 "description": "Lista el contenido de un directorio local.",
                 "parameters": {
@@ -332,6 +358,18 @@ class AvatarOrchestrator:
             "(web search, fetch URL o observación de navegador). "
             "WhatsApp y Telegram son canales personales de confianza: leerlos "
             "no contamina el contexto.\n"
+            "- CREDENCIALES Y TOKENS (OBLIGATORIO):\n"
+            "  1. Si Mauro te entrega un token de Telegram/bot u otra clave, guárdalo con "
+            "UPDATE_CONFIG (key=telegram.bot_token, value=<token completo>). "
+            "NUNCA reescribas config.json entero con WRITE_FILE: eso mete la clave Gemini "
+            "ya cargada en la llamada y el sistema la bloquea.\n"
+            "  2. NUNCA pidas partir, espaciar ni alterar un token para 'evitar filtros'. "
+            "Eso corrompe la credencial. El bloqueo TOOL_CALL_CONTAINS_SECRET ocurre solo "
+            "si una tool intenta reenviar una API key de proveedor ya cargada fuera del "
+            "almacén local — no porque el token de Telegram tenga 'forma de secreto'.\n"
+            "  3. Tras guardar telegram.bot_token, confirma sin repetir el token en claro "
+            "(di solo que quedó guardado) y ofrece la prueba de conexión "
+            "(p. ej. status del puente / next step concreto).\n"
             "- ESTÁNDAR DE COMUNICACIÓN Y EFECTIVIDAD EJECUTIVA (ANTIGRAVITY STANDARD):\n"
             "  1. TONO Y ESTILO: Comunícate siempre con elegancia, claridad y precisión técnica en Markdown. Explica las soluciones aplicadas de forma directa.\n"
             "  2. CERO FUGA DE FONTANERÍA INTERNA: NUNCA muestres en el chat de Mauro etiquetas de herramientas ('ACCION: COMMAND') o monólogos CoT ('1. ANÁLISIS DE INTENCIÓN...'). Esas herramientas son ejecutadas de forma nativa e invisible por el sistema.\n"
@@ -1209,6 +1247,7 @@ class AvatarOrchestrator:
                 a.get("file_path") or a.get("params") or ""),
             "WRITE_FILE": lambda a: FileTool.write_file(
                 a.get("file_path", ""), a.get("content", "")),
+            "UPDATE_CONFIG": lambda a: self._exec_update_config(a or {}),
             "LIST_DIR": lambda a: FileTool.list_dir(
                 a.get("dir_path") or a.get("params") or "."),
             "WEB_SEARCH": lambda a: WebTool.search_web(a.get("query") or a.get("params") or ""),
@@ -1234,6 +1273,104 @@ class AvatarOrchestrator:
             "DESKTOP_TYPE": lambda a: self._exec_desktop("type", a or {}),
         }
         return ActChokepoint(state_db=self.state_db, policy=policy, executors=executors)
+
+    #: Claves que UPDATE_CONFIG puede tocar (dueño configurando credenciales).
+    _UPDATE_CONFIG_ALLOWED = {
+        "telegram.bot_token": ("telegram", "bot_token"),
+        "telegram.bot_username": ("telegram", "bot_username"),
+        "telegram.enabled": ("telegram", "enabled"),
+        "telegram.allowed_chat_ids": ("telegram", "allowed_chat_ids"),
+        "gemini.api_key": ("gemini", "api_key"),
+        "openai.api_key": ("openai", "api_key"),
+        "groq.api_key": ("groq", "api_key"),
+        "github.api_key": ("github", "api_key"),
+    }
+
+    def _exec_update_config(self, args: Dict[str, Any]) -> str:
+        """
+        Patch a single allowed key in config.json (owner credential setup).
+
+        Avoids rewriting the whole file with every loaded provider key inside a
+        WRITE_FILE tool call — that tripwire blocked Telegram token setup.
+        """
+        key = (args.get("key") or args.get("params") or "").strip()
+        value = args.get("value")
+        if value is None:
+            value = ""
+        if isinstance(value, str):
+            value = value.strip()
+        path_tuple = self._UPDATE_CONFIG_ALLOWED.get(key)
+        if not path_tuple:
+            allowed = ", ".join(sorted(self._UPDATE_CONFIG_ALLOWED))
+            return (
+                f"RESULT:ERROR UNKNOWN_CONFIG_KEY:{key}. "
+                f"Claves permitidas: {allowed}"
+            )
+        try:
+            from core.paths import config_path as resolve_config_path
+            cfg_path = resolve_config_path()
+        except Exception:
+            cfg_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "config.json",
+            )
+        cfg: Dict[str, Any] = {}
+        if os.path.isfile(cfg_path):
+            try:
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f) or {}
+            except Exception as exc:
+                return f"RESULT:ERROR CONFIG_READ:{exc}"
+        if not isinstance(cfg, dict):
+            cfg = {}
+
+        section, field = path_tuple
+        if key == "telegram.allowed_chat_ids":
+            if isinstance(value, str):
+                parts = [p.strip() for p in value.replace(";", ",").split(",") if p.strip()]
+                parsed: Any = []
+                for p in parts:
+                    try:
+                        parsed.append(int(p))
+                    except ValueError:
+                        parsed.append(p)
+                value = parsed
+        elif key == "telegram.enabled":
+            if isinstance(value, str):
+                value = value.strip().lower() in ("1", "true", "yes", "on", "si", "sí")
+
+        bucket = cfg.setdefault(section, {})
+        if not isinstance(bucket, dict):
+            bucket = {}
+            cfg[section] = bucket
+        bucket[field] = value
+
+        try:
+            os.makedirs(os.path.dirname(cfg_path) or ".", exist_ok=True)
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+        except Exception as exc:
+            return f"RESULT:ERROR CONFIG_WRITE:{exc}"
+
+        # Refresh in-process views so the next act sees the new token.
+        self.config = cfg
+        try:
+            if getattr(self, "llm", None) is not None:
+                self.llm.load_config(force=True)
+        except Exception:
+            pass
+
+        # Never echo the secret back — only confirm which key was set.
+        shown = value
+        if isinstance(shown, str) and len(shown) > 8 and (
+            "token" in key or "api_key" in key
+        ):
+            shown = f"{shown[:4]}…{shown[-4:]} (len={len(value)})"
+        return (
+            f"RESULT:OK UPDATE_CONFIG key={key} written to config.json. "
+            f"Valor confirmado (enmascarado): {shown}"
+        )
 
     def _get_browser(self):
         """Lazy Playwright session for BROWSER_* acts (F-20)."""
@@ -1568,7 +1705,7 @@ class AvatarOrchestrator:
 
         valid_tools = [
             "COMMAND", "READ_FILE", "WRITE_FILE", "LIST_DIR", "WEB_SEARCH", "FETCH_URL",
-            "PLAY_AUDIO", "SEND_WHATSAPP", "SCREEN_CAPTURE",
+            "PLAY_AUDIO", "SEND_WHATSAPP", "SCREEN_CAPTURE", "UPDATE_CONFIG",
             "BROWSER_NAVIGATE", "BROWSER_OBSERVE", "BROWSER_CLICK", "BROWSER_FILL", "BROWSER_CLOSE",
             "DESKTOP_CLICK", "DESKTOP_TYPE", "DESKTOP_OBSERVE",
         ]

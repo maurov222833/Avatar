@@ -115,6 +115,9 @@ class ConfigUpdateRequest(BaseModel):
     groq_key: Optional[str] = None
     github_key: Optional[str] = None
     ollama_url: Optional[str] = None
+    telegram_bot_token: Optional[str] = None
+    telegram_bot_username: Optional[str] = None
+    telegram_allowed_chat_ids: Optional[str] = None
 
 class CommandRequest(BaseModel):
     command: str
@@ -161,6 +164,23 @@ def update_config(req: ConfigUpdateRequest):
         cfg.setdefault("github", {})["api_key"] = req.github_key.strip()
     if req.ollama_url is not None:
         cfg.setdefault("ollama", {})["url"] = req.ollama_url.strip()
+    if req.telegram_bot_token is not None:
+        cfg.setdefault("telegram", {})["bot_token"] = req.telegram_bot_token.strip()
+    if req.telegram_bot_username is not None:
+        cfg.setdefault("telegram", {})["bot_username"] = req.telegram_bot_username.strip()
+    if req.telegram_allowed_chat_ids is not None:
+        parts = [
+            p.strip()
+            for p in req.telegram_allowed_chat_ids.replace(";", ",").split(",")
+            if p.strip()
+        ]
+        ids = []
+        for p in parts:
+            try:
+                ids.append(int(p))
+            except ValueError:
+                ids.append(p)
+        cfg.setdefault("telegram", {})["allowed_chat_ids"] = ids
         
     with open(resolve_config_path(), "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)

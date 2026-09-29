@@ -69,6 +69,7 @@ ACT_TYPES: Dict[str, str] = {
     "AUDIO_CONTROL": ActRisk.LOCAL_WRITE,
     "SCREEN_CAPTURE": ActRisk.READ,
     "WRITE_FILE": ActRisk.LOCAL_WRITE,
+    "UPDATE_CONFIG": ActRisk.LOCAL_WRITE,
     "COMMAND": ActRisk.EXEC,
     "SEND_WHATSAPP": ActRisk.EXTERNAL_MESSAGE,
     # WhatsApp por navegador dedicado (verificado por relectura), en vez de

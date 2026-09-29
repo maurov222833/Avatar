@@ -22,7 +22,7 @@ class CheckpointEngine:
                         "BROWSER_CLOSE"}
 
     NON_IDEMPOTENT_TOOLS = {"WRITE_FILE", "COMMAND", "SEND_WHATSAPP", "DELETE_FILE", "MOVE_FILE",
-                            "WHATSAPP_SEND",
+                            "WHATSAPP_SEND", "UPDATE_CONFIG",
                             "BROWSER_NAVIGATE", "BROWSER_CLICK", "BROWSER_FILL",
                             "DESKTOP_CLICK", "DESKTOP_TYPE"}
 

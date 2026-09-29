@@ -14,6 +14,33 @@ _KEYED_PROVIDERS = ("gemini", "openai", "groq", "github")
 #: tool call look like it carries a secret.
 _MIN_TOOL_SECRET_LEN = 16
 
+#: Tool calls that write into Avatar's own secret store may legally repeat a loaded
+#: provider key (e.g. rewriting config.json). Everything else that embeds a loaded
+#: key is treated as exfiltration and refused.
+_LOCAL_SECRET_STORE_TOOLS = frozenset({"UPDATE_CONFIG", "WRITE_FILE"})
+
+
+def _is_local_secret_store_write(tool_name: str, args: Optional[Dict[str, Any]]) -> bool:
+    """True when the tool is writing into config.json / .env under AVATAR_HOME."""
+    if tool_name == "UPDATE_CONFIG":
+        return True
+    if tool_name != "WRITE_FILE":
+        return False
+    raw = ((args or {}).get("file_path") or (args or {}).get("params") or "").strip()
+    if not raw:
+        return False
+    try:
+        from core.paths import config_path, env_path
+        target = os.path.normcase(os.path.abspath(os.path.expanduser(raw)))
+        allowed = {
+            os.path.normcase(os.path.abspath(config_path())),
+            os.path.normcase(os.path.abspath(env_path())),
+        }
+        return target in allowed
+    except Exception:
+        base = os.path.basename(raw.replace("\\", "/")).lower()
+        return base in ("config.json", ".env")
+
 
 def _gemini_headers(api_key: str) -> Dict[str, str]:
     # Header auth keeps the key out of URLs, which requests echoes into exception messages.
@@ -772,11 +799,24 @@ class LLMProvider:
         if isinstance(res, dict) and res.get("type") == "function_call":
             # Arguments are executed, so they are never rewritten: a call carrying a loaded
             # key is refused instead, and shape patterns never touch legitimate arguments.
-            if self._contains_secret(res, [s for s in secrets if len(s) >= _MIN_TOOL_SECRET_LEN]):
+            # Exception: writing into Avatar's own config.json / .env (or UPDATE_CONFIG),
+            # where repeating an already-loaded key is normal — not exfiltration.
+            loaded = [s for s in secrets if len(s) >= _MIN_TOOL_SECRET_LEN]
+            if self._contains_secret(res, loaded):
+                name = res.get("name") or ""
+                args = res.get("args") if isinstance(res.get("args"), dict) else {}
+                if _is_local_secret_store_write(name, args):
+                    return res
                 return {"type": "provider_error", "provider": res.get("provider", ""),
-                        "error": "La llamada a herramienta contenía una clave API cargada; no se ejecuta.",
+                        "error": (
+                            "La llamada a herramienta incluía una clave de proveedor ya cargada "
+                            "(p. ej. Gemini/OpenAI). No se ejecuta para evitar filtrarla fuera "
+                            "del almacén local. Para guardar un token de Telegram usa "
+                            "UPDATE_CONFIG con key=telegram.bot_token (sin reescribir todo "
+                            "config.json). No pidas al dueño que parta ni altere el token."
+                        ),
                         "status_code": 0, "reason": "TOOL_CALL_CONTAINS_SECRET",
-                        "recoverable": False}
+                        "recoverable": True}
             return res
         return self._redact_structure(res, secrets)
 

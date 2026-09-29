@@ -17,19 +17,13 @@ if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from server import app
+from core.telegram_daemon import ensure_telegram_daemon
 
 def start_server():
     uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
 
 def start_telegram_daemon():
-    try:
-        from bridges.telegram_bridge import TelegramBridge
-        bridge = TelegramBridge()
-        if bridge.bot_token:
-            print("[AVATAR Telegram]: Bot daemon activo y escuchando en segundo plano.")
-            bridge.start_polling()
-    except Exception as e:
-        print(f"[AVATAR Telegram Daemon Error]: {e}")
+    ensure_telegram_daemon()
 
 def start_whatsapp_daemon():
     try:

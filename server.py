@@ -18,8 +18,20 @@ from core.runtime import get_shared_orchestrator
 from tools.shell_tool import ShellTool
 from tools.file_tool import FileTool
 from core.paths import config_path as resolve_config_path, projects_base
+from contextlib import asynccontextmanager
 
-app = FastAPI(title="Avatar AI GUI Backend", version="1.0.0")
+@asynccontextmanager
+async def _avatar_lifespan(app: FastAPI):
+    # Telegram must listen even when Avatar is started as plain uvicorn/server
+    # (not only via main_gui). Idempotent with the GUI thread starter.
+    try:
+        from core.telegram_daemon import ensure_telegram_daemon
+        ensure_telegram_daemon(orchestrator=get_shared_orchestrator())
+    except Exception as e:
+        print(f"[AVATAR]: No se pudo arrancar Telegram daemon: {e}")
+    yield
+
+app = FastAPI(title="Avatar AI GUI Backend", version="1.0.0", lifespan=_avatar_lifespan)
 
 # A browser page on another origin must not be able to drive this API. The GUI is served by
 # this process and receives the token in its own HTML; every /api call has to send it back.
@@ -336,6 +348,20 @@ def watchdog_tick():
     from core.watchdog import Watchdog
     wd = Watchdog(orchestrator)
     return wd.tick().to_dict()
+
+
+@app.get("/api/telegram/status")
+def telegram_status():
+    """Listener + getMe + allowlist (diagnóstico si el bot 'no ve' mensajes)."""
+    from core import telegram_daemon
+    return telegram_daemon.status()
+
+
+@app.post("/api/telegram/start")
+def telegram_start():
+    """Arranca (o reusa) el daemon getUpdates en este proceso."""
+    from core.telegram_daemon import ensure_telegram_daemon
+    return ensure_telegram_daemon(orchestrator=orchestrator)
 
 
 @app.get("/api/whatsapp/status")

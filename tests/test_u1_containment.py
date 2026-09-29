@@ -9,6 +9,7 @@ Pruebas deterministas, sin red ni proveedores reales:
 """
 import os
 import sys
+import json
 import tempfile
 import unittest
 from unittest import mock
@@ -238,10 +239,12 @@ class TestTelegramAllowlist(unittest.TestCase):
         from bridges.telegram_bridge import TelegramBridge
         from core.orchestrator import AvatarOrchestrator
         with mock.patch.dict(os.environ, {"TELEGRAM_ALLOWED_CHAT_IDS": ""}):
+            defaults = {"auto_enroll_first_private": False}
+            defaults.update(kw)
             b = TelegramBridge(
                 bot_token="123456:TEST",
                 orchestrator=AvatarOrchestrator(),
-                **kw,
+                **defaults,
             )
         b.sent = []
         b.send_message = lambda chat_id, text: b.sent.append((chat_id, text))
@@ -251,18 +254,35 @@ class TestTelegramAllowlist(unittest.TestCase):
 
     def test_no_allowlist_rejects_everything(self):
         with _TempWorld():
-            b = self._bridge(allowed_chat_ids=[])
+            b = self._bridge(allowed_chat_ids=[], auto_enroll_first_private=False)
             b.handle_message(_tg_message(text="captura de pantalla"))
             b.handle_message(_tg_message(text="haz algo"))
-            self.assertEqual(b.sent, [])
+            # Help reply is allowed; tool acts are not.
+            self.assertTrue(all("allowlist" in str(t).lower() or "chat_id" in str(t).lower()
+                                for _, t in b.sent))
             self.assertEqual(b.orchestrator.chokepoint.list_acts(), [])
+
+    def test_auto_enroll_first_private_then_processes(self):
+        with _TempWorld() as world:
+            b = self._bridge(allowed_chat_ids=[], auto_enroll_first_private=True)
+            b.config_path = os.path.join(world.dir, "config.json")
+            with open(b.config_path, "w", encoding="utf-8") as f:
+                json.dump({"telegram": {"bot_token": "123456:TEST"}}, f)
+            b.handle_message(_tg_message(user_id=555, text="hola Mauro"))
+            self.assertIn("555", b.allowed_chat_ids)
+            self.assertTrue(any("555" in str(t) or "registrado" in str(t).lower()
+                                for _, t in b.sent))
+            self.assertTrue(any("eco: hola Mauro" in str(t) for _, t in b.sent))
 
     def test_only_allowlisted_user_in_private_chat(self):
         with _TempWorld():
             b = self._bridge(allowed_chat_ids=["111"])
             b.handle_message(_tg_message(user_id=111, text="hola"))
             b.handle_message(_tg_message(user_id=333, username="mauro", text="hola"))
-            self.assertEqual([c for c, _ in b.sent], ["111"])
+            authorized = [c for c, t in b.sent if str(t).startswith("AVATAR AI:")]
+            notices = [c for c, t in b.sent if "allowlist" in str(t).lower()]
+            self.assertEqual(authorized, ["111"])
+            self.assertEqual(notices, ["333"])
 
     def test_group_chats_and_missing_sender_are_rejected(self):
         with _TempWorld():

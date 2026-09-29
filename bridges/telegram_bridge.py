@@ -27,7 +27,8 @@ class TelegramBridge:
     registra el ID de quien escribe, para que el dueño pueda añadir el suyo.
     """
     def __init__(self, bot_token: str = None, allowed_chat_id: str = None,
-                 allowed_chat_ids=None, orchestrator=None):
+                 allowed_chat_ids=None, orchestrator=None,
+                 auto_enroll_first_private: bool = None):
         from core.paths import config_path as resolve_config_path
         self.config_path = resolve_config_path()
         self.bot_token = bot_token or self._load_token_from_config()
@@ -42,6 +43,26 @@ class TelegramBridge:
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}" if self.bot_token else ""
         self.last_update_id = 0
         self._reported_chats = set()
+        if auto_enroll_first_private is None:
+            auto_enroll_first_private = self._load_auto_enroll_flag()
+        self.auto_enroll_first_private = bool(auto_enroll_first_private)
+
+    def _load_auto_enroll_flag(self) -> bool:
+        """Solo-owner UX: first private human may enroll when allowlist is empty."""
+        env = os.getenv("TELEGRAM_AUTO_ENROLL_FIRST_PRIVATE", "").strip().lower()
+        if env in ("0", "false", "no", "off"):
+            return False
+        if env in ("1", "true", "yes", "on"):
+            return True
+        if os.path.exists(self.config_path):
+            try:
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    raw = json.load(f).get("telegram", {}).get("auto_enroll_first_private", None)
+                if raw is not None:
+                    return bool(raw)
+            except Exception:
+                pass
+        return True
 
     def _load_allowlist(self) -> list:
         env_val = os.getenv("TELEGRAM_ALLOWED_CHAT_IDS", "")
@@ -82,10 +103,79 @@ class TelegramBridge:
         where = f"chat {chat.get('id', '?')} ({chat.get('type', '?')})"
         if self.allowed_chat_ids:
             print(f"[Telegram]: Mensaje rechazado del usuario {user_id} en {where}.")
+            if chat.get("type") == "private" and user_id.isdigit():
+                self.send_message(
+                    user_id,
+                    f"AVATAR: no estás en la allowlist. Tu chat_id numérico es {user_id}. "
+                    f"En la GUI de Avatar: UPDATE_CONFIG telegram.allowed_chat_ids = {user_id}",
+                )
         else:
             print(f"[Telegram]: Sin allowlist configurada; rechazado usuario {user_id} en {where}. "
                   f"Si eres tú, escribe al bot en privado y añade \"{user_id}\" a "
                   f"telegram.allowed_chat_ids en config.json.")
+            if chat.get("type") == "private" and user_id.isdigit():
+                self.send_message(
+                    user_id,
+                    f"AVATAR: aún no hay allowlist. Tu chat_id es {user_id}. "
+                    f"Dile a Avatar en el PC: UPDATE_CONFIG key=telegram.allowed_chat_ids value={user_id}",
+                )
+
+    def _persist_allowlist_id(self, user_id: str) -> bool:
+        """Add user_id to config telegram.allowed_chat_ids and in-memory set."""
+        if not user_id or not str(user_id).isdigit():
+            return False
+        uid = str(user_id).strip()
+        self.allowed_chat_ids.add(uid)
+        try:
+            cfg = {}
+            if os.path.exists(self.config_path):
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f) or {}
+            tg = cfg.setdefault("telegram", {})
+            existing = tg.get("allowed_chat_ids") or []
+            if isinstance(existing, (str, int)):
+                existing = [existing]
+            existing = [str(e).strip() for e in existing if str(e).strip()]
+            if uid not in existing:
+                existing.append(uid)
+            tg["allowed_chat_ids"] = existing
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+        except Exception as e:
+            print(f"[Telegram]: No se pudo persistir allowlist: {self._redact(e)}")
+            return False
+        try:
+            cp = getattr(self.orchestrator, "chokepoint", None)
+            if cp is not None:
+                cp.policy.trusted_telegram_chat_ids = tuple(sorted(self.allowed_chat_ids))
+        except Exception:
+            pass
+        print(f"[Telegram]: Auto-enrolado chat_id {uid} (primer privado; allowlist vacía).")
+        return True
+
+    def _try_auto_enroll(self, message: dict) -> bool:
+        """If allowlist empty and first private human, enroll and authorize."""
+        if self.allowed_chat_ids or not self.auto_enroll_first_private:
+            return False
+        chat = message.get("chat", {}) or {}
+        sender = message.get("from", {}) or {}
+        if chat.get("type") != "private":
+            return False
+        if sender.get("is_bot") is not False:
+            return False
+        uid = sender.get("id")
+        if not isinstance(uid, int):
+            return False
+        if str(chat.get("id", "")) != str(uid):
+            return False
+        if not self._persist_allowlist_id(str(uid)):
+            return False
+        self.send_message(
+            str(uid),
+            f"AVATAR: quedaste registrado (chat_id {uid}). Ya puedo leerte y responderte aquí.",
+        )
+        return True
 
     def _redact(self, text) -> str:
         return redact_secret_text(str(text), [self.bot_token] if self.bot_token else [])
@@ -225,8 +315,17 @@ class TelegramBridge:
             return
 
         if not self.allowed_chat_ids:
-            print("[Telegram Bridge]: Sin allowlist (telegram.allowed_chat_ids): se rechazarán todas las órdenes.")
-        print("[Telegram Bridge]: Escuchando ordenes remotas via Telegram (@Avatar_soberano_bot)...")
+            if self.auto_enroll_first_private:
+                print("[Telegram Bridge]: Allowlist vacía — el primer chat privado humano se auto-enrolará.")
+            else:
+                print("[Telegram Bridge]: Sin allowlist (telegram.allowed_chat_ids): se rechazarán todas las órdenes.")
+        me = self.api_get_me()
+        bot_label = f"@{me.get('username')}" if me.get("ok") and me.get("username") else "(token ok o pendiente)"
+        if me.get("ok"):
+            print(f"[Telegram Bridge]: getMe OK → {bot_label}. Escuchando getUpdates...")
+        else:
+            print(f"[Telegram Bridge]: getMe falló ({me.get('error')}); igual intento getUpdates.")
+        print(f"[Telegram Bridge]: Escuchando ordenes remotas via Telegram {bot_label}...")
         while True:
             try:
                 url = f"{self.base_url}/getUpdates?offset={self.last_update_id + 1}&timeout=30"
@@ -236,6 +335,15 @@ class TelegramBridge:
                     for result in data.get("result", []):
                         self.last_update_id = result["update_id"]
                         self.handle_message(result.get("message", {}) or {})
+                elif response.status_code == 409:
+                    # Another getUpdates consumer (second Avatar process) holds the poll.
+                    print("[Telegram Bridge]: 409 Conflict — otra instancia ya está haciendo polling. "
+                          "Cierra el otro Avatar o espera.")
+                    time.sleep(10)
+                else:
+                    print(f"[Telegram Bridge]: getUpdates HTTP {response.status_code}: "
+                          f"{self._redact((response.text or '')[:200])}")
+                    time.sleep(5)
             except Exception as e:
                 print(f"[Error en loop de Telegram]: {self._redact(e)}")
                 time.sleep(5)
@@ -245,8 +353,12 @@ class TelegramBridge:
         text = message.get("text", "")
 
         if not self.is_authorized(message):
-            self._report_rejected(message)
-            return
+            if self._try_auto_enroll(message) and self.is_authorized(message):
+                # Enrolled; fall through and process this same message.
+                pass
+            else:
+                self._report_rejected(message)
+                return
 
         if not text:
             return

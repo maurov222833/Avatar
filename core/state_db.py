@@ -7,6 +7,23 @@ import datetime
 import threading
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 
+
+def _is_hex(value: str, size: int) -> bool:
+    return len(value) == size and all(c in "0123456789abcdef" for c in value)
+
+
+def _is_legacy_requirements_seal(seal: str) -> bool:
+    """Hex HMAC from before the seal carried a process key id."""
+    return _is_hex(seal, 64)
+
+
+def _is_foreign_requirements_seal(seal: str) -> bool:
+    """A well-formed v2 seal. The caller has already ruled out this process's key id."""
+    parts = seal.split(":")
+    if len(parts) != 3 or parts[0] != "v2":
+        return False
+    return _is_hex(parts[1], 16) and _is_hex(parts[2], 64)
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from core.cognitive.gate_authorization import GateAuthorization
     from core.cognitive.gate_types import INITIAL_MISSION_STATUSES
@@ -226,34 +243,45 @@ class StateEngine:
         seal, and that such tampering blocks completion rather than silently succeeding.
         """
         from core.cognitive import _authority
-        return _authority.sign({
+        mac = _authority.sign({
             "mission_id": mission_id,
             "required_capabilities": caps_json,
             "requirements_declared": int(declared),
         })
+        return f"v2:{_authority.key_id()}:{mac}"
 
-    def verify_requirements_integrity(self, mission: Dict[str, Any]) -> bool:
-        """
-        Whether a mission row's requirement fields match their seal.
-
-        A mission created before this column existed carries an empty seal; such a row is
-        treated as unverifiable rather than trusted, so a legacy mission cannot be quietly
-        completed on unverified requirements.
-        """
-        from core.cognitive import _authority
-        seal = mission.get("requirements_seal") or ""
-        if not seal:
-            return False
-        expected = self._requirements_seal(
-            mission["mission_id"],
-            mission.get("required_capabilities") or "[]",
-            int(mission.get("requirements_declared") or 0),
-        )
-        return _authority.verify_signature({
+    def _requirements_payload(self, mission: Dict[str, Any]) -> Dict[str, Any]:
+        return {
             "mission_id": mission["mission_id"],
             "required_capabilities": mission.get("required_capabilities") or "[]",
             "requirements_declared": int(mission.get("requirements_declared") or 0),
-        }, seal) and expected == seal
+        }
+
+    def requirements_seal_state(self, mission: Dict[str, Any]) -> str:
+        """
+        ``intact`` when this process sealed the row and the HMAC matches.
+
+        ``tampered`` when this process's key id is on the seal and the HMAC does not
+        match, or when the seal was wiped. That blocks completion.
+
+        ``unverified`` when the seal belongs to another process (its key id differs)
+        or is a legacy hex seal. Resume continues; the row is not treated as corrupt.
+        """
+        from core.cognitive import _authority
+        seal = mission.get("requirements_seal") or ""
+        prefix = f"v2:{_authority.key_id()}:"
+        if seal.startswith(prefix):
+            mac = seal[len(prefix):]
+            if _authority.verify_signature(self._requirements_payload(mission), mac):
+                return "intact"
+            return "tampered"
+        if _is_foreign_requirements_seal(seal) or _is_legacy_requirements_seal(seal):
+            return "unverified"
+        return "tampered"
+
+    def verify_requirements_integrity(self, mission: Dict[str, Any]) -> bool:
+        """True only when this process can still vouch for the requirement seal."""
+        return self.requirements_seal_state(mission) == "intact"
 
     # ==========================================
     # SCHEMA MIGRATION
@@ -503,10 +531,11 @@ class StateEngine:
         required_capabilities, requirements_declared = read_mission_requirements(self, mission_id)
         registry = CapabilityEvidenceRegistry(state_db=self)
 
-        # D-5: a mission whose requirement fields no longer match their seal must not be
-        # completed, and must not be reinterpreted as declaring no requirements. This is
-        # checked here as well as in the gate because this method is the sovereign writer.
-        if not self.verify_requirements_integrity(mission):
+        # D-5: a same-process mismatch must not be completed and must not be
+        # reinterpreted as declaring no requirements. A seal from another process is
+        # unverified and does not take this path. Checked here as well as in the gate
+        # because this method is the sovereign writer.
+        if self.requirements_seal_state(mission) == "tampered":
             from core.cognitive.gate_types import MissionGateResult, MissionStatus
             from core.cognitive.authority_core import (
                 AuthorityAudit,

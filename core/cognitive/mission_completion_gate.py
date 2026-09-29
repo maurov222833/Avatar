@@ -58,17 +58,17 @@ def read_mission_requirements(state_db: StateEngine, mission_id: str) -> Tuple[L
 
 def requirements_are_intact(state_db: StateEngine, mission_id: str) -> bool:
     """
-    D-5: a mission whose requirement fields no longer match their seal is corrupt.
+    D-5: True only when this process sealed the requirements and the HMAC still matches.
 
-    A corrupt requirement set must block completion outright. It is explicitly *not*
-    downgraded to `NO_REQUIREMENTS_DECLARED`, which would turn tampering into a convenient
-    route to a terminal state.
+    A same-process mismatch blocks completion. It is explicitly *not* downgraded to
+    `NO_REQUIREMENTS_DECLARED`. A seal from another process is unverified, not intact,
+    and is not by itself a corruption.
     """
     row = state_db.get_mission(mission_id)
     if not row:
         return False
     try:
-        return bool(state_db.verify_requirements_integrity(row))
+        return state_db.requirements_seal_state(row) == "intact"
     except Exception:
         return False
 
@@ -213,11 +213,17 @@ class MissionCompletionGate:
         parameter through which a caller can supply a result.
         """
         required_capabilities, requirements_declared = read_mission_requirements(state_db, mission_id)
+        row = state_db.get_mission(mission_id)
 
-        # D-5: integrity first. A corrupt or tampered requirement set blocks completion and
-        # is never silently reinterpreted as "no requirements declared".
-        if not requirements_are_intact(state_db, mission_id):
-            return cls._reject_corrupt_requirements(mission_id, required_capabilities)
+        # D-5: a same-process mismatch, or a wiped seal, blocks completion and is never
+        # silently reinterpreted as "no requirements declared". A seal from another
+        # process is unverified: resume continues and the verdict comes from the
+        # persisted requirements plus current evidence.
+        seal_state = "tampered" if row is None else state_db.requirements_seal_state(row)
+        if seal_state == "tampered":
+            return MissionCompletionGate._reject_corrupt_requirements(
+                mission_id, required_capabilities
+            )
 
         verdict = MissionCompletionGate.evaluate_mission_completion(
             mission_id=mission_id,

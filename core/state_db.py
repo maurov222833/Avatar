@@ -991,23 +991,79 @@ class StateEngine:
                 conn.rollback()
                 raise e
 
+    def _history_rows(self, cursor, session_id: Optional[str], newest_first: bool, limit: Optional[int]):
+        order = "DESC" if newest_first else "ASC"
+        params: List[Any] = []
+        if session_id:
+            where = "WHERE session_id = ?"
+            params.append(session_id)
+        else:
+            where = ""
+        sql = f"SELECT id, role, content FROM history_entries {where} ORDER BY id {order}"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(int(limit))
+        cursor.execute(sql, params)
+        return [
+            {"id": row["id"], "role": row["role"], "content": row["content"]}
+            for row in cursor.fetchall()
+        ]
+
+    @staticmethod
+    def _history_entry_id(entry: Dict[str, Any]) -> Optional[int]:
+        value = entry.get("id")
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        return value if value > 0 else None
+
     def sync_history(self, history: List[Dict[str, str]], session_id: Optional[str] = None):
-        """Sincroniza la lista completa de historial conversacional con SQLite WAL."""
+        """
+        Append turns that are not already stored.
+
+        The in-memory list is a window, often the last 50 turns. Replacing the table
+        with that window deletes everything older. Entries that already carry a stored
+        id stay. A list with no ids appends only the suffix that is not already the tail,
+        so a repeated save of the same window does not duplicate it.
+        """
+        incoming = [
+            entry for entry in history
+            if isinstance(entry, dict) and "role" in entry and "content" in entry
+        ]
         now = self._timestamp()
         with self._lock:
             conn = self._get_connection()
             try:
                 cursor = conn.cursor()
-                if session_id:
-                    cursor.execute("DELETE FROM history_entries WHERE session_id = ?", (session_id,))
+                stored = self._history_rows(cursor, session_id, newest_first=False, limit=None)
+                stored_ids = {row["id"] for row in stored}
+                known = [
+                    self._history_entry_id(entry) in stored_ids
+                    for entry in incoming
+                ]
+                if any(known):
+                    if all(known):
+                        suffix_at = len(incoming)
+                    else:
+                        suffix_at = next(i for i, is_known in enumerate(known) if not is_known)
+                    to_insert = [
+                        entry for entry in incoming[suffix_at:]
+                        if self._history_entry_id(entry) not in stored_ids
+                    ]
                 else:
-                    cursor.execute("DELETE FROM history_entries WHERE session_id IS NULL OR session_id = ''")
-                for entry in history:
-                    if isinstance(entry, dict) and "role" in entry and "content" in entry:
-                        cursor.execute(
-                            "INSERT INTO history_entries (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-                            (session_id, entry["role"], entry["content"], now)
-                        )
+                    stored_pairs = [(row["role"], row["content"]) for row in stored]
+                    incoming_pairs = [(entry["role"], entry["content"]) for entry in incoming]
+                    overlap = 0
+                    for size in range(min(len(stored_pairs), len(incoming_pairs)), 0, -1):
+                        if stored_pairs[-size:] == incoming_pairs[:size]:
+                            overlap = size
+                            break
+                    to_insert = incoming[overlap:]
+                for entry in to_insert:
+                    cursor.execute(
+                        "INSERT INTO history_entries (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
+                        (session_id, entry["role"], entry["content"], now)
+                    )
+                    entry["id"] = cursor.lastrowid
                 conn.commit()
                 cursor.close()
             except Exception as e:
@@ -1015,15 +1071,15 @@ class StateEngine:
                 raise e
 
     def load_history(self, session_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, str]]:
+        """The most recent `limit` turns, oldest of that window first."""
+        if limit is not None and int(limit) < 1:
+            return []
         with self._lock:
             cursor = self._get_connection().cursor()
-            if session_id:
-                cursor.execute("SELECT role, content FROM history_entries WHERE session_id = ? ORDER BY id ASC LIMIT ?", (session_id, limit))
-            else:
-                cursor.execute("SELECT role, content FROM history_entries ORDER BY id ASC LIMIT ?", (limit,))
-            rows = cursor.fetchall()
+            rows = self._history_rows(cursor, session_id, newest_first=True, limit=limit)
             cursor.close()
-            return [{"role": r["role"], "content": r["content"]} for r in rows]
+            rows.reverse()
+            return rows
 
     def save_active_task(self, task_description: str, progress: int, status: str):
         now = self._timestamp()

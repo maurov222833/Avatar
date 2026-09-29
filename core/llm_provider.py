@@ -721,15 +721,28 @@ class LLMProvider:
 
     def generate_response_with_tools(self, system_prompt: str, contents: List[Dict[str, Any]], tools: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         res = self._generate_response_with_tools_unredacted(system_prompt, contents, tools)
-        return self._redact_structure(res, self._known_secrets())
+        secrets = self._known_secrets()
+        if isinstance(res, dict) and res.get("type") == "function_call":
+            # Arguments are executed, so they are never rewritten: a call carrying a loaded
+            # key is refused instead, and shape patterns never touch legitimate arguments.
+            if any(s in repr(res) for s in secrets):
+                return {"type": "provider_error", "provider": res.get("provider", ""),
+                        "error": "La llamada a herramienta contenía una clave API cargada; no se ejecuta.",
+                        "status_code": 0, "reason": "TOOL_CALL_CONTAINS_SECRET",
+                        "recoverable": False}
+            return res
+        return self._redact_structure(res, secrets)
 
     @staticmethod
     def _redact_structure(value, secrets):
         if isinstance(value, str):
             return redact_secret_text(value, secrets)
+        if isinstance(value, bytes):
+            return LLMProvider._redact_structure(value.decode("utf-8", "replace"), secrets)
         if isinstance(value, dict):
-            return {k: LLMProvider._redact_structure(v, secrets) for k, v in value.items()}
-        if isinstance(value, list):
+            return {LLMProvider._redact_structure(k, secrets): LLMProvider._redact_structure(v, secrets)
+                    for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
             return [LLMProvider._redact_structure(v, secrets) for v in value]
         return value
 

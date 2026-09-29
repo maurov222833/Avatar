@@ -78,6 +78,11 @@ ACT_TYPES: Dict[str, str] = {
     "WHATSAPP_STATUS": ActRisk.READ,
     "WHATSAPP_READ": ActRisk.READ,
     "WHATSAPP_SEND": ActRisk.EXTERNAL_MESSAGE,
+    # Telegram (owner personal channel): status/test are READ; send is EXTERNAL but
+    # allowlisted chat_ids skip dry-run/consent (same personal-channel decision).
+    "TELEGRAM_STATUS": ActRisk.READ,
+    "TELEGRAM_SEND": ActRisk.EXTERNAL_MESSAGE,
+    "TELEGRAM_TEST": ActRisk.EXTERNAL_MESSAGE,
     # Browser (F-20): navigate/interact are NETWORK; observe is READ but untrusted.
     "BROWSER_NAVIGATE": ActRisk.NETWORK,
     "BROWSER_OBSERVE": ActRisk.READ,
@@ -247,9 +252,21 @@ class ActPolicy:
     max_acts_per_mission: Optional[int] = None
     exec_requires_approval: bool = True
     exec_allowlist: Tuple[str, ...] = ()
+    #: Numeric Telegram chat/user ids of the owner — sends there are personal, not "broadcast".
+    trusted_telegram_chat_ids: Tuple[str, ...] = ()
     #: Set when the mission has ingested untrusted text (web, WhatsApp, off-workspace files).
     #: While True, EXEC / LOCAL_WRITE / EXTERNAL_MESSAGE need operator approval (F-06).
     context_contaminated: bool = False
+
+    def is_trusted_personal_send(self, act_type: str, args: Dict[str, Any]) -> bool:
+        """Telegram send/test to the owner skips external consent/dry-run."""
+        if act_type == "TELEGRAM_TEST":
+            # Owner-initiated connection probe; the executor refuses to send without a chat.
+            return True
+        if act_type != "TELEGRAM_SEND":
+            return False
+        chat = str((args or {}).get("chat_id") or "").strip()
+        return bool(chat) and chat in set(self.trusted_telegram_chat_ids)
 
     def decide(self, act_type: str, args: Dict[str, Any],
                *, acts_already: Optional[int] = None) -> Tuple[bool, str]:
@@ -265,13 +282,15 @@ class ActPolicy:
             and acts_already >= int(self.max_acts_per_mission)
         ):
             return False, MISSION_ACT_BUDGET_EXCEEDED
-        if risk in RISKS_REQUIRING_CONSENT and not self.allow_external_messages:
+        trusted_personal = self.is_trusted_personal_send(act_type, args or {})
+        if risk in RISKS_REQUIRING_CONSENT and not self.allow_external_messages and not trusted_personal:
             return False, "EXTERNAL_EFFECT_REQUIRES_OPERATOR_CONSENT"
         if self.context_contaminated and risk in (
             ActRisk.EXEC, ActRisk.LOCAL_WRITE, ActRisk.EXTERNAL_MESSAGE,
         ):
             # Contaminated missions never trust the allowlist alone: the model may have been
             # steered by untrusted text into asking for a "safe-looking" command.
+            # Personal Telegram to the owner still needs approval when contaminated by web.
             return False, CONTAMINATED_APPROVAL_REASON
         if risk == ActRisk.EXEC and self.exec_requires_approval:
             # Desktop GUI acts have no shell command line to allowlist — always ask.
@@ -288,6 +307,8 @@ class ActPolicy:
             target = args.get("file_path") or args.get("audio_source") or ""
             if target and not _is_within_root(target, root):
                 return False, f"WRITE_OUTSIDE_ALLOWED_ROOT:{root}"
+        if trusted_personal:
+            return True, "ALLOWED_PERSONAL_TELEGRAM"
         return True, "ALLOWED"
 
 
@@ -509,6 +530,9 @@ class ActChokepoint:
             self.observers.setdefault(browser_act, _observe_json_success)
         for desktop_act in ("DESKTOP_CLICK", "DESKTOP_TYPE", "DESKTOP_OBSERVE"):
             self.observers.setdefault(desktop_act, _observe_json_success)
+        self.observers.setdefault("TELEGRAM_STATUS", _observe_json_success)
+        self.observers.setdefault("TELEGRAM_SEND", _observe_json_success)
+        self.observers.setdefault("TELEGRAM_TEST", _observe_json_success)
 
     def mark_contaminated(self, reason: str = "") -> None:
         """Mark the active context as having ingested untrusted text (F-06)."""
@@ -540,7 +564,8 @@ class ActChokepoint:
                 self.mark_contaminated(f"READ_FILE:{path}")
                 return "untrusted"
             return "workspace"
-        if act_type in ("WHATSAPP_READ", "WHATSAPP_STATUS", "WHATSAPP_SEND", "SEND_WHATSAPP"):
+        if act_type in ("WHATSAPP_READ", "WHATSAPP_STATUS", "WHATSAPP_SEND", "SEND_WHATSAPP",
+                        "TELEGRAM_STATUS", "TELEGRAM_SEND", "TELEGRAM_TEST"):
             return "personal_channel"
         return "trusted"
 
@@ -868,11 +893,12 @@ class ActChokepoint:
                     f"Solicitud: {json.dumps(args or {}, ensure_ascii=False)[:200]}")
 
         if self.policy.dry_run and risk in RISKS_REQUIRING_CONSENT:
-            record.status = ActStatus.DENIED
-            record.policy_reason = "DRY_RUN_NO_EXTERNAL_EFFECT"
-            self._persist(record)
-            return (f"[DRY-RUN] No se envió ningún mensaje real. "
-                    f"Solicitud registrada: {json.dumps(args or {}, ensure_ascii=False)[:200]}")
+            if not self.policy.is_trusted_personal_send(act_type, args or {}):
+                record.status = ActStatus.DENIED
+                record.policy_reason = "DRY_RUN_NO_EXTERNAL_EFFECT"
+                self._persist(record)
+                return (f"[DRY-RUN] No se envió ningún mensaje real. "
+                        f"Solicitud registrada: {json.dumps(args or {}, ensure_ascii=False)[:200]}")
 
         executor = self.executors.get(act_type)
         if executor is None:

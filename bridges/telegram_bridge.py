@@ -90,6 +90,109 @@ class TelegramBridge:
     def _redact(self, text) -> str:
         return redact_secret_text(str(text), [self.bot_token] if self.bot_token else [])
 
+    def api_get_me(self) -> dict:
+        """Verify the bot token against Telegram (no chat message sent)."""
+        if not self.base_url:
+            return {"ok": False, "error": "TOKEN_NOT_CONFIGURED"}
+        try:
+            r = requests.get(f"{self.base_url}/getMe", timeout=15)
+            data = r.json() if r.content else {}
+            if r.status_code == 200 and data.get("ok"):
+                result = data.get("result") or {}
+                return {
+                    "ok": True,
+                    "id": result.get("id"),
+                    "username": result.get("username"),
+                    "first_name": result.get("first_name"),
+                    "can_join_groups": result.get("can_join_groups"),
+                }
+            desc = (data.get("description") or r.text or "")[:200]
+            return {"ok": False, "error": f"HTTP_{r.status_code}", "detail": self._redact(desc)}
+        except Exception as e:
+            return {"ok": False, "error": "REQUEST_FAILED", "detail": self._redact(e)}
+
+    def api_recent_private_chat_ids(self, limit: int = 20) -> list:
+        """
+        Peek getUpdates for recent private chats (owner likely messaged /start).
+        Does not advance the polling offset permanently in a way that drops work:
+        uses offset=-limit without acknowledging, then leaves daemon offset alone.
+        """
+        if not self.base_url:
+            return []
+        try:
+            r = requests.get(
+                f"{self.base_url}/getUpdates",
+                params={"limit": max(1, min(limit, 50)), "timeout": 0},
+                timeout=20,
+            )
+            data = r.json() if r.content else {}
+            if not (r.status_code == 200 and data.get("ok")):
+                return []
+            found = []
+            seen = set()
+            for upd in data.get("result") or []:
+                msg = upd.get("message") or {}
+                chat = msg.get("chat") or {}
+                sender = msg.get("from") or {}
+                if chat.get("type") != "private":
+                    continue
+                if sender.get("is_bot") is True:
+                    continue
+                uid = sender.get("id")
+                if not isinstance(uid, int):
+                    continue
+                key = str(uid)
+                if key in seen:
+                    continue
+                seen.add(key)
+                found.append({
+                    "chat_id": key,
+                    "username": sender.get("username"),
+                    "first_name": sender.get("first_name"),
+                })
+            return found
+        except Exception:
+            return []
+
+    def send_message(self, chat_id: str, text: str) -> dict:
+        if not self.base_url:
+            return {"ok": False, "error": "TOKEN_NOT_CONFIGURED"}
+        if not chat_id:
+            return {"ok": False, "error": "CHAT_ID_REQUIRED"}
+        url = f"{self.base_url}/sendMessage"
+        payload = {"chat_id": chat_id, "text": text}
+        try:
+            r = requests.post(url, json=payload, timeout=10)
+            data = r.json() if r.content else {}
+            if r.status_code == 200 and data.get("ok"):
+                mid = (data.get("result") or {}).get("message_id")
+                return {"ok": True, "chat_id": str(chat_id), "message_id": mid}
+            desc = (data.get("description") or r.text or "")[:200]
+            return {"ok": False, "error": f"HTTP_{r.status_code}", "detail": self._redact(desc)}
+        except Exception as e:
+            return {"ok": False, "error": "REQUEST_FAILED", "detail": self._redact(e)}
+
+    def send_photo(self, chat_id: str, photo_path: str, caption: str = ""):
+        if not self.base_url or not os.path.exists(photo_path):
+            print(f"[TelegramBridge Error]: Foto no encontrada en {photo_path}")
+            return {"ok": False, "error": "PHOTO_MISSING"}
+        
+        url = f"{self.base_url}/sendPhoto"
+        try:
+            with open(photo_path, "rb") as photo:
+                r = requests.post(
+                    url,
+                    data={"chat_id": chat_id, "caption": caption},
+                    files={"photo": photo},
+                    timeout=20,
+                )
+                print(f"[TelegramBridge]: Foto enviada exitosamente a Telegram (Chat {chat_id})")
+                ok = r.status_code == 200
+                return {"ok": ok, "status_code": r.status_code}
+        except Exception as e:
+            print(f"[Error envio foto Telegram]: {self._redact(e)}")
+            return {"ok": False, "error": self._redact(e)}
+
     def _perform(self, act_type: str, args: dict, chat_id: str, task_id: str, text: str) -> str:
         if getattr(self.orchestrator, "chokepoint", None) is None:
             self.orchestrator.chokepoint = self.orchestrator._build_chokepoint()
@@ -115,31 +218,6 @@ class TelegramBridge:
             except Exception:
                 pass
         return ""
-
-    def send_message(self, chat_id: str, text: str):
-        if not self.base_url:
-            print("[TelegramBridge]: Token de bot no configurado.")
-            return
-        
-        url = f"{self.base_url}/sendMessage"
-        payload = {"chat_id": chat_id, "text": text}
-        try:
-            requests.post(url, json=payload, timeout=10)
-        except Exception as e:
-            print(f"[Error envio Telegram]: {self._redact(e)}")
-
-    def send_photo(self, chat_id: str, photo_path: str, caption: str = ""):
-        if not self.base_url or not os.path.exists(photo_path):
-            print(f"[TelegramBridge Error]: Foto no encontrada en {photo_path}")
-            return
-        
-        url = f"{self.base_url}/sendPhoto"
-        try:
-            with open(photo_path, "rb") as photo:
-                requests.post(url, data={"chat_id": chat_id, "caption": caption}, files={"photo": photo}, timeout=20)
-                print(f"[TelegramBridge]: Foto enviada exitosamente a Telegram (Chat {chat_id})")
-        except Exception as e:
-            print(f"[Error envio foto Telegram]: {self._redact(e)}")
 
     def start_polling(self):
         if not self.bot_token:

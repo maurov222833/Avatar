@@ -16,15 +16,15 @@ class CheckpointEngine:
     Gestiona el ciclo de vida atómico de checkpoints pre y post ejecución de herramientas.
     Garantiza la persistencia atómica en SQLite WAL antes de invocar cualquier herramienta.
     """
-    IDEMPOTENT_TOOLS = {"READ_FILE", "LIST_DIR", "FETCH_URL", "WEB_SEARCH",
-                        "WHATSAPP_STATUS", "WHATSAPP_READ",
-                        "BROWSER_OBSERVE", "DESKTOP_OBSERVE", "SCREEN_CAPTURE",
-                        "BROWSER_CLOSE"}
-
     NON_IDEMPOTENT_TOOLS = {"WRITE_FILE", "COMMAND", "SEND_WHATSAPP", "DELETE_FILE", "MOVE_FILE",
-                            "WHATSAPP_SEND", "UPDATE_CONFIG",
+                            "WHATSAPP_SEND", "UPDATE_CONFIG", "TELEGRAM_SEND", "TELEGRAM_TEST",
                             "BROWSER_NAVIGATE", "BROWSER_CLICK", "BROWSER_FILL",
                             "DESKTOP_CLICK", "DESKTOP_TYPE"}
+
+    IDEMPOTENT_TOOLS = {"READ_FILE", "LIST_DIR", "FETCH_URL", "WEB_SEARCH",
+                        "WHATSAPP_STATUS", "WHATSAPP_READ", "TELEGRAM_STATUS",
+                        "BROWSER_OBSERVE", "DESKTOP_OBSERVE", "SCREEN_CAPTURE",
+                        "BROWSER_CLOSE"}
 
     def __init__(self, state_db: Optional[StateEngine] = None):
         if state_db is not None:

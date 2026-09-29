@@ -194,6 +194,43 @@ AVATAR_TOOLS_SCHEMA = [
                 }
             },
             {
+                "name": "TELEGRAM_STATUS",
+                "description": "Verifica el token de Telegram (getMe), allowlist y estado de configuración. No envía mensajes. Úsala ANTES de una prueba bidireccional.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {},
+                    "required": []
+                }
+            },
+            {
+                "name": "TELEGRAM_SEND",
+                "description": "Envía un mensaje de Telegram al chat_id numérico del dueño (allowlist). No improvises con COMMAND+python.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "message": {"type": "STRING", "description": "Texto a enviar."},
+                        "chat_id": {"type": "STRING", "description": "ID numérico del chat privado del dueño."}
+                    },
+                    "required": ["message", "chat_id"]
+                }
+            },
+            {
+                "name": "TELEGRAM_TEST",
+                "description": (
+                    "Prueba bidireccional de Telegram: getMe + envío de sonda al chat allowlisteado "
+                    "(o al chat_id indicado). Si falta allowlist, reporta los chat_id recientes vistos "
+                    "en getUpdates para que Mauro confirme el suyo. NUNCA propongas scripts Python ni COMMAND."
+                ),
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "chat_id": {"type": "STRING", "description": "Opcional si ya está en telegram.allowed_chat_ids."},
+                        "message": {"type": "STRING", "description": "Texto de sonda (opcional)."}
+                    },
+                    "required": []
+                }
+            },
+            {
                 "name": "SCREEN_CAPTURE",
                 "description": "Captura la pantalla actual y devuelve la ruta del archivo de imagen.",
                 "parameters": {
@@ -368,8 +405,10 @@ class AvatarOrchestrator:
             "si una tool intenta reenviar una API key de proveedor ya cargada fuera del "
             "almacén local — no porque el token de Telegram tenga 'forma de secreto'.\n"
             "  3. Tras guardar telegram.bot_token, confirma sin repetir el token en claro "
-            "(di solo que quedó guardado) y ofrece la prueba de conexión "
-            "(p. ej. status del puente / next step concreto).\n"
+            "(di solo que quedó guardado) y ejecuta TELEGRAM_TEST (o TELEGRAM_STATUS + "
+            "TELEGRAM_SEND). Si falta allowlist, pide el chat_id numérico o que Mauro "
+            "escriba /start al bot y vuelve a TELEGRAM_TEST. "
+            "PROHIBIDO improvisar la prueba con COMMAND, scripts Python o 'preparar un script'.\n"
             "- ESTÁNDAR DE COMUNICACIÓN Y EFECTIVIDAD EJECUTIVA (ANTIGRAVITY STANDARD):\n"
             "  1. TONO Y ESTILO: Comunícate siempre con elegancia, claridad y precisión técnica en Markdown. Explica las soluciones aplicadas de forma directa.\n"
             "  2. CERO FUGA DE FONTANERÍA INTERNA: NUNCA muestres en el chat de Mauro etiquetas de herramientas ('ACCION: COMMAND') o monólogos CoT ('1. ANÁLISIS DE INTENCIÓN...'). Esas herramientas son ejecutadas de forma nativa e invisible por el sistema.\n"
@@ -1215,12 +1254,22 @@ class AvatarOrchestrator:
 
         autonomy = self.config.get("autonomy", {}) or {}
         security = self.config.get("security", {}) or {}
+        telegram_cfg = self.config.get("telegram", {}) or {}
 
         max_acts = autonomy.get("max_acts_per_mission")
         try:
             max_acts = int(max_acts) if max_acts is not None else None
         except (TypeError, ValueError):
             max_acts = None
+
+        trusted_tg = []
+        raw_ids = telegram_cfg.get("allowed_chat_ids") or []
+        if isinstance(raw_ids, (str, int)):
+            raw_ids = [raw_ids]
+        for e in raw_ids:
+            s = str(e).strip()
+            if s.isdigit():
+                trusted_tg.append(s)
 
         policy = ActPolicy(
             # Dry-run defaults to ON. A real external message requires explicit opt-in.
@@ -1231,6 +1280,7 @@ class AvatarOrchestrator:
             max_acts_per_mission=max_acts,
             exec_requires_approval=bool(security.get("exec_requires_approval", True)),
             exec_allowlist=tuple(security.get("exec_allowlist", ()) or ()),
+            trusted_telegram_chat_ids=tuple(trusted_tg),
         )
 
         def _take_screenshot(a):
@@ -1263,6 +1313,9 @@ class AvatarOrchestrator:
             "WHATSAPP_STATUS": lambda a: self._exec_whatsapp_status(a or {}),
             "WHATSAPP_READ": lambda a: self._exec_whatsapp_read(a or {}),
             "WHATSAPP_SEND": lambda a: self._exec_whatsapp_send(a or {}),
+            "TELEGRAM_STATUS": lambda a: self._exec_telegram("status", a or {}),
+            "TELEGRAM_SEND": lambda a: self._exec_telegram("send", a or {}),
+            "TELEGRAM_TEST": lambda a: self._exec_telegram("test", a or {}),
             "BROWSER_NAVIGATE": lambda a: self._exec_browser("navigate", a or {}),
             "BROWSER_OBSERVE": lambda a: self._exec_browser("observe", a or {}),
             "BROWSER_CLICK": lambda a: self._exec_browser("click", a or {}),
@@ -1360,6 +1413,17 @@ class AvatarOrchestrator:
                 self.llm.load_config(force=True)
         except Exception:
             pass
+        # Keep Telegram allowlist trusted-ids in sync for personal-send policy.
+        if self.chokepoint is not None and key.startswith("telegram."):
+            try:
+                ids = cfg.get("telegram", {}).get("allowed_chat_ids") or []
+                if isinstance(ids, (str, int)):
+                    ids = [ids]
+                self.chokepoint.policy.trusted_telegram_chat_ids = tuple(
+                    str(e).strip() for e in ids if str(e).strip().isdigit()
+                )
+            except Exception:
+                pass
 
         # Never echo the secret back — only confirm which key was set.
         shown = value
@@ -1371,6 +1435,121 @@ class AvatarOrchestrator:
             f"RESULT:OK UPDATE_CONFIG key={key} written to config.json. "
             f"Valor confirmado (enmascarado): {shown}"
         )
+
+    def _telegram_bridge(self):
+        from bridges.telegram_bridge import TelegramBridge
+        return TelegramBridge(orchestrator=self)
+
+    def _exec_telegram(self, action: str, args: Dict[str, Any]) -> str:
+        """TELEGRAM_STATUS / SEND / TEST through the official Bot API (no COMMAND scripts)."""
+        bridge = self._telegram_bridge()
+        if action == "status":
+            me = bridge.api_get_me()
+            recent = bridge.api_recent_private_chat_ids() if me.get("ok") else []
+            payload = {
+                "success": bool(me.get("ok")),
+                "verified": bool(me.get("ok")),
+                "bot": me,
+                "token_configured": bool(bridge.bot_token),
+                "allowed_chat_ids": sorted(bridge.allowed_chat_ids),
+                "recent_private_chats": recent[:5],
+                "hint": (
+                    "OK: token válido."
+                    if me.get("ok") else
+                    "Token inválido o ausente: usa UPDATE_CONFIG telegram.bot_token."
+                ),
+            }
+            if me.get("ok") and not bridge.allowed_chat_ids:
+                payload["hint"] = (
+                    "Token OK, pero falta telegram.allowed_chat_ids. "
+                    "Mauro debe escribir /start al bot en privado; "
+                    "luego UPDATE_CONFIG con su chat_id numérico y TELEGRAM_TEST."
+                )
+            return json.dumps(payload, ensure_ascii=False)[:4000]
+
+        if action == "send":
+            chat_id = str(args.get("chat_id") or "").strip()
+            message = args.get("message") or args.get("params") or ""
+            result = bridge.send_message(chat_id, message)
+            result = dict(result or {})
+            result["success"] = bool(result.get("ok"))
+            result["verified"] = bool(result.get("ok"))
+            return json.dumps(result, ensure_ascii=False)[:4000]
+
+        if action == "test":
+            me = bridge.api_get_me()
+            if not me.get("ok"):
+                return json.dumps({
+                    "success": False, "verified": False, "step": "getMe",
+                    "bot": me,
+                    "error": "TOKEN_INVALID_OR_MISSING",
+                    "next": "UPDATE_CONFIG key=telegram.bot_token con el token completo.",
+                }, ensure_ascii=False)
+
+            chat_id = str(args.get("chat_id") or "").strip()
+            if not chat_id:
+                if len(bridge.allowed_chat_ids) == 1:
+                    chat_id = next(iter(bridge.allowed_chat_ids))
+                elif bridge.allowed_chat_ids:
+                    chat_id = sorted(bridge.allowed_chat_ids)[0]
+
+            recent = bridge.api_recent_private_chat_ids()
+            if not chat_id and recent:
+                # Do not auto-trust strangers; report candidates for Mauro to confirm.
+                return json.dumps({
+                    "success": False, "verified": False, "step": "allowlist",
+                    "bot": {"username": me.get("username"), "id": me.get("id")},
+                    "recent_private_chats": recent[:5],
+                    "error": "ALLOWLIST_EMPTY",
+                    "next": (
+                        "Confirma cuál chat_id es el tuyo y ejecuta "
+                        "UPDATE_CONFIG key=telegram.allowed_chat_ids value=<id>; "
+                        "después TELEGRAM_TEST de nuevo."
+                    ),
+                }, ensure_ascii=False)
+
+            if not chat_id:
+                return json.dumps({
+                    "success": False, "verified": False, "step": "allowlist",
+                    "bot": {"username": me.get("username"), "id": me.get("id")},
+                    "error": "NO_CHAT_ID",
+                    "next": (
+                        f"Abre Telegram, busca @{me.get('username') or 'tu_bot'}, "
+                        "envía /start, dime tu chat_id numérico (o vuelve a TELEGRAM_TEST "
+                        "para listar chats recientes)."
+                    ),
+                }, ensure_ascii=False)
+
+            # Ensure allowlist includes the target so the daemon will accept replies.
+            if chat_id not in bridge.allowed_chat_ids:
+                self._exec_update_config({
+                    "key": "telegram.allowed_chat_ids",
+                    "value": chat_id,
+                })
+                bridge = self._telegram_bridge()
+
+            probe = args.get("message") or (
+                "AVATAR: prueba bidireccional OK. Responde 'hola' aquí para cerrar el circuito."
+            )
+            sent = bridge.send_message(chat_id, probe)
+            ok = bool(sent.get("ok"))
+            return json.dumps({
+                "success": ok,
+                "verified": ok,
+                "step": "send",
+                "bot": {"username": me.get("username"), "id": me.get("id")},
+                "chat_id": chat_id,
+                "send": sent,
+                "next": (
+                    "Revisa Telegram: deberías ver el mensaje de sonda. "
+                    "Responde allí; con el daemon GUI activo Avatar contestará."
+                    if ok else
+                    "El envío falló; revisa chat_id y que hayas iniciado el bot con /start."
+                ),
+            }, ensure_ascii=False)[:4000]
+
+        return json.dumps({"success": False, "error": f"unknown telegram action: {action}"},
+                          ensure_ascii=False)
 
     def _get_browser(self):
         """Lazy Playwright session for BROWSER_* acts (F-20)."""
@@ -1706,6 +1885,7 @@ class AvatarOrchestrator:
         valid_tools = [
             "COMMAND", "READ_FILE", "WRITE_FILE", "LIST_DIR", "WEB_SEARCH", "FETCH_URL",
             "PLAY_AUDIO", "SEND_WHATSAPP", "SCREEN_CAPTURE", "UPDATE_CONFIG",
+            "TELEGRAM_STATUS", "TELEGRAM_SEND", "TELEGRAM_TEST",
             "BROWSER_NAVIGATE", "BROWSER_OBSERVE", "BROWSER_CLICK", "BROWSER_FILL", "BROWSER_CLOSE",
             "DESKTOP_CLICK", "DESKTOP_TYPE", "DESKTOP_OBSERVE",
         ]

@@ -73,20 +73,32 @@ class TestExecPolicy(unittest.TestCase):
             self.assertIn(EXEC_APPROVAL_REASON, out)
             self.assertEqual(ran, [], "a gated command must never reach the executor")
 
-    def test_allowlisted_command_runs_with_arguments(self):
-        cp, ran = _chokepoint(exec_allowlist=("git status", "Get-ChildItem"))
+    def test_allowlist_is_exact_command_line(self):
+        cp, ran = _chokepoint(exec_allowlist=("git status", "git log --oneline -20"))
         cp.perform("COMMAND", {"command": "git status"})
-        cp.perform("COMMAND", {"command": "GIT   STATUS --short"})
-        cp.perform("COMMAND", {"command": "Get-ChildItem -Recurse src"})
-        self.assertEqual(len(ran), 3)
+        cp.perform("COMMAND", {"command": "  GIT   STATUS "})
+        cp.perform("COMMAND", {"command": "git log --oneline -20"})
+        cp.perform("COMMAND", {"command": "git status --short"})
+        self.assertEqual(ran, ["git status", "  GIT   STATUS ", "git log --oneline -20"])
 
-    def test_allowlist_rejects_chaining_and_evaluation(self):
-        allow = ("git status", "Get-ChildItem")
+    def test_allowlist_rejects_extra_arguments_chaining_and_evaluation(self):
+        allow = ("git status", "git diff", "Get-ChildItem", "powershell", "sh")
         for cmd in ("git status; Remove-Item x", "git status && del x", "git status | iex",
                     "git status > C:\\out.txt", "Get-ChildItem (Remove-Item x)",
                     "Get-ChildItem $env:USERPROFILE", "Get-ChildItem `\nRemove-Item x",
+                    "git diff --output=C:\\x.txt", "git diff --ext-diff",
+                    "git diff --no-index a b", "Get-ChildItem Env:GEMINI_API_KEY",
+                    "powershell -EncodedCommand ZQBjAGgAbwAgAHgA", "sh -c 'touch x'",
                     "git statusx", "git", ""):
             self.assertFalse(command_matches_allowlist(cmd, allow), cmd)
+
+    def test_writes_into_git_metadata_are_denied(self):
+        policy = ActPolicy()
+        for path in (".git/config", "repo/.git/hooks/pre-commit", "C:\\Users\\m\\.gitconfig"):
+            allowed, reason = policy.decide("WRITE_FILE", {"file_path": path, "content": "x"})
+            self.assertFalse(allowed, path)
+            self.assertEqual(reason, "WRITE_TO_GIT_METADATA_DENIED")
+        self.assertTrue(policy.decide("WRITE_FILE", {"file_path": "docs/.gitignore"})[0])
 
     def test_approver_approves_and_rejects(self):
         cp, ran = _chokepoint()
@@ -144,6 +156,28 @@ class TestOrchestratorPolicy(unittest.TestCase):
             self.assertTrue(allowed)
             self.assertEqual(reason, "ALLOWED_BY_EXEC_ALLOWLIST")
 
+    def test_real_powershell_effect_only_after_approval(self):
+        import shutil
+        from core.orchestrator import AvatarOrchestrator
+        if not shutil.which("powershell"):
+            self.skipTest("powershell not installed")
+        with _TempWorld() as world:
+            target = os.path.join(world.dir, "u1_probe.txt")
+            cmd = f"New-Item -ItemType File -Path '{target}'"
+            orch = AvatarOrchestrator()
+            orch.config = {"security": {"allowed_workspace": world.dir}}
+            orch.chokepoint = orch._build_chokepoint()
+            with mock.patch("tools.shell_tool.ShellTool.get_allowed_workspace",
+                            return_value=world.dir):
+                orch._dispatch_native_tool("COMMAND", {"command": cmd})
+                self.assertFalse(os.path.exists(target), "denied command must have no effect")
+                orch.chokepoint.approver = lambda act, args: True
+                orch._dispatch_native_tool("COMMAND", {"command": cmd})
+            self.assertTrue(os.path.exists(target), "approved command must really run")
+            statuses = [(a["policy_reason"], a["status"]) for a in orch.chokepoint.list_acts()]
+            self.assertEqual(statuses[0], (EXEC_APPROVAL_REASON, ActStatus.DENIED))
+            self.assertEqual(statuses[1], ("APPROVED_BY_OPERATOR", ActStatus.OBSERVED))
+
     def test_cli_approver_defaults_to_no(self):
         from interface.cli import tty_exec_approver
         with mock.patch("builtins.input", return_value=""):
@@ -154,8 +188,9 @@ class TestOrchestratorPolicy(unittest.TestCase):
             self.assertFalse(tty_exec_approver("COMMAND", {"command": "echo x"}))
 
 
-def _tg_message(chat_id=111, username="mauro", text="hola"):
-    return {"chat": {"id": chat_id}, "from": {"username": username}, "text": text}
+def _tg_message(user_id=111, chat_id=None, chat_type="private", username="mauro", text="hola"):
+    return {"chat": {"id": user_id if chat_id is None else chat_id, "type": chat_type},
+            "from": {"id": user_id, "username": username, "is_bot": False}, "text": text}
 
 
 class TestTelegramAllowlist(unittest.TestCase):
@@ -178,20 +213,36 @@ class TestTelegramAllowlist(unittest.TestCase):
             self.assertEqual(b.sent, [])
             self.assertEqual(b.orchestrator.chokepoint.list_acts(), [])
 
-    def test_allowlisted_chat_id_and_username(self):
+    def test_only_allowlisted_user_in_private_chat(self):
         with _TempWorld():
-            b = self._bridge(allowed_chat_ids=["111", "@Mauro"])
-            b.handle_message(_tg_message(chat_id=111, username="otro", text="hola"))
-            b.handle_message(_tg_message(chat_id=222, username="MAURO", text="hola"))
-            b.handle_message(_tg_message(chat_id=333, username="intruso", text="hola"))
-            self.assertEqual([c for c, _ in b.sent], ["111", "222"])
+            b = self._bridge(allowed_chat_ids=["111"])
+            b.handle_message(_tg_message(user_id=111, text="hola"))
+            b.handle_message(_tg_message(user_id=333, username="mauro", text="hola"))
+            self.assertEqual([c for c, _ in b.sent], ["111"])
+
+    def test_group_chats_and_missing_sender_are_rejected(self):
+        with _TempWorld():
+            b = self._bridge(allowed_chat_ids=["111", "-100200"])
+            group_owner = _tg_message(user_id=111, chat_id=-100200, chat_type="supergroup")
+            group_attacker = _tg_message(user_id=999, chat_id=-100200, chat_type="supergroup")
+            no_from = {"chat": {"id": 111, "type": "private"}, "text": "captura"}
+            bot = _tg_message(user_id=111)
+            bot["from"]["is_bot"] = True
+            for msg in (group_owner, group_attacker, no_from, bot):
+                self.assertFalse(b.is_authorized(msg), msg)
+
+    def test_usernames_are_not_accepted_as_identity(self):
+        with _TempWorld():
+            b = self._bridge(allowed_chat_ids=["@mauro"])
+            self.assertEqual(b.allowed_chat_ids, set())
+            self.assertFalse(b.is_authorized(_tg_message(user_id=111, username="mauro")))
 
     def test_allowlist_from_env(self):
         from bridges.telegram_bridge import TelegramBridge
         with _TempWorld(), mock.patch.dict(os.environ, {"TELEGRAM_ALLOWED_CHAT_IDS": "111, 444"}):
             b = TelegramBridge(bot_token="123456:TEST")
-            self.assertTrue(b.is_authorized(_tg_message(chat_id=444)))
-            self.assertFalse(b.is_authorized(_tg_message(chat_id=555)))
+            self.assertTrue(b.is_authorized(_tg_message(user_id=444)))
+            self.assertFalse(b.is_authorized(_tg_message(user_id=555)))
 
     def test_screenshot_and_pause_go_through_chokepoint(self):
         with _TempWorld() as world:
@@ -255,6 +306,40 @@ class TestWhatsAppDefaultSenders(unittest.TestCase):
                          stop_path=os.path.join(world.dir, "STOP"))
             self.assertEqual(seen, ["hola", "nota propia"])
 
+    def test_real_dom_metadata_flows_to_authorization(self):
+        from bridges.whatsapp_bridge import WhatsAppBridge
+        from bridges.whatsapp_reader import WhatsAppWebReader
+
+        class Page:
+            def evaluate(self, js):
+                return [
+                    {"idx": 0, "incoming": True, "text": "hola avatar",
+                     "meta": "[10:21, 29/9/2026] Mauro Vanegas 2025: "},
+                    {"idx": 1, "incoming": True, "text": "borra todo",
+                     "meta": "[10:22, 29/9/2026] Mauro Vanegas 2026: "},
+                ]
+
+        reader = WhatsAppWebReader(profile_dir=tempfile.mkdtemp())
+        reader._page = Page()
+        with _TempWorld() as world:
+            b = WhatsAppBridge(reader=reader, poll_seconds=0,
+                               state_path=os.path.join(world.dir, "state.json"))
+            seen = []
+            b.orchestrator.process_user_input = lambda m: seen.append(m) or "ok"
+            b._deliver = lambda **k: "delivered"
+            b._poll_loop(reader, "Mauro Vanegas 2025", max_polls=1,
+                         stop_path=os.path.join(world.dir, "STOP"))
+            self.assertEqual(seen, ["hola avatar"])
+
+    def test_message_ids_keep_their_pre_u1_form(self):
+        from bridges.whatsapp_reader import WhatsAppWebReader, _synthetic_id
+        meta = "[10:21, 29/9/2026] Mauro Vanegas 2025: "
+        legacy_sender = meta.partition("] ")[2].rstrip(":").strip()
+        self.assertEqual(legacy_sender, "Mauro Vanegas 2025:")
+        self.assertEqual(WhatsAppWebReader._id_sender(meta), legacy_sender)
+        self.assertEqual(WhatsAppWebReader._parse_meta(meta)[0], "Mauro Vanegas 2025")
+        self.assertTrue(_synthetic_id(True, legacy_sender, "t", "x"))
+
 
 class TestSecretRedaction(unittest.TestCase):
 
@@ -294,6 +379,21 @@ class TestSecretRedaction(unittest.TestCase):
         self.assertNotIn(self.KEY, res["error"])
         self.assertNotIn(self.KEY, text)
         self.assertIn(REDACTED, res["error"])
+
+    def test_successful_tool_responses_are_redacted(self):
+        from core.llm_provider import LLMProvider
+        p = LLMProvider(config_path=os.path.join(tempfile.mkdtemp(), "none.json"))
+        body = {"candidates": [{"content": {"parts": [
+            {"functionCall": {"name": "WRITE_FILE",
+                              "args": {"file_path": "k.txt", "content": f"key {self.KEY}"}}}]}}]}
+        resp = mock.Mock(status_code=200, text="", json=lambda: body)
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": self.KEY}), \
+                mock.patch("requests.post", return_value=resp):
+            p.config["default_provider"] = "gemini"
+            res = p.generate_response_with_tools("s", [{"role": "user", "parts": [{"text": "x"}]}],
+                                                 [{"functionDeclarations": [{"name": "WRITE_FILE"}]}])
+        self.assertEqual(res["type"], "function_call")
+        self.assertNotIn(self.KEY, repr(res))
 
     def test_shape_patterns_without_known_values(self):
         samples = [

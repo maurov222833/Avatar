@@ -44,3 +44,25 @@
 
 - **Desde el Escritorio:** Doble clic en **`Avatar AI`** (`Avatar AI.lnk`).
 - **Control Remoto:** Telegram -> `@Avatar_soberano_bot` (Token configurado en `config.json`).
+
+## Dependencias
+
+```text
+pip install -r requirements.txt
+playwright install chromium
+```
+
+En Windows, para la GUI (`main_gui.py`) y automatización de escritorio:
+
+```text
+pip install -r requirements-desktop.txt
+```
+
+Para correr la suite:
+
+```text
+pip install -r requirements-dev.txt
+pytest
+```
+
+La raíz de datos (`config.json`, `memory/`) es `AVATAR_HOME` o, si no está definida, la carpeta del repo.

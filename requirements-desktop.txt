@@ -1,0 +1,5 @@
+# Windows desktop extras (GUI shell + legacy automation). Optional on Linux CI.
+-r requirements.txt
+pywebview==6.2.1
+pyautogui==0.9.54
+pytesseract==0.3.13

@@ -69,6 +69,7 @@ def show_help(console):
     table.add_row("/approvals", "Lista actos pendientes de tu aprobación.")
     table.add_row("/approve <id>", "Aprueba y ejecuta un acto pendiente.")
     table.add_row("/deny <id>", "Rechaza un acto pendiente.")
+    table.add_row("/watchdog", "Un tick del supervisor (pendientes + reanudación segura).")
     table.add_row("/clear", "Limpia la pantalla y redibuja el panel principal.")
     table.add_row("/help", "Muestra esta guía de comandos.")
     table.add_row("/exit", "Cierra la sesión de Avatar.")
@@ -282,6 +283,14 @@ def run_cli():
                     resolver="cli",
                 )
                 print(result)
+                continue
+            elif cmd == "/watchdog":
+                from core.watchdog import Watchdog
+                report = Watchdog(orchestrator).tick().to_dict()
+                if RICH_AVAILABLE:
+                    console.print(report)
+                else:
+                    print(report)
                 continue
             elif cmd in ["/clear", "cls", "clear"]:
                 os.system("cls" if os.name == "nt" else "clear")

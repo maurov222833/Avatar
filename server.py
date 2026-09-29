@@ -310,6 +310,14 @@ def resolve_approval(approval_id: str, req: ApprovalResolveRequest):
     return result
 
 
+@app.post("/api/watchdog/tick")
+def watchdog_tick():
+    """One supervision pass: report pending approvals; resume only SAFE missions (D-7)."""
+    from core.watchdog import Watchdog
+    wd = Watchdog(orchestrator)
+    return wd.tick().to_dict()
+
+
 @app.get("/api/whatsapp/status")
 def whatsapp_status():
     """

@@ -1,6 +1,6 @@
-import re
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
+from core.cognitive.adapter import _POWERSHELL_EXIT_CODE, unstructured_tool_output_failed
 from core.cognitive.models import TaskEvidence
 
 class CommandObserver:
@@ -37,9 +37,13 @@ class CommandObserver:
             stdout = raw_output
             stderr = ""
         else:
-            match = re.search(r'\[Resultado PowerShell \(ExitCode:\s*(-?\d+)\)\]:', raw_output)
+            match = _POWERSHELL_EXIT_CODE.search(raw_output)
             if match:
                 exit_code = int(match.group(1))
+            elif unstructured_tool_output_failed(raw_output):
+                exit_code = 1
+                stderr = raw_output.strip()
+                stdout = ""
             else:
                 exit_code = 0
 

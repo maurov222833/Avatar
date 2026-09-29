@@ -75,6 +75,15 @@ class TestCognitivePhase3(unittest.TestCase):
         self.assertEqual(ev.value["exit_code"], 1)
         self.assertEqual(ev.value["stderr"], "Error in script")
 
+    def test_observer_004_policy_denial_is_not_exit_zero(self):
+        """TEST-OBSERVER-004: Una denegación sin ExitCode no queda en 0."""
+        raw = "[Bloqueado por política: EXEC_REQUIRES_OPERATOR_APPROVAL] No se ejecutó 'COMMAND'."
+        ev = CommandObserver.observe_command("COMMAND", raw)
+        self.assertEqual(ev.value["exit_code"], 1)
+        res = Verifier.verify("t-deny", ev)
+        self.assertEqual(res.status, TaskResultStatus.FAIL)
+        self.assertFalse(res.status.is_success())
+
     # =========================================================================
     # VERIFIER TESTS
     # =========================================================================
@@ -184,6 +193,27 @@ class TestCognitivePhase3(unittest.TestCase):
 
         def mock_dispatcher(tool: str, args: dict) -> str:
             return "[Resultado PowerShell (ExitCode: 0)]:\nstdout:\nWRONG_VALUE"
+
+        executor = ClosedLoopExecutor(tool_dispatcher=mock_dispatcher)
+        history = executor.execute_plan(goal, plan)
+
+        self.assertEqual(history[0]["task_result"].status, TaskResultStatus.FAIL)
+        self.assertEqual(history[0]["state"], TaskState.FAILED)
+        self.assertEqual(goal.status, GoalState.FAILED)
+
+    def test_loop_004_policy_denial_does_not_complete_the_task(self):
+        """TEST-LOOP-004: Una denegación de política no deja la tarea en COMPLETED."""
+        goal = Goal(goal_id="g-l04", objective="Denied command must not complete")
+        specs = [
+            {"task_id": "t1", "tool": "COMMAND", "arguments": {"command": "Remove-Item secret"}}
+        ]
+        plan = self.planner.create_plan_from_task_specs(goal, specs)
+
+        def mock_dispatcher(tool: str, args: dict) -> str:
+            return (
+                "[Bloqueado por política: EXEC_REQUIRES_OPERATOR_APPROVAL] "
+                "No se ejecutó 'COMMAND'."
+            )
 
         executor = ClosedLoopExecutor(tool_dispatcher=mock_dispatcher)
         history = executor.execute_plan(goal, plan)

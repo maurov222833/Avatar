@@ -13,6 +13,33 @@ from core.cognitive.models import (
     TaskStateMachine,
 )
 
+# Informes que Avatar emite cuando la herramienta no corrió o falló, y que no
+# traen un ExitCode de PowerShell. Se miran al inicio del texto: un listado que
+# solo menciona la palabra "error" no es un fallo.
+_DENIED_OR_ERROR_PREFIXES = (
+    "[Bloqueado por política",
+    "Bloqueado por política",
+    "[DRY-RUN]",
+    "[Seguridad]",
+    "[Error",
+    "RESULT:ERROR",
+)
+
+_POWERSHELL_EXIT_CODE = re.compile(
+    r"\[Resultado PowerShell \(ExitCode:\s*(-?\d+)\)\]:"
+)
+
+
+def unstructured_tool_output_failed(raw_output: str) -> bool:
+    """True cuando el informe es una denegación o un error y no trae ExitCode."""
+    if not isinstance(raw_output, str) or not raw_output:
+        return False
+    if _POWERSHELL_EXIT_CODE.search(raw_output):
+        return False
+    head = raw_output.lstrip()
+    return any(head.startswith(prefix) for prefix in _DENIED_OR_ERROR_PREFIXES)
+
+
 class CognitiveAdapter:
     """
     Adaptador Cognitivo V2 para Avatar AI.
@@ -80,10 +107,14 @@ class CognitiveAdapter:
         stdout = raw_output
         stderr = ""
 
-        # Extraer exit code si es formato PowerShell / ShellTool
-        match = re.search(r'\[Resultado PowerShell \(ExitCode:\s*(-?\d+)\)\]:', raw_output)
+        # El ExitCode de PowerShell manda. Sin él, una denegación o un error
+        # del propio Avatar no puede quedar como éxito (exit_code 0 → PASS).
+        match = _POWERSHELL_EXIT_CODE.search(raw_output)
         if match:
             exit_code = int(match.group(1))
+        elif unstructured_tool_output_failed(raw_output):
+            exit_code = 1
+            stderr = raw_output.strip()
 
         # Extraer stdout y stderr si están formateados
         if "stdout:" in raw_output:

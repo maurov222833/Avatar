@@ -90,5 +90,59 @@ class TestCognitiveAdapter(unittest.TestCase):
         self.assertEqual(result.status, TaskResultStatus.NO_EVIDENCE)
         self.assertFalse(result.status.is_success())
 
+    def test_cg_011_policy_denial_is_not_pass(self):
+        """TEST-CG-011: Una denegación de la pasarela no es evidencia de éxito."""
+        raw_output = (
+            "[Bloqueado por política: EXTERNAL_EFFECT_REQUIRES_OPERATOR_CONSENT] "
+            "No se ejecutó 'SEND_WHATSAPP'."
+        )
+        evidence = CognitiveAdapter.create_evidence_from_tool_output("SEND_WHATSAPP", raw_output)
+        result = CognitiveAdapter.build_task_result("t-deny", evidence)
+        self.assertEqual(evidence.value["exit_code"], 1)
+        self.assertEqual(result.status, TaskResultStatus.FAIL)
+        self.assertFalse(result.status.is_success())
+
+    def test_cg_012_denial_and_error_reports_fail_without_shell_exit_code(self):
+        """TEST-CG-012: Informes de denegación o error, sin ExitCode, no puntúan PASS."""
+        samples = [
+            "[Seguridad]: Acceso a archivo fuera del workspace denegado (x)",
+            "[Error al leer archivo x]: boom",
+            "[DRY-RUN] No se envió ningún mensaje real.",
+            "RESULT:ERROR CHAT_NOT_FOUND: nada",
+            "Bloqueado por política: EXTERNAL_EFFECT_REQUIRES_OPERATOR_CONSENT",
+            "  [Seguridad]: denegado",
+        ]
+        for raw_output in samples:
+            evidence = CognitiveAdapter.create_evidence_from_tool_output("TOOL", raw_output)
+            result = CognitiveAdapter.build_task_result("t-prefix", evidence)
+            self.assertEqual(evidence.value["exit_code"], 1, raw_output)
+            self.assertEqual(result.status, TaskResultStatus.FAIL, raw_output)
+            self.assertFalse(result.status.is_success(), raw_output)
+
+    def test_cg_013_plain_success_and_the_word_error_stay_pass(self):
+        """TEST-CG-013: Un listado normal, aunque nombre un archivo error.log, sigue en PASS."""
+        listing = "core\ntests\ntools"
+        evidence = CognitiveAdapter.create_evidence_from_tool_output("LIST_DIR", listing)
+        result = CognitiveAdapter.build_task_result("t-ld", evidence)
+        self.assertEqual(evidence.value["exit_code"], 0)
+        self.assertEqual(result.status, TaskResultStatus.PASS)
+
+        named = "core\nerror.log\nnotes"
+        evidence = CognitiveAdapter.create_evidence_from_tool_output("LIST_DIR", named)
+        result = CognitiveAdapter.build_task_result("t-name", evidence)
+        self.assertEqual(evidence.value["exit_code"], 0)
+        self.assertEqual(result.status, TaskResultStatus.PASS)
+
+    def test_cg_014_powershell_exit_code_wins_over_later_error_text(self):
+        """TEST-CG-014: El ExitCode de PowerShell manda aunque la salida mencione un error."""
+        raw_output = (
+            "[Resultado PowerShell (ExitCode: 0)]:\n"
+            "stdout:\nlisted error.log\n[Error] este texto está dentro de la salida"
+        )
+        evidence = CognitiveAdapter.create_evidence_from_tool_output("COMMAND", raw_output)
+        self.assertEqual(evidence.value["exit_code"], 0)
+        result = CognitiveAdapter.build_task_result("t-ps", evidence)
+        self.assertEqual(result.status, TaskResultStatus.PASS)
+
 if __name__ == "__main__":
     unittest.main()

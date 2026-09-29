@@ -1029,9 +1029,10 @@ class StateEngine:
         The in-memory list is a window, often the last 50 turns. Replacing the table
         with that window deletes everything older. Entries that already carry a stored
         id stay. A list with no ids appends only the suffix that is not already the tail,
-        so a repeated save of the same window does not duplicate it. A no-id list whose
-        first 50 turns are exactly the end of the log, and which is only a short tail
-        longer than that window, appends the tail even when the text repeats.
+        so a repeated save of the same window does not duplicate it. A no-id list of a
+        different length than the log, at most 20 turns past the default window, whose
+        first 50 turns are exactly the end of the log, appends that tail even when the
+        text repeats. The same length is an exact resend and does not grow.
         """
         incoming = [
             entry for entry in history
@@ -1066,14 +1067,15 @@ class StateEngine:
                             overlap = size
                             break
                     to_insert = incoming[overlap:]
-                    # The longest suffix match cannot tell a new copy of the same text
-                    # from a row already stored. When the list is the default window
-                    # plus a short tail, and that window is exactly the end of the log,
-                    # nothing after it is stored yet: the tail is new.
+                    # Repeated text lets a long suffix match swallow new copies.
+                    # If this list is not the same length as the log, and its first
+                    # 50 turns are exactly the end of the log, those 50 are the
+                    # default window and everything after them is new.
                     window = _HISTORY_WINDOW
                     if (
-                        len(stored_pairs) > len(incoming_pairs) > window
-                        and len(incoming_pairs) <= window + _HISTORY_TAIL_SLACK
+                        len(incoming_pairs) != len(stored_pairs)
+                        and window < len(incoming_pairs) <= window + _HISTORY_TAIL_SLACK
+                        and len(stored_pairs) >= window
                         and stored_pairs[-window:] == incoming_pairs[:window]
                     ):
                         to_insert = incoming[window:]

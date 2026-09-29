@@ -127,6 +127,71 @@ class TestF08HistoryRestart(unittest.TestCase):
         self.engine.sync_history([{"role": "user", "content": "ok"} for _ in range(50)])
         self.assertEqual(len(self.engine.load_history(limit=1000)), 60)
 
+    def test_equal_length_resend_stays_put_at_the_window_edge(self):
+        self.engine.sync_history([{"role": "user", "content": "ok"} for _ in range(51)])
+        self.engine.sync_history([{"role": "user", "content": "ok"} for _ in range(51)])
+        self.engine.sync_history([{"role": "user", "content": "ok"} for _ in range(70)])
+        self.assertEqual(len(self.engine.load_history(limit=None)), 71)
+        self.engine.sync_history([{"role": "user", "content": "ok"} for _ in range(71)])
+        self.assertEqual(len(self.engine.load_history(limit=None)), 71)
+
+    def test_window_tail_is_kept_when_the_list_is_longer_than_the_log(self):
+        self.engine.sync_history([{"role": "user", "content": "ok"} for _ in range(51)])
+        self.engine.sync_history([{"role": "user", "content": "ok"} for _ in range(52)])
+        self.assertEqual(len(self.engine.load_history(limit=None)), 53)
+
+        self.engine.sync_history([{"role": "user", "content": "ok"} for _ in range(60)])
+        # 53 stored, list of 60: the tail past the window is 10 turns.
+        self.assertEqual(len(self.engine.load_history(limit=None)), 63)
+
+    def test_user_and_assistant_tail_when_the_list_outruns_a_short_log(self):
+        self.engine.sync_history([{"role": "user", "content": "ok"} for _ in range(51)])
+        incoming = [{"role": "user", "content": "ok"} for _ in range(51)]
+        incoming.append({"role": "assistant", "content": "ok"})
+        self.engine.sync_history(incoming)
+        stored = self.engine.load_history(limit=None)
+        self.assertEqual(len(stored), 53)
+        self.assertEqual([row["role"] for row in stored[-2:]], ["user", "assistant"])
+
+    def test_longer_repeated_list_on_a_longer_identical_log(self):
+        self.engine.sync_history([{"role": "user", "content": "ok"} for _ in range(60)])
+        self.engine.sync_history([{"role": "user", "content": "ok"} for _ in range(61)])
+        self.assertEqual(len(self.engine.load_history(limit=None)), 71)
+
+    def test_short_list_on_a_log_just_inside_the_band_keeps_the_tail(self):
+        self.engine.sync_history([{"role": "user", "content": "ok"} for _ in range(69)])
+        self.engine.sync_history([{"role": "user", "content": "ok"} for _ in range(70)])
+        self.assertEqual(len(self.engine.load_history(limit=None)), 89)
+
+    def test_alternating_tail_past_the_window_is_not_swallowed(self):
+        stored_first = [
+            {"role": "user" if i % 2 == 0 else "assistant", "content": "ok"}
+            for i in range(60)
+        ]
+        self.engine.sync_history(stored_first)
+        continued = [
+            {"role": "user" if i % 2 == 0 else "assistant", "content": "ok"}
+            for i in range(10, 80)
+        ]
+        self.assertEqual(len(continued), 70)
+        self.engine.sync_history(continued)
+        stored = self.engine.load_history(limit=None)
+        self.assertEqual(len(stored), 80)
+        self.assertEqual(
+            [row["role"] for row in stored],
+            ["user" if i % 2 == 0 else "assistant" for i in range(80)],
+        )
+
+    def test_repeated_run_after_a_distinct_prefix_keeps_the_window_tail(self):
+        self.engine.sync_history(
+            _messages(5) + [{"role": "user", "content": "ok"} for _ in range(55)]
+        )
+        self.engine.sync_history([{"role": "user", "content": "ok"} for _ in range(70)])
+        stored = self.engine.load_history(limit=None)
+        self.assertEqual(len(stored), 80)
+        self.assertEqual([row["content"] for row in stored[:5]], [f"msg-{i:03d}" for i in range(5)])
+        self.assertEqual(sum(1 for row in stored if row["content"] == "ok"), 75)
+
 
 class TestF08HistoryJsonFallback(unittest.TestCase):
     def test_json_keeps_rows_outside_the_window_and_migrates_them(self):

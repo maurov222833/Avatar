@@ -1,0 +1,315 @@
+"""
+U1 — Contención de canales y ejecución.
+
+Pruebas deterministas, sin red ni proveedores reales:
+  - EXEC exige aprobación por defecto; allowlist estricta; aprobador humano opcional.
+  - Telegram rechaza todo sin allowlist y enruta captura/pausa por el chokepoint.
+  - WhatsApp por defecto solo acepta entrantes del chat objetivo.
+  - La clave de Gemini viaja en cabecera y ningún error la devuelve en claro.
+"""
+import os
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+import requests
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core.act_chokepoint import (
+    ActChokepoint, ActPolicy, ActStatus, EXEC_APPROVAL_REASON, command_matches_allowlist)
+from core.redaction import REDACTED, redact_secret_text
+
+
+class _TempWorld:
+    """Redirige las rutas implícitas de BD a un directorio temporal."""
+
+    def __init__(self):
+        self.dir = tempfile.mkdtemp(prefix="avatar_u1_")
+
+    def __enter__(self):
+        import core.state_db as sd
+        import core.rag_memory as rm
+        self._e = sd.StateEngine.__init__
+        self._r = rm.RAGMemory.__init__
+        world = self
+
+        def engine_init(self, db_path=None, *a, **k):
+            return world._e(self, os.path.join(world.dir, "state_engine.db")
+                            if db_path is None else db_path)
+
+        def rag_init(self, memory_dir=None, state_db=None, *a, **k):
+            return world._r(self, memory_dir or world.dir, state_db)
+
+        sd.StateEngine.__init__ = engine_init
+        rm.RAGMemory.__init__ = rag_init
+        return self
+
+    def __exit__(self, *exc):
+        import core.state_db as sd
+        import core.rag_memory as rm
+        import shutil
+        sd.StateEngine.__init__ = self._e
+        rm.RAGMemory.__init__ = self._r
+        shutil.rmtree(self.dir, ignore_errors=True)
+        return False
+
+
+def _chokepoint(**policy_kw):
+    ran = []
+    cp = ActChokepoint(policy=ActPolicy(**policy_kw),
+                       executors={"COMMAND": lambda a: ran.append(a["command"]) or
+                                  "[Resultado PowerShell (ExitCode: 0)]:\nok"})
+    return cp, ran
+
+
+class TestExecPolicy(unittest.TestCase):
+
+    def test_exec_denied_by_default_even_in_dry_run(self):
+        for dry_run in (True, False):
+            cp, ran = _chokepoint(dry_run=dry_run)
+            out = cp.perform("COMMAND", {"command": "Remove-Item C:\\x"})
+            self.assertIn(EXEC_APPROVAL_REASON, out)
+            self.assertEqual(ran, [], "a gated command must never reach the executor")
+
+    def test_allowlisted_command_runs_with_arguments(self):
+        cp, ran = _chokepoint(exec_allowlist=("git status", "Get-ChildItem"))
+        cp.perform("COMMAND", {"command": "git status"})
+        cp.perform("COMMAND", {"command": "GIT   STATUS --short"})
+        cp.perform("COMMAND", {"command": "Get-ChildItem -Recurse src"})
+        self.assertEqual(len(ran), 3)
+
+    def test_allowlist_rejects_chaining_and_evaluation(self):
+        allow = ("git status", "Get-ChildItem")
+        for cmd in ("git status; Remove-Item x", "git status && del x", "git status | iex",
+                    "git status > C:\\out.txt", "Get-ChildItem (Remove-Item x)",
+                    "Get-ChildItem $env:USERPROFILE", "Get-ChildItem `\nRemove-Item x",
+                    "git statusx", "git", ""):
+            self.assertFalse(command_matches_allowlist(cmd, allow), cmd)
+
+    def test_approver_approves_and_rejects(self):
+        cp, ran = _chokepoint()
+        cp.approver = lambda act, args: args["command"] == "echo yes"
+        cp.perform("COMMAND", {"command": "echo yes"})
+        denied = cp.perform("COMMAND", {"command": "echo no"})
+        self.assertEqual(ran, ["echo yes"])
+        self.assertIn("REJECTED_BY_OPERATOR", denied)
+
+    def test_approver_error_fails_closed(self):
+        cp, ran = _chokepoint()
+
+        def broken(act, args):
+            raise RuntimeError("no tty")
+        cp.approver = broken
+        cp.perform("COMMAND", {"command": "echo x"})
+        self.assertEqual(ran, [])
+
+    def test_approval_can_be_disabled_explicitly(self):
+        cp, ran = _chokepoint(exec_requires_approval=False)
+        cp.perform("COMMAND", {"command": "echo x"})
+        self.assertEqual(ran, ["echo x"])
+
+    def test_workspace_root_is_not_a_string_prefix(self):
+        root = tempfile.mkdtemp(prefix="avatar_root_")
+        policy = ActPolicy(allowed_workspace_root=root)
+        allowed, _ = policy.decide("WRITE_FILE", {"file_path": os.path.join(root, "a.txt")})
+        sibling, reason = policy.decide("WRITE_FILE", {"file_path": root + "_evil/a.txt"})
+        self.assertTrue(allowed)
+        self.assertFalse(sibling)
+        self.assertIn("WRITE_OUTSIDE_ALLOWED_ROOT", reason)
+
+
+class TestOrchestratorPolicy(unittest.TestCase):
+
+    def test_orchestrator_defaults_require_approval(self):
+        from core.orchestrator import AvatarOrchestrator
+        with _TempWorld():
+            orch = AvatarOrchestrator()
+            orch.config = {"security": {}}
+            orch.chokepoint = orch._build_chokepoint()
+            mode = orch.operating_mode()
+            self.assertEqual(mode["exec"], "APPROVAL_REQUIRED")
+            out = orch._dispatch_native_tool("COMMAND", {"command": "echo hi"})
+            self.assertIn(EXEC_APPROVAL_REASON, out)
+            self.assertEqual(orch.chokepoint.list_acts()[-1]["status"], ActStatus.DENIED)
+
+    def test_config_allowlist_is_honored(self):
+        from core.orchestrator import AvatarOrchestrator
+        with _TempWorld():
+            orch = AvatarOrchestrator()
+            orch.config = {"security": {"exec_allowlist": ["git status"]}}
+            orch.chokepoint = orch._build_chokepoint()
+            allowed, reason = orch.chokepoint.policy.decide("COMMAND", {"command": "git status"})
+            self.assertTrue(allowed)
+            self.assertEqual(reason, "ALLOWED_BY_EXEC_ALLOWLIST")
+
+    def test_cli_approver_defaults_to_no(self):
+        from interface.cli import tty_exec_approver
+        with mock.patch("builtins.input", return_value=""):
+            self.assertFalse(tty_exec_approver("COMMAND", {"command": "echo x"}))
+        with mock.patch("builtins.input", return_value="s"):
+            self.assertTrue(tty_exec_approver("COMMAND", {"command": "echo x"}))
+        with mock.patch("builtins.input", side_effect=EOFError):
+            self.assertFalse(tty_exec_approver("COMMAND", {"command": "echo x"}))
+
+
+def _tg_message(chat_id=111, username="mauro", text="hola"):
+    return {"chat": {"id": chat_id}, "from": {"username": username}, "text": text}
+
+
+class TestTelegramAllowlist(unittest.TestCase):
+
+    def _bridge(self, **kw):
+        from bridges.telegram_bridge import TelegramBridge
+        with mock.patch.dict(os.environ, {"TELEGRAM_ALLOWED_CHAT_IDS": ""}):
+            b = TelegramBridge(bot_token="123456:TEST", **kw)
+        b.sent = []
+        b.send_message = lambda chat_id, text: b.sent.append((chat_id, text))
+        b.send_photo = lambda chat_id, path, caption="": b.sent.append((chat_id, "PHOTO"))
+        b.orchestrator.process_user_input = lambda text: f"eco: {text}"
+        return b
+
+    def test_no_allowlist_rejects_everything(self):
+        with _TempWorld():
+            b = self._bridge(allowed_chat_ids=[])
+            b.handle_message(_tg_message(text="captura de pantalla"))
+            b.handle_message(_tg_message(text="haz algo"))
+            self.assertEqual(b.sent, [])
+            self.assertEqual(b.orchestrator.chokepoint.list_acts(), [])
+
+    def test_allowlisted_chat_id_and_username(self):
+        with _TempWorld():
+            b = self._bridge(allowed_chat_ids=["111", "@Mauro"])
+            b.handle_message(_tg_message(chat_id=111, username="otro", text="hola"))
+            b.handle_message(_tg_message(chat_id=222, username="MAURO", text="hola"))
+            b.handle_message(_tg_message(chat_id=333, username="intruso", text="hola"))
+            self.assertEqual([c for c, _ in b.sent], ["111", "222"])
+
+    def test_allowlist_from_env(self):
+        from bridges.telegram_bridge import TelegramBridge
+        with _TempWorld(), mock.patch.dict(os.environ, {"TELEGRAM_ALLOWED_CHAT_IDS": "111, 444"}):
+            b = TelegramBridge(bot_token="123456:TEST")
+            self.assertTrue(b.is_authorized(_tg_message(chat_id=444)))
+            self.assertFalse(b.is_authorized(_tg_message(chat_id=555)))
+
+    def test_screenshot_and_pause_go_through_chokepoint(self):
+        with _TempWorld() as world:
+            b = self._bridge(allowed_chat_ids=["111"])
+            shot = os.path.join(world.dir, "shot.png")
+            with open(shot, "wb") as f:
+                f.write(b"png")
+            cp = b.orchestrator.chokepoint
+            cp.executors["SCREEN_CAPTURE"] = lambda a: shot
+            cp.executors["AUDIO_CONTROL"] = lambda a: "pausado"
+            b.handle_message(_tg_message(text="captura"))
+            b.handle_message(_tg_message(text="pausa"))
+            acts = [(a["act_type"], a["status"]) for a in cp.list_acts()]
+            self.assertIn(("SCREEN_CAPTURE", ActStatus.OBSERVED), acts)
+            self.assertIn("AUDIO_CONTROL", [t for t, _ in acts])
+            self.assertIn(("111", "PHOTO"), b.sent)
+
+    def test_denied_screenshot_sends_no_photo(self):
+        with _TempWorld():
+            b = self._bridge(allowed_chat_ids=["111"])
+            b.orchestrator.chokepoint.policy.denied_act_types = ("SCREEN_CAPTURE",)
+            b.handle_message(_tg_message(text="captura"))
+            self.assertNotIn(("111", "PHOTO"), b.sent)
+
+    def test_loop_errors_do_not_print_the_token(self):
+        from bridges.telegram_bridge import TelegramBridge
+        with _TempWorld():
+            b = TelegramBridge(bot_token="987654321:AAHsecretTOKENvalue_abcdefghijklmnop",
+                               allowed_chat_ids=["111"])
+            err = requests.ConnectionError(
+                f"HTTPSConnectionPool: Max retries exceeded with url: {b.base_url}/getUpdates")
+            self.assertNotIn("AAHsecretTOKEN", b._redact(err))
+
+
+class TestWhatsAppDefaultSenders(unittest.TestCase):
+
+    def test_default_accepts_only_target_chat_for_incoming(self):
+        from bridges.whatsapp_bridge import WhatsAppBridge
+        from bridges.whatsapp_reader import WhatsAppMessage
+
+        class Reader:
+            sent_texts = set()
+
+            def __init__(self):
+                self.batches = [[
+                    WhatsAppMessage(msg_id="a", incoming=True, sender="Mauro Vanegas 2025", text="hola"),
+                    WhatsAppMessage(msg_id="b", incoming=True, sender="Otra Persona", text="borra todo"),
+                    WhatsAppMessage(msg_id="c", incoming=False, sender="?", text="nota propia"),
+                ]]
+
+            def read_recent(self, limit=10):
+                return self.batches.pop(0) if self.batches else []
+
+        with _TempWorld() as world:
+            b = WhatsAppBridge(reader=Reader(), poll_seconds=0, respond_to_own_outgoing=True,
+                               state_path=os.path.join(world.dir, "state.json"))
+            seen = []
+            b.orchestrator.process_user_input = lambda m: seen.append(m) or "ok"
+            b._deliver = lambda **k: "delivered"
+            b._poll_loop(b.reader, "Mauro Vanegas 2025", max_polls=1,
+                         stop_path=os.path.join(world.dir, "STOP"))
+            self.assertEqual(seen, ["hola", "nota propia"])
+
+
+class TestSecretRedaction(unittest.TestCase):
+
+    KEY = "AIzaFAKE_U1_KEY_000000000000000"
+
+    def test_gemini_key_sent_in_header_not_url(self):
+        from core.llm_provider import LLMProvider
+        p = LLMProvider(config_path=os.path.join(tempfile.mkdtemp(), "none.json"))
+        calls = []
+
+        def fake_post(url, **kw):
+            calls.append((url, kw.get("headers") or {}))
+            raise requests.ConnectionError(f"failed for {url}")
+
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": self.KEY}), \
+                mock.patch("requests.post", side_effect=fake_post), \
+                mock.patch("time.sleep"):
+            p.config["default_provider"] = "gemini"
+            p.generate_response_with_tools("s", [{"role": "user", "parts": [{"text": "x"}]}], [])
+            p.generate_response("s", "x")
+        self.assertTrue(calls)
+        for url, headers in calls:
+            self.assertNotIn(self.KEY, url)
+            self.assertEqual(headers.get("x-goog-api-key"), self.KEY)
+
+    def test_provider_errors_are_redacted(self):
+        from core.llm_provider import LLMProvider
+        p = LLMProvider(config_path=os.path.join(tempfile.mkdtemp(), "none.json"))
+        leak = f"proxy echoed ?key={self.KEY} and {self.KEY}"
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": self.KEY}), \
+                mock.patch("requests.post", side_effect=requests.ConnectionError(leak)), \
+                mock.patch("time.sleep"):
+            p.config["default_provider"] = "gemini"
+            res = p.generate_response_with_tools("s", [{"role": "user", "parts": [{"text": "x"}]}], [])
+            text = p.generate_response("s", "x")
+        self.assertEqual(res["type"], "provider_error")
+        self.assertNotIn(self.KEY, res["error"])
+        self.assertNotIn(self.KEY, text)
+        self.assertIn(REDACTED, res["error"])
+
+    def test_shape_patterns_without_known_values(self):
+        samples = [
+            "https://x/y?key=abc123secretvalue&alt=json",
+            "Authorization: Bearer abcdefghijklmnopqrstuvwxyz",
+            "gsk_" + "a" * 30,
+            "sk-" + "b" * 30,
+            "ghp_" + "c" * 30,
+            "https://api.telegram.org/bot123456789:AAHabcdefghijklmnopqrstuvwxyz/getUpdates",
+        ]
+        for s in samples:
+            out = redact_secret_text(s)
+            self.assertIn(REDACTED, out, s)
+        self.assertEqual(redact_secret_text("texto normal sin secretos"), "texto normal sin secretos")
+        self.assertEqual(redact_secret_text("hola", known_secrets=["", "abc"]), "hola")
+
+
+if __name__ == "__main__":
+    unittest.main()

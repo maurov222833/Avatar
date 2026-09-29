@@ -5,6 +5,17 @@ import time
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 
+from core.redaction import redact_secret_text
+
+#: Providers whose keys are redacted from any text the facade returns.
+_KEYED_PROVIDERS = ("gemini", "openai", "groq", "github")
+
+
+def _gemini_headers(api_key: str) -> Dict[str, str]:
+    # Header auth keeps the key out of URLs, which requests echoes into exception messages.
+    return {"Content-Type": "application/json", "x-goog-api-key": api_key}
+
+
 @dataclass
 class ProviderCapabilities:
     """Capacidades soportadas por un proveedor LLM."""
@@ -101,10 +112,11 @@ class GeminiAdapter(BaseAdapter):
         fallback_models = [m for m in fallback_models if not (m in seen or seen.add(m))]
 
         for current_model in fallback_models:
-            current_url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={api_key}"
+            current_url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent"
             for attempt in range(1, 3):
                 try:
-                    res = requests.post(current_url, json=payload, timeout=60)
+                    res = requests.post(current_url, json=payload,
+                                        headers=_gemini_headers(api_key), timeout=60)
                     if res.status_code == 200:
                         data = res.json()
                         candidates = data.get("candidates", [])
@@ -161,9 +173,9 @@ class GeminiAdapter(BaseAdapter):
         last_status = 500
 
         for current_model in fallback_models:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={api_key}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent"
             try:
-                res = requests.post(url, json=payload, timeout=60)
+                res = requests.post(url, json=payload, headers=_gemini_headers(api_key), timeout=60)
                 last_status = res.status_code
                 if res.status_code == 200:
                     data = res.json()
@@ -690,12 +702,31 @@ class LLMProvider:
         except Exception:
             return False
 
+    def _known_secrets(self) -> List[str]:
+        keys = []
+        for name in _KEYED_PROVIDERS:
+            try:
+                keys.append(self._get_api_key(name))
+            except Exception:
+                continue
+        return [k for k in keys if k]
+
+    def redact(self, text):
+        return redact_secret_text(text, self._known_secrets())
+
     def generate_response(self, system_prompt: str, prompt: str, history: List[Dict[str, str]] = None) -> str:
         provider = self.get_active_provider()
         adapter = self.manager.get_adapter(provider)
-        return adapter.generate_response(system_prompt, prompt, history)
+        return self.redact(adapter.generate_response(system_prompt, prompt, history))
 
     def generate_response_with_tools(self, system_prompt: str, contents: List[Dict[str, Any]], tools: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+        res = self._generate_response_with_tools_unredacted(system_prompt, contents, tools)
+        if isinstance(res, dict) and res.get("type") == "provider_error":
+            res = dict(res)
+            res["error"] = self.redact(res.get("error", ""))
+        return res
+
+    def _generate_response_with_tools_unredacted(self, system_prompt: str, contents: List[Dict[str, Any]], tools: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         provider = self.get_active_provider()
         adapter = self.manager.get_adapter(provider)
         res = adapter.generate_response_with_tools(system_prompt, contents, tools)

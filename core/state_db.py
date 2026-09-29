@@ -78,7 +78,7 @@ class StateEngine:
             return str(row[0]).lower() if row else "unknown"
 
     #: Bumped whenever the on-disk schema changes in a way SQLite cannot apply in place.
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
 
     def _create_tables(self):
         with self._lock:
@@ -105,7 +105,8 @@ class StateEngine:
                 required_capabilities TEXT NOT NULL DEFAULT '[]',
                 requirements_declared INTEGER NOT NULL DEFAULT 1,
                 requirements_seal TEXT NOT NULL DEFAULT '',
-                status TEXT NOT NULL CHECK(status IN ('PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'VERIFIED', 'COMPLETED_WITH_BLOCKING_FINDINGS', 'COMPLETED_WITH_FINDINGS', 'PARTIALLY_COMPLETED', 'BLOCKED', 'NO_REQUIREMENTS_DECLARED')),
+                acceptance_criteria TEXT NOT NULL DEFAULT '[]',
+                status TEXT NOT NULL CHECK(status IN ('PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'VERIFIED', 'COMPLETED_WITH_BLOCKING_FINDINGS', 'COMPLETED_WITH_FINDINGS', 'PARTIALLY_COMPLETED', 'BLOCKED', 'NO_REQUIREMENTS_DECLARED', 'REPORTED')),
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
@@ -362,11 +363,12 @@ class StateEngine:
         ddl = conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='missions'"
         ).fetchone()[0] or ""
-        needs_rebuild = "BLOCKED" not in ddl.upper()
+        needs_rebuild = "BLOCKED" not in ddl.upper() or "REPORTED" not in ddl.upper()
         needs_columns = (
             "required_capabilities" not in columns
             or "requirements_declared" not in columns
             or "requirements_seal" not in columns
+            or "acceptance_criteria" not in columns
         )
 
         if not needs_rebuild and not needs_columns and version >= self.SCHEMA_VERSION:
@@ -405,16 +407,26 @@ class StateEngine:
                 required_capabilities TEXT NOT NULL DEFAULT '[]',
                 requirements_declared INTEGER NOT NULL DEFAULT 1,
                 requirements_seal TEXT NOT NULL DEFAULT '',
-                status TEXT NOT NULL CHECK(status IN ('PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'VERIFIED', 'COMPLETED_WITH_BLOCKING_FINDINGS', 'COMPLETED_WITH_FINDINGS', 'PARTIALLY_COMPLETED', 'BLOCKED', 'NO_REQUIREMENTS_DECLARED')),
+                acceptance_criteria TEXT NOT NULL DEFAULT '[]',
+                status TEXT NOT NULL CHECK(status IN ('PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'VERIFIED', 'COMPLETED_WITH_BLOCKING_FINDINGS', 'COMPLETED_WITH_FINDINGS', 'PARTIALLY_COMPLETED', 'BLOCKED', 'NO_REQUIREMENTS_DECLARED', 'REPORTED')),
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
             );
             """)
+            # Preserve legacy columns when present; fill acceptance_criteria with [].
+            has_caps = "required_capabilities" in existing_columns
+            has_decl = "requirements_declared" in existing_columns
+            has_seal = "requirements_seal" in existing_columns
+            has_ac = "acceptance_criteria" in existing_columns
+            caps_expr = "required_capabilities" if has_caps else "'[]'"
+            decl_expr = "requirements_declared" if has_decl else "1"
+            seal_expr = "requirements_seal" if has_seal else "''"
+            ac_expr = "acceptance_criteria" if has_ac else "'[]'"
             conn.execute(
                 f"INSERT INTO missions_migrated ({insert_list}, required_capabilities, "
-                f"requirements_declared, requirements_seal) "
-                f"SELECT {select_list}, '[]', 1, '' FROM missions;"
+                f"requirements_declared, requirements_seal, acceptance_criteria) "
+                f"SELECT {select_list}, {caps_expr}, {decl_expr}, {seal_expr}, {ac_expr} FROM missions;"
             )
             before = conn.execute("SELECT COUNT(*) FROM missions").fetchone()[0]
             conn.execute("DROP TABLE missions;")
@@ -488,18 +500,23 @@ class StateEngine:
         classified_intent: str = "DIRECT_ACTION",
         status: str = "IN_PROGRESS",
         required_capabilities: Optional[List[str]] = None,
-        declare_no_requirements: bool = False
+        declare_no_requirements: bool = False,
+        acceptance_criteria: Optional[Any] = None,
     ) -> str:
         """
         Create a mission in a non-terminal state (D-3).
 
         Terminal states are refused outright. A mission cannot be *born* complete: reaching a
         terminal state requires a GateAuthorization produced by `complete_mission_with_authorization`
-        (or `update_mission_status`), which re-derives the verdict from this row.
+        (or `update_mission_status`), which re-derives the verdict from this row — or the F-10
+        transition path via `set_mission_terminal_status`.
 
         `declare_no_requirements` is the explicit, persisted way to record that a mission
         genuinely requires no capabilities (D-5). It is a property of the mission, not an
         argument that relaxes a later evaluation.
+
+        `acceptance_criteria` (F-10) are the real completion contract. Empty criteria means the
+        mission can only settle as REPORTED, never COMPLETED.
         """
         if status not in INITIAL_MISSION_STATUSES:
             raise ValueError(
@@ -516,6 +533,12 @@ class StateEngine:
         caps_json = json.dumps(list(required_capabilities or []))
         declared = 0 if (declare_no_requirements and not required_capabilities) else 1
         seal = self._requirements_seal(mission_id, caps_json, declared)
+        if acceptance_criteria is None:
+            ac_json = "[]"
+        elif isinstance(acceptance_criteria, str):
+            ac_json = acceptance_criteria
+        else:
+            ac_json = json.dumps(acceptance_criteria, ensure_ascii=False)
         with self._lock:
             conn = self._get_connection()
             try:
@@ -524,10 +547,11 @@ class StateEngine:
                     """INSERT INTO missions
                        (mission_id, session_id, raw_prompt, classified_intent,
                         required_capabilities, requirements_declared, requirements_seal,
+                        acceptance_criteria,
                         status, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (mission_id, session_id, raw_prompt, classified_intent, caps_json,
-                     declared, seal, status, now, now)
+                     declared, seal, ac_json, status, now, now)
                 )
                 conn.commit()
                 cursor.close()
@@ -543,6 +567,44 @@ class StateEngine:
             row = cursor.fetchone()
             cursor.close()
             return dict(row) if row else None
+
+    def set_mission_acceptance_criteria(self, mission_id: str, criteria: Any) -> None:
+        """Persist F-10 acceptance criteria on an in-progress mission."""
+        if isinstance(criteria, str):
+            ac_json = criteria
+        else:
+            ac_json = json.dumps(criteria or [], ensure_ascii=False)
+        with self._lock:
+            conn = self._get_connection()
+            conn.execute(
+                "UPDATE missions SET acceptance_criteria = ?, updated_at = ? WHERE mission_id = ?",
+                (ac_json, self._timestamp(), mission_id),
+            )
+            conn.commit()
+
+    def set_mission_terminal_status(self, mission_id: str, status: str) -> str:
+        """
+        Settle a mission via the F-10 transition path (no HMAC GateAuthorization).
+
+        Only terminal statuses from MISSION_STATUS_VALUES are accepted. This is the
+        production completion route for acceptance-criteria based missions.
+        """
+        from core.cognitive.gate_types import MISSION_STATUS_VALUES, TERMINAL_MISSION_STATUSES
+        if status not in MISSION_STATUS_VALUES:
+            raise ValueError(f"Unknown mission status: {status}")
+        if status not in TERMINAL_MISSION_STATUSES:
+            raise ValueError(f"Refusing non-terminal status via transition path: {status}")
+        return self._force_mission_status(mission_id, status)
+
+    def _force_mission_status(self, mission_id: str, status: str) -> str:
+        with self._lock:
+            conn = self._get_connection()
+            conn.execute(
+                "UPDATE missions SET status = ?, updated_at = ? WHERE mission_id = ?",
+                (status, self._timestamp(), mission_id),
+            )
+            conn.commit()
+        return status
 
     def update_mission_status(
         self,

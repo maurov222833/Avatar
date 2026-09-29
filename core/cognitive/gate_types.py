@@ -21,6 +21,7 @@ class MissionStatus:
     PARTIALLY_COMPLETED = "PARTIALLY_COMPLETED"
     FAILED = "FAILED"
     NO_REQUIREMENTS_DECLARED = "NO_REQUIREMENTS_DECLARED"
+    REPORTED = "REPORTED"
 
 
 #: States a mission may hold. Mirrors the SQLite CHECK constraint and is the single
@@ -36,10 +37,11 @@ MISSION_STATUS_VALUES = (
     "PARTIALLY_COMPLETED",
     "BLOCKED",
     "NO_REQUIREMENTS_DECLARED",
+    "REPORTED",
 )
 
 #: States in which a mission is considered finished. `create_mission` must refuse these:
-#: reaching a terminal state requires a GateAuthorization.
+#: reaching a terminal state requires a GateAuthorization *or* the F-10 transition path.
 TERMINAL_MISSION_STATUSES = frozenset(
     {
         "COMPLETED",
@@ -49,6 +51,8 @@ TERMINAL_MISSION_STATUSES = frozenset(
         "PARTIALLY_COMPLETED",
         "BLOCKED",
         "FAILED",
+        "NO_REQUIREMENTS_DECLARED",
+        "REPORTED",
     }
 )
 

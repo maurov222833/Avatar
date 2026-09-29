@@ -817,16 +817,58 @@ class AvatarOrchestrator:
 
     def _reconcile_mission(self, mission_id: str) -> str:
         """
-        Settle a mission's status from what actually happened.
+        Settle a mission's status from what actually happened (F-10).
 
-        The gate re-reads the persisted requirements and the current evidence, so the result
-        reflects reality rather than the planner's opinion. A mission whose requirements are
-        unverified is recorded as PARTIALLY_COMPLETED / BLOCKED — never as COMPLETED.
-        Failures are logged, not swallowed silently.
+        Primary path: acceptance criteria as data + transition invariants. Without criteria
+        the mission is REPORTED (turn finished, goal not proven) — never COMPLETED.
+        A DENIED/FAILED act never satisfies a success criterion.
+
+        Legacy HMAC/capability-gate path remains for missions that still declare
+        required_capabilities; new production turns use acceptance criteria.
         """
         if not (self.state_db and mission_id):
             return ""
         try:
+            from core.mission_transition import (
+                derive_acceptance_criteria,
+                settle_mission,
+            )
+            mission = self.state_db.get_mission(mission_id) or {}
+            raw_ac = mission.get("acceptance_criteria") or "[]"
+            try:
+                existing = json.loads(raw_ac) if isinstance(raw_ac, str) else (raw_ac or [])
+            except Exception:
+                existing = []
+            if not existing:
+                # Derive from tools used this turn if the mission was created empty.
+                summary = []
+                try:
+                    # Prefer act ledger for this mission.
+                    if self.chokepoint is not None:
+                        for act in self.chokepoint.list_acts(mission_id=mission_id):
+                            summary.append({"tool_name": act.get("act_type")})
+                except Exception:
+                    summary = []
+                derived = derive_acceptance_criteria(
+                    mission.get("raw_prompt") or "", summary)
+                if derived:
+                    self.state_db.set_mission_acceptance_criteria(mission_id, derived)
+
+            required_caps = []
+            try:
+                caps_raw = mission.get("required_capabilities") or "[]"
+                required_caps = json.loads(caps_raw) if isinstance(caps_raw, str) else list(caps_raw or [])
+            except Exception:
+                required_caps = []
+
+            # Prefer F-10 transition whenever we are not on a capability-gated mission.
+            if not required_caps:
+                verdict = settle_mission(
+                    self.state_db, mission_id, chokepoint=self.chokepoint)
+                print(f"[AvatarOrchestrator]: Misión {mission_id} reconciliada (F-10) "
+                      f"-> {verdict.status}")
+                return verdict.status
+
             gate_auth = MissionCompletionGate.evaluate_and_authorize(
                 mission_id=mission_id,
                 state_db=self.state_db,

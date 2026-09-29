@@ -10,13 +10,20 @@ Mantiene el puente vivo día y noche:
   - Heartbeat en memory/whatsapp_heartbeat.json para monitoreo externo.
   - Parada limpia creando memory/AVATAR_WA_STOP.
 
+D-6 (historial único):
+  - Por defecto usa el orquestador compartido del proceso (F-16).
+  - Si corre como proceso aparte, configura core_mode=http + core_api_base +
+    core_api_token (o AVATAR_API_BASE / AVATAR_HTTP_TOKEN) para hablar con el
+    núcleo por HTTP autenticado y no abrir un segundo historial SQLite.
+
 Uso:
     python whatsapp_24x7.py            # infinito hasta stop-file o Ctrl+C
     python whatsapp_24x7.py --once     # un solo ciclo (diagnóstico)
 
 Config (config.json -> bloque "whatsapp", todo opcional):
     target_chat, poll_seconds, max_replies_por_ciclo(0=ilimitado),
-    autostart_live (solo aplica al daemon de la GUI, no a este runner).
+    autostart_live (solo aplica al daemon de la GUI, no a este runner),
+    core_mode, core_api_base, core_api_token.
 """
 import json
 import os
@@ -70,18 +77,66 @@ def run_cycle(cfg, max_polls=0):
     """Un ciclo completo: navegador fresco -> loop hasta fallo/parada. Devuelve motivo."""
     from bridges.whatsapp_bridge import WhatsAppBridge, WhatsAppReadError
     from bridges.whatsapp_reader import WhatsAppWebReader
+    from core.runtime import get_shared_orchestrator
 
     target = cfg.get("target_chat", "Mauro Vanegas 2025")
     reader = WhatsAppWebReader(
         profile_dir=os.path.join(BASE_DIR, "memory", "whatsapp_profile"))
-    bridge = WhatsAppBridge(
-        poll_seconds=int(cfg.get("poll_seconds", 8)),
-        max_replies=None,  # ilimitado; el supervisor manda
-        respond_to_own_outgoing=bool(cfg.get("respond_to_own_outgoing", True)),
-        authorized_senders=cfg.get("authorized_senders"),
-        observe_only=False,
-        reader=reader,
-    )
+
+    # D-6: same-process uses the shared orchestrator (F-16). A separate OS process
+    # must talk to the core over authenticated HTTP so history is not last-writer-wins.
+    api_base = (
+        cfg.get("core_api_base")
+        or os.environ.get("AVATAR_API_BASE")
+        or ""
+    ).rstrip("/")
+    api_token = cfg.get("core_api_token") or os.environ.get("AVATAR_HTTP_TOKEN") or ""
+    mode = (cfg.get("core_mode") or os.environ.get("AVATAR_WA_CORE_MODE") or "").lower()
+
+    if mode == "http" or (api_base and api_token):
+        if not (api_base and api_token):
+            return ("FAIL", "D-6: core_mode=http requiere core_api_base y core_api_token")
+        log(f"D-6: puente vía HTTP autenticado -> {api_base}")
+        bridge = WhatsAppBridge(
+            poll_seconds=int(cfg.get("poll_seconds", 8)),
+            max_replies=None,
+            respond_to_own_outgoing=bool(cfg.get("respond_to_own_outgoing", True)),
+            authorized_senders=cfg.get("authorized_senders"),
+            observe_only=False,
+            reader=reader,
+            bridge_url=f"{api_base}/api/whatsapp/webhook",
+        )
+        # Route replies through HTTP webhook path by replacing process_user_input.
+        import requests
+
+        def _via_http(text, **kw):
+            r = requests.post(
+                f"{api_base}/api/chat",
+                json={"message": text},
+                headers={"x-avatar-token": api_token, "Host": "127.0.0.1"},
+                timeout=120,
+            )
+            r.raise_for_status()
+            body = r.json()
+            return body.get("response") or body.get("avatar_response") or body.get("message") or ""
+
+        # Shared orchestrator still backs SEND_WHATSAPP policy in this process; the
+        # cognitive turn is delegated to the core so history stays single-writer.
+        orch = get_shared_orchestrator()
+        bridge.orchestrator = orch
+        bridge.orchestrator.process_user_input = _via_http
+    else:
+        orch = get_shared_orchestrator()
+        log("D-6: puente en proceso con orquestador compartido")
+        bridge = WhatsAppBridge(
+            poll_seconds=int(cfg.get("poll_seconds", 8)),
+            max_replies=None,
+            respond_to_own_outgoing=bool(cfg.get("respond_to_own_outgoing", True)),
+            authorized_senders=cfg.get("authorized_senders"),
+            observe_only=False,
+            reader=reader,
+            orchestrator=orch,
+        )
     try:
         summary = bridge.start_live_bridge(
             target, max_polls=max_polls, heartbeat_cb=beat, stop_path=STOP_PATH)

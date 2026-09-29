@@ -1,5 +1,6 @@
 import os
 import json
+import datetime
 from typing import List, Dict, Any, Optional
 from core.state_db import StateEngine
 from core.paths import memory_dir as default_memory_dir
@@ -9,6 +10,9 @@ class RAGMemory:
     MÓDULO 2: Memoria Persistente, Base de Conocimiento Acumulativa y RAG para Avatar AI.
     Integrado con StateEngine (SQLite WAL) como backend persistente autoritativo de estado operacional.
     Preserva el 100% de la API pública existente y mantiene compatibilidad con history.json/context.json.
+
+    F-17: mission summaries are written via save_mission_summary (and save_knowledge)
+    so search_knowledge can retrieve lessons from prior turns — not an empty JSON.
     """
     def __init__(self, memory_dir: Optional[str] = None, state_db: Optional[StateEngine] = None):
         self.memory_dir = memory_dir if memory_dir is not None else default_memory_dir()
@@ -53,6 +57,10 @@ class RAGMemory:
         except Exception as e:
             print(f"[RAGMemory Migration Warning]: {e}")
 
+    @staticmethod
+    def _now_stamp() -> str:
+        return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
     def save_history(self, history: List[Dict[str, str]]):
         try:
             # 1. Guardar en SQLite WAL (Fuente Autoritativa)
@@ -91,7 +99,7 @@ class RAGMemory:
             "task": task_description,
             "progress_percent": progress,
             "status": status,
-            "updated_at": os.popen('time /t').read().strip()
+            "updated_at": self._now_stamp(),
         }
         try:
             # 1. Persistir en SQLite WAL
@@ -124,13 +132,52 @@ class RAGMemory:
         kb = self.load_knowledge()
         kb[topic] = {
             "content": content,
-            "learned_at": os.popen('date /t').read().strip()
+            "learned_at": self._now_stamp(),
         }
         try:
             with open(self.knowledge_file, "w", encoding="utf-8") as f:
                 json.dump(kb, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"[Error guardando en base de conocimiento]: {e}")
+
+    def save_mission_summary(
+        self,
+        mission_id: str,
+        *,
+        prompt: str = "",
+        status: str = "",
+        acts: Optional[List[Dict[str, Any]]] = None,
+        notes: str = "",
+    ) -> str:
+        """
+        Persist a recoverable summary of a finished mission (F-17).
+
+        Topic keys are stable (`mission:<id>`) so later turns can retrieve them via
+        search_knowledge on overlapping words from the original prompt or tools used.
+        """
+        acts = acts or []
+        tool_names = []
+        for act in acts:
+            name = (act.get("act_type") or act.get("tool_name") or "").strip()
+            if name and name not in tool_names:
+                tool_names.append(name)
+        prompt_snip = " ".join((prompt or "").split())[:240]
+        lines = [
+            f"Misión {mission_id} → {status or 'UNKNOWN'}.",
+            f"Pedido: {prompt_snip}" if prompt_snip else "Pedido: (sin texto).",
+        ]
+        if tool_names:
+            lines.append("Herramientas: " + ", ".join(tool_names[:12]) + ".")
+        if notes:
+            lines.append(notes.strip()[:400])
+        content = " ".join(lines)
+        # Include distinctive prompt words in the topic so title-intersection search hits.
+        topic_words = " ".join(
+            w for w in (prompt or "").lower().split() if len(w) > 3
+        )[:80]
+        topic = f"mission {mission_id} {topic_words}".strip()
+        self.save_knowledge(topic, content)
+        return content
 
     def load_knowledge(self) -> Dict[str, Any]:
         """Carga la base de conocimiento acumulada por Avatar."""
@@ -143,18 +190,42 @@ class RAGMemory:
         return {}
 
     def search_knowledge(self, query: str) -> str:
-        """Busca patrones y lecciones relevantes en la memoria de Avatar."""
+        """
+        Busca patrones y lecciones relevantes en la memoria de Avatar.
+
+        Matches topic titles OR content body by word intersection (F-17 usable retrieval).
+        Prefer mission summaries when both match.
+        """
         kb = self.load_knowledge()
         if not kb:
             return ""
         
-        query_words = set(query.lower().split())
-        matched_entries = []
+        query_words = {w for w in (query or "").lower().split() if len(w) > 2}
+        if not query_words:
+            return ""
+
+        scored = []
         for topic, data in kb.items():
+            content = ""
+            if isinstance(data, dict):
+                content = str(data.get("content", "") or "")
+            else:
+                content = str(data)
             topic_words = set(topic.lower().split())
-            if query_words.intersection(topic_words):
-                matched_entries.append(f"• [{topic}]: {data.get('content', '')}")
-        
+            content_words = set(content.lower().split())
+            hit_topic = query_words.intersection(topic_words)
+            hit_content = query_words.intersection(content_words)
+            score = len(hit_topic) * 2 + len(hit_content)
+            if score <= 0:
+                continue
+            if topic.lower().startswith("mission"):
+                score += 1
+            scored.append((score, topic, content))
+
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        matched_entries = [
+            f"• [{topic}]: {content}" for _, topic, content in scored[:5]
+        ]
         if matched_entries:
-            return "\n".join(matched_entries[:5])
+            return "\n".join(matched_entries)
         return ""

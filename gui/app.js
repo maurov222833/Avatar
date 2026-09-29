@@ -15,6 +15,8 @@ document.addEventListener("DOMContentLoaded", () => {
     loadProjects();
     setupEventListeners();
     initMonacoEditor();
+    refreshApprovalsPanel();
+    setInterval(refreshApprovalsPanel, 8000);
 });
 
 function initMonacoEditor() {
@@ -305,6 +307,7 @@ async function sendMessage() {
             const data = await res.json();
             appendAvatarMessage(data.avatar_response, data.provider);
             appendTerminalLog(`[AVATAR ${data.provider.toUpperCase()}]: Procesado correctamente.`);
+            refreshApprovalsPanel();
         } else {
             let errorText = "⚠️ Ocurrió un error al procesar tu solicitud.";
             try {
@@ -541,4 +544,100 @@ function sanitizeMarkdownHtml(html) {
     }
     // Fallback if CDN blocked: escape everything (safe, loses formatting).
     return escapeHtml(html);
+}
+
+/** F-18 GUI: poll pending approvals and let the owner resolve them. */
+async function refreshApprovalsPanel() {
+    const list = document.getElementById("approvals-list");
+    const badge = document.getElementById("approvals-badge");
+    const headerBadge = document.getElementById("approvals-header-badge");
+    const headerCount = document.getElementById("approvals-header-count");
+    if (!list) return;
+    try {
+        const res = await avatarFetch("/api/approvals/pending");
+        if (!res.ok) {
+            list.innerHTML = `<div class="px-2 py-1 text-red-400">Error al cargar (${res.status})</div>`;
+            return;
+        }
+        const data = await res.json();
+        const pending = data.pending || [];
+        const count = data.count != null ? data.count : pending.length;
+
+        if (badge) {
+            if (count > 0) {
+                badge.textContent = String(count);
+                badge.classList.remove("hidden");
+            } else {
+                badge.classList.add("hidden");
+            }
+        }
+        if (headerBadge && headerCount) {
+            if (count > 0) {
+                headerCount.textContent = String(count);
+                headerBadge.classList.remove("hidden");
+            } else {
+                headerBadge.classList.add("hidden");
+            }
+        }
+
+        if (!pending.length) {
+            list.innerHTML = `<div class="px-2 py-1 text-gray-600">Sin pendientes</div>`;
+            return;
+        }
+
+        list.innerHTML = pending.map((row) => {
+            const id = escapeHtml(row.approval_id || "");
+            const act = escapeHtml(row.act_type || "?");
+            const reason = escapeHtml((row.reason || "").slice(0, 80));
+            let reqPreview = "";
+            try {
+                const req = typeof row.request === "string" ? JSON.parse(row.request) : (row.request || {});
+                reqPreview = escapeHtml(JSON.stringify(req).slice(0, 90));
+            } catch (_) {
+                reqPreview = "";
+            }
+            return `
+            <div class="mx-1 p-2 rounded bg-gray-900/80 border border-amber-900/50 space-y-1.5" data-approval-id="${id}">
+                <div class="text-amber-300 font-mono text-[10px] truncate" title="${id}">${act}</div>
+                <div class="text-gray-500 text-[10px] truncate" title="${reason}">${reason}</div>
+                ${reqPreview ? `<div class="text-gray-600 text-[10px] font-mono truncate">${reqPreview}</div>` : ""}
+                <div class="flex gap-1 pt-1">
+                    <button type="button" onclick="resolveApprovalFromGui('${id}', true)"
+                        class="flex-1 py-1 rounded bg-emerald-800/80 hover:bg-emerald-700 text-emerald-100 text-[10px] font-semibold">
+                        Approve
+                    </button>
+                    <button type="button" onclick="resolveApprovalFromGui('${id}', false)"
+                        class="flex-1 py-1 rounded bg-red-900/70 hover:bg-red-800 text-red-100 text-[10px] font-semibold">
+                        Deny
+                    </button>
+                </div>
+            </div>`;
+        }).join("");
+    } catch (err) {
+        console.error("approvals panel:", err);
+        list.innerHTML = `<div class="px-2 py-1 text-red-400">Sin conexión</div>`;
+    }
+}
+
+async function resolveApprovalFromGui(approvalId, approved) {
+    if (!approvalId) return;
+    try {
+        const res = await avatarFetch(`/api/approvals/${encodeURIComponent(approvalId)}/resolve`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ approved: !!approved, resolver: "gui" }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            appendTerminalLog(`[APPROVALS]: error ${res.status} ${JSON.stringify(body)}`);
+        } else {
+            appendTerminalLog(
+                `[APPROVALS]: ${approved ? "APPROVED" : "DENIED"} ${approvalId}` +
+                (body.result ? ` → ${String(body.result).slice(0, 120)}` : "")
+            );
+        }
+    } catch (err) {
+        appendTerminalLog(`[APPROVALS]: ${err}`);
+    }
+    await refreshApprovalsPanel();
 }

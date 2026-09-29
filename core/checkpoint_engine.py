@@ -17,10 +17,14 @@ class CheckpointEngine:
     Garantiza la persistencia atómica en SQLite WAL antes de invocar cualquier herramienta.
     """
     IDEMPOTENT_TOOLS = {"READ_FILE", "LIST_DIR", "FETCH_URL", "WEB_SEARCH",
-                        "WHATSAPP_STATUS", "WHATSAPP_READ"}
+                        "WHATSAPP_STATUS", "WHATSAPP_READ",
+                        "BROWSER_OBSERVE", "DESKTOP_OBSERVE", "SCREEN_CAPTURE",
+                        "BROWSER_CLOSE"}
 
     NON_IDEMPOTENT_TOOLS = {"WRITE_FILE", "COMMAND", "SEND_WHATSAPP", "DELETE_FILE", "MOVE_FILE",
-                            "WHATSAPP_SEND"}
+                            "WHATSAPP_SEND",
+                            "BROWSER_NAVIGATE", "BROWSER_CLICK", "BROWSER_FILL",
+                            "DESKTOP_CLICK", "DESKTOP_TYPE"}
 
     def __init__(self, state_db: Optional[StateEngine] = None):
         if state_db is not None:

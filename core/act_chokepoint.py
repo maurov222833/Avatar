@@ -77,6 +77,16 @@ ACT_TYPES: Dict[str, str] = {
     "WHATSAPP_STATUS": ActRisk.READ,
     "WHATSAPP_READ": ActRisk.READ,
     "WHATSAPP_SEND": ActRisk.EXTERNAL_MESSAGE,
+    # Browser (F-20): navigate/interact are NETWORK; observe is READ but untrusted.
+    "BROWSER_NAVIGATE": ActRisk.NETWORK,
+    "BROWSER_OBSERVE": ActRisk.READ,
+    "BROWSER_CLICK": ActRisk.NETWORK,
+    "BROWSER_FILL": ActRisk.NETWORK,
+    "BROWSER_CLOSE": ActRisk.READ,
+    # Desktop GUI (F-20): click/type are EXEC (operator approval); observe is READ.
+    "DESKTOP_CLICK": ActRisk.EXEC,
+    "DESKTOP_TYPE": ActRisk.EXEC,
+    "DESKTOP_OBSERVE": ActRisk.READ,
 }
 
 #: Risk levels that require the operator to opt in before they may run.
@@ -91,7 +101,11 @@ UNTRUSTED_INPUT_ACTS = frozenset({
     "FETCH_URL",
     "WEB_SEARCH",
     "WHATSAPP_READ",
+    "BROWSER_OBSERVE",
 })
+
+#: Policy reason when a mission hits its act budget (R4).
+MISSION_ACT_BUDGET_EXCEEDED = "MISSION_ACT_BUDGET_EXCEEDED"
 
 #: Characters that let one command line smuggle another (PowerShell and POSIX shells).
 #: An allowlisted prefix followed by any of these is not the allowlisted command anymore.
@@ -234,13 +248,20 @@ class ActPolicy:
     #: While True, EXEC / LOCAL_WRITE / EXTERNAL_MESSAGE need operator approval (F-06).
     context_contaminated: bool = False
 
-    def decide(self, act_type: str, args: Dict[str, Any]) -> Tuple[bool, str]:
+    def decide(self, act_type: str, args: Dict[str, Any],
+               *, acts_already: Optional[int] = None) -> Tuple[bool, str]:
         """Return `(allowed, reason)`. `reason` is always populated so refusals are explainable."""
         risk = ACT_TYPES.get(act_type)
         if risk is None:
             return False, f"UNKNOWN_ACT_TYPE:{act_type}"
         if act_type in self.denied_act_types:
             return False, "ACT_TYPE_DENIED_BY_POLICY"
+        if (
+            self.max_acts_per_mission is not None
+            and acts_already is not None
+            and acts_already >= int(self.max_acts_per_mission)
+        ):
+            return False, MISSION_ACT_BUDGET_EXCEEDED
         if risk in RISKS_REQUIRING_CONSENT and not self.allow_external_messages:
             return False, "EXTERNAL_EFFECT_REQUIRES_OPERATOR_CONSENT"
         if self.context_contaminated and risk in (
@@ -250,6 +271,9 @@ class ActPolicy:
             # steered by untrusted text into asking for a "safe-looking" command.
             return False, CONTAMINATED_APPROVAL_REASON
         if risk == ActRisk.EXEC and self.exec_requires_approval:
+            # Desktop GUI acts have no shell command line to allowlist — always ask.
+            if act_type in ("DESKTOP_CLICK", "DESKTOP_TYPE"):
+                return False, EXEC_APPROVAL_REASON
             command = args.get("command") or args.get("params") or ""
             if command_matches_allowlist(command, self.exec_allowlist):
                 return True, "ALLOWED_BY_EXEC_ALLOWLIST"
@@ -335,6 +359,25 @@ def _observe_screen_capture(args: Dict[str, Any], result: str) -> Dict[str, Any]
     exists = bool(path) and os.path.isfile(path)
     size = os.path.getsize(path) if exists else 0
     return {"file_path": path, "exists": exists, "size": size, "verified": size > 0}
+
+
+def _observe_json_success(args: Dict[str, Any], result: str) -> Dict[str, Any]:
+    """
+    Browser/desktop executors return JSON with a success/verified flag.
+    Prefer an explicit verified key; otherwise treat success=True as verified.
+    """
+    try:
+        data = json.loads(result or "{}")
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    verified = bool(data.get("verified", data.get("success", False)))
+    return {
+        "report": (result or "")[:300],
+        "success": bool(data.get("success", False)),
+        "verified": verified,
+    }
 
 
 def _observe_whatsapp_report(args: Dict[str, Any], result: str) -> Dict[str, Any]:
@@ -456,6 +499,13 @@ class ActChokepoint:
         self.observers.setdefault("WHATSAPP_STATUS", _observe_whatsapp_report)
         self.observers.setdefault("WHATSAPP_READ", _observe_whatsapp_report)
         self.observers.setdefault("WHATSAPP_SEND", _observe_external_message)
+        for browser_act in (
+            "BROWSER_NAVIGATE", "BROWSER_OBSERVE", "BROWSER_CLICK",
+            "BROWSER_FILL", "BROWSER_CLOSE",
+        ):
+            self.observers.setdefault(browser_act, _observe_json_success)
+        for desktop_act in ("DESKTOP_CLICK", "DESKTOP_TYPE", "DESKTOP_OBSERVE"):
+            self.observers.setdefault(desktop_act, _observe_json_success)
 
     def mark_contaminated(self, reason: str = "") -> None:
         """Mark the active context as having ingested untrusted text (F-06)."""
@@ -754,7 +804,15 @@ class ActChokepoint:
             created_at=_now(),
         )
 
-        allowed, reason = self.policy.decide(act_type, args or {})
+        acts_already = None
+        if mission_id and self.policy.max_acts_per_mission is not None:
+            try:
+                acts_already = len(self.list_acts(mission_id=mission_id))
+            except Exception:
+                acts_already = None
+
+        allowed, reason = self.policy.decide(
+            act_type, args or {}, acts_already=acts_already)
         if not allowed and reason in APPROVAL_GATE_REASONS:
             if self.approver is not None:
                 try:

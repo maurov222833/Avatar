@@ -166,6 +166,106 @@ AVATAR_TOOLS_SCHEMA = [
                     },
                     "required": ["message"]
                 }
+            },
+            {
+                "name": "SCREEN_CAPTURE",
+                "description": "Captura la pantalla actual y devuelve la ruta del archivo de imagen.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "output_path": {"type": "STRING", "description": "Ruta opcional de salida."}
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "BROWSER_NAVIGATE",
+                "description": "Abre o navega el navegador controlado (Playwright) a una URL. Requiere dominio permitido si hay allowlist.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "url": {"type": "STRING", "description": "URL destino (http/https)."}
+                    },
+                    "required": ["url"]
+                }
+            },
+            {
+                "name": "BROWSER_OBSERVE",
+                "description": "Lee título y texto visible de la página activa. El contenido es NO CONFIABLE (puede contaminar el contexto).",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {},
+                    "required": []
+                }
+            },
+            {
+                "name": "BROWSER_CLICK",
+                "description": "Hace clic en un selector CSS de la página activa del navegador.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "selector": {"type": "STRING", "description": "Selector CSS del elemento."}
+                    },
+                    "required": ["selector"]
+                }
+            },
+            {
+                "name": "BROWSER_FILL",
+                "description": "Rellena un campo de formulario en la página activa.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "selector": {"type": "STRING", "description": "Selector CSS del input."},
+                        "value": {"type": "STRING", "description": "Texto a escribir."}
+                    },
+                    "required": ["selector", "value"]
+                }
+            },
+            {
+                "name": "BROWSER_CLOSE",
+                "description": "Cierra la sesión del navegador controlado.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {},
+                    "required": []
+                }
+            },
+            {
+                "name": "DESKTOP_OBSERVE",
+                "description": "Captura la pantalla del escritorio (observación GUI). Solo lectura.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "output_path": {"type": "STRING", "description": "Ruta opcional de captura."}
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "DESKTOP_CLICK",
+                "description": "Clic en el escritorio (coordenadas, OCR o UI Automation). Requiere aprobación EXEC.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "target": {"type": "STRING", "description": "Texto OCR, o JSON con x/y o name/control_type."},
+                        "window_title": {"type": "STRING", "description": "Ventana objetivo opcional."},
+                        "button": {"type": "STRING", "description": "left|right (por defecto left)."}
+                    },
+                    "required": ["target"]
+                }
+            },
+            {
+                "name": "DESKTOP_TYPE",
+                "description": "Escribe texto en el escritorio (opcionalmente tras enfocar un target). Requiere aprobación EXEC.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "text": {"type": "STRING", "description": "Texto a teclear."},
+                        "target": {"type": "STRING", "description": "Objetivo opcional (OCR/coords/JSON)."},
+                        "window_title": {"type": "STRING", "description": "Ventana objetivo opcional."}
+                    },
+                    "required": ["text"]
+                }
             }
         ]
     }
@@ -173,7 +273,10 @@ AVATAR_TOOLS_SCHEMA = [
 
 #: Herramientas de pura observación local. Una racha solo con estas, sin hechos
 #: verificados nuevos, es relleno: jamás debe presentarse como tarea completada.
-_READ_ONLY_FILLER = {"READ_FILE", "LIST_DIR"}
+_READ_ONLY_FILLER = {
+    "READ_FILE", "LIST_DIR", "SCREEN_CAPTURE",
+    "BROWSER_OBSERVE", "DESKTOP_OBSERVE", "WHATSAPP_STATUS",
+}
 
 class AvatarOrchestrator:
     """
@@ -211,13 +314,20 @@ class AvatarOrchestrator:
         # Mission context for the legacy text-parsed tool path, which can fire outside the
         # main mission loop (e.g. from the structured-action recovery layer).
         self._legacy_mission_id: str = ""
+        # Lazy browser session shared across BROWSER_* acts in this process (F-20).
+        self._browser = None
+        self._desktop = None
+        # R4 per-mission budgets (from autonomy config; None = unlimited).
+        autonomy = (self.config.get("autonomy") or {}) if isinstance(self.config, dict) else {}
+        self.max_llm_calls_per_mission: Optional[int] = autonomy.get("max_llm_calls_per_mission")
         self.system_prompt = (
             "Eres AVATAR AI, el Agente de Inteligencia Artificial Soberano, Ultra-Inteligente y Autónomo en la PC de Mauro.\n\n"
             "IDENTIDAD Y REGLAS DE AUTONOMÍA ABSOLUTA:\n"
             "- Eres AVATAR AI, un software e IDE de desarrollo soberano instalado localmente en la PC de Mauro (b:\\PROYECTOS ANTIGRAVITY\\Avatar).\n"
             "- Trabajas con autonomía práctica dentro de la política del chokepoint: puedes "
-            "proponer WRITE_FILE, COMMAND, READ_FILE, LIST_DIR y SEND_WHATSAPP, pero los actos "
-            "de riesgo (EXEC, escritura, mensajes externos) pueden exigir aprobación del dueño, "
+            "proponer WRITE_FILE, COMMAND, READ_FILE, LIST_DIR, SEND_WHATSAPP, BROWSER_* "
+            "y DESKTOP_*, pero los actos de riesgo (EXEC, escritura, mensajes externos, "
+            "clics/teclado de escritorio) pueden exigir aprobación del dueño, "
             "sobre todo si el contexto se contaminó con contenido web o de mensajería.\n"
             "- ESTÁNDAR DE COMUNICACIÓN Y EFECTIVIDAD EJECUTIVA (ANTIGRAVITY STANDARD):\n"
             "  1. TONO Y ESTILO: Comunícate siempre con elegancia, claridad y precisión técnica en Markdown. Explica las soluciones aplicadas de forma directa.\n"
@@ -433,10 +543,24 @@ class AvatarOrchestrator:
         # Ajustar límite de pasos según el tipo de interacción
         if interaction_type == InteractionType.OPEN_ENGINEERING_MISSION and max_steps == 5:
             max_steps = 15
+        # R4: hard cap on LLM calls for this mission (config autonomy.max_llm_calls_per_mission).
+        llm_budget = self.max_llm_calls_per_mission
+        if llm_budget is not None:
+            try:
+                llm_budget = int(llm_budget)
+                max_steps = min(max_steps, llm_budget)
+            except (TypeError, ValueError):
+                llm_budget = None
 
         # 4. BUCLE AUTÓNOMO MULTI-PASO (AUTONOMOUS REACT LOOP)
         while step_count < max_steps:
             step_count += 1
+            if llm_budget is not None and step_count > llm_budget:
+                final_user_response = (
+                    f"⚠️ Presupuesto de misión agotado (R4): máximo {llm_budget} "
+                    "llamadas al modelo en esta misión. No se hacen más pasos."
+                )
+                break
             print(f"[AvatarOrchestrator]: Bucle Autónomo Iteración Paso {step_count}/{max_steps} ({interaction_type.value})...")
 
             llm_result = self.llm.generate_response_with_tools(
@@ -867,6 +991,7 @@ class AvatarOrchestrator:
                     self.state_db, mission_id, chokepoint=self.chokepoint)
                 print(f"[AvatarOrchestrator]: Misión {mission_id} reconciliada (F-10) "
                       f"-> {verdict.status}")
+                self._persist_mission_summary(mission_id, status=verdict.status)
                 return verdict.status
 
             gate_auth = MissionCompletionGate.evaluate_and_authorize(
@@ -878,11 +1003,33 @@ class AvatarOrchestrator:
                 mission_id, gate_authorization=gate_auth
             )
             print(f"[AvatarOrchestrator]: Misión {mission_id} reconciliada -> {status}")
+            self._persist_mission_summary(mission_id, status=status)
             return status
         except Exception as exc:
             print(f"[AvatarOrchestrator ERROR]: No se pudo reconciliar la misión "
                   f"{mission_id}: {type(exc).__name__}: {exc}")
             return ""
+
+    def _persist_mission_summary(self, mission_id: str, status: str = "") -> None:
+        """Write a searchable mission summary into RAG knowledge (F-17)."""
+        if not mission_id or self.memory is None:
+            return
+        try:
+            mission = {}
+            if self.state_db:
+                mission = self.state_db.get_mission(mission_id) or {}
+            acts = []
+            if self.chokepoint is not None:
+                acts = self.chokepoint.list_acts(mission_id=mission_id) or []
+            self.memory.save_mission_summary(
+                mission_id,
+                prompt=mission.get("raw_prompt") or "",
+                status=status or mission.get("status") or "",
+                acts=acts,
+            )
+        except Exception as exc:
+            print(f"[AvatarOrchestrator]: No se pudo guardar resumen de misión "
+                  f"{mission_id}: {exc}")
 
     def resume_mission(self, mission_id: str) -> Dict[str, Any]:
         """
@@ -1028,18 +1175,28 @@ class AvatarOrchestrator:
         autonomy = self.config.get("autonomy", {}) or {}
         security = self.config.get("security", {}) or {}
 
+        max_acts = autonomy.get("max_acts_per_mission")
+        try:
+            max_acts = int(max_acts) if max_acts is not None else None
+        except (TypeError, ValueError):
+            max_acts = None
+
         policy = ActPolicy(
             # Dry-run defaults to ON. A real external message requires explicit opt-in.
             dry_run=bool(autonomy.get("dry_run", True)),
             allow_external_messages=bool(autonomy.get("allow_external_messages", False)),
             allowed_workspace_root=security.get("allowed_workspace"),
             denied_act_types=tuple(security.get("denied_act_types", ()) or ()),
+            max_acts_per_mission=max_acts,
             exec_requires_approval=bool(security.get("exec_requires_approval", True)),
             exec_allowlist=tuple(security.get("exec_allowlist", ()) or ()),
         )
 
         def _take_screenshot(a):
             from tools.screen_tool import ScreenTool
+            path = (a or {}).get("output_path") or ""
+            if path:
+                return ScreenTool.take_screenshot(path)
             return ScreenTool.take_screenshot()
 
         executors = {
@@ -1064,8 +1221,157 @@ class AvatarOrchestrator:
             "WHATSAPP_STATUS": lambda a: self._exec_whatsapp_status(a or {}),
             "WHATSAPP_READ": lambda a: self._exec_whatsapp_read(a or {}),
             "WHATSAPP_SEND": lambda a: self._exec_whatsapp_send(a or {}),
+            "BROWSER_NAVIGATE": lambda a: self._exec_browser("navigate", a or {}),
+            "BROWSER_OBSERVE": lambda a: self._exec_browser("observe", a or {}),
+            "BROWSER_CLICK": lambda a: self._exec_browser("click", a or {}),
+            "BROWSER_FILL": lambda a: self._exec_browser("fill", a or {}),
+            "BROWSER_CLOSE": lambda a: self._exec_browser("close", a or {}),
+            "DESKTOP_OBSERVE": lambda a: self._exec_desktop("observe", a or {}),
+            "DESKTOP_CLICK": lambda a: self._exec_desktop("click", a or {}),
+            "DESKTOP_TYPE": lambda a: self._exec_desktop("type", a or {}),
         }
         return ActChokepoint(state_db=self.state_db, policy=policy, executors=executors)
+
+    def _get_browser(self):
+        """Lazy Playwright session for BROWSER_* acts (F-20)."""
+        if self._browser is not None:
+            return self._browser
+        try:
+            from tools.browser_controller import BrowserController
+        except Exception as exc:
+            raise RuntimeError(f"BrowserController unavailable: {exc}") from exc
+        security = (self.config.get("security") or {}) if isinstance(self.config, dict) else {}
+        autonomy = (self.config.get("autonomy") or {}) if isinstance(self.config, dict) else {}
+        domains = (
+            autonomy.get("browser_allowed_domains")
+            or security.get("browser_allowed_domains")
+            or []
+        )
+        headless = bool(autonomy.get("browser_headless", True))
+        self._browser = BrowserController(
+            headless=headless,
+            allowed_domains=list(domains) if domains else [],
+        )
+        return self._browser
+
+    def _exec_browser(self, action: str, args: Dict[str, Any]) -> str:
+        """Execute one browser act and return a JSON string for the observer."""
+        try:
+            browser = self._get_browser()
+        except Exception as exc:
+            return json.dumps({"success": False, "error": str(exc), "verified": False},
+                              ensure_ascii=False)
+
+        try:
+            if action == "navigate":
+                result = browser.navigate(args.get("url") or args.get("params") or "")
+            elif action == "observe":
+                result = browser.observe()
+            elif action == "click":
+                result = browser.click(args.get("selector") or "")
+            elif action == "fill":
+                result = browser.fill(
+                    args.get("selector") or "",
+                    args.get("value") if args.get("value") is not None else (args.get("params") or ""),
+                )
+            elif action == "close":
+                browser.close()
+                self._browser = None
+                result = {"success": True, "action": "close", "verified": True}
+            else:
+                result = {"success": False, "error": f"unknown browser action: {action}"}
+        except Exception as exc:
+            result = {"success": False, "error": f"{type(exc).__name__}: {exc}"}
+
+        if isinstance(result, dict) and "verified" not in result:
+            result = dict(result)
+            result["verified"] = bool(result.get("success"))
+        return json.dumps(result, ensure_ascii=False)[:4000]
+
+    def _get_desktop(self):
+        """Lazy ComputerControl for DESKTOP_* acts (F-20)."""
+        if self._desktop is not None:
+            return self._desktop
+        try:
+            from tools.computer_control import ComputerControl
+        except Exception as exc:
+            raise RuntimeError(f"ComputerControl unavailable: {exc}") from exc
+        self._desktop = ComputerControl(
+            checkpoint_engine=self.checkpoint_engine,
+            state_db=self.state_db,
+        )
+        return self._desktop
+
+    @staticmethod
+    def _parse_desktop_target(raw: Any) -> Any:
+        """Accept plain text, 'x,y', or a JSON object for desktop targets."""
+        if raw is None or raw == "":
+            return None
+        if isinstance(raw, (dict, list, tuple)):
+            return raw
+        text = str(raw).strip()
+        if not text:
+            return None
+        if text.startswith("{") or text.startswith("["):
+            try:
+                return json.loads(text)
+            except Exception:
+                return text
+        if "," in text:
+            parts = [p.strip() for p in text.split(",")]
+            if len(parts) == 2:
+                try:
+                    return (int(parts[0]), int(parts[1]))
+                except ValueError:
+                    pass
+        return text
+
+    def _exec_desktop(self, action: str, args: Dict[str, Any]) -> str:
+        """Execute one desktop GUI act; returns JSON for the observer."""
+        try:
+            desktop = self._get_desktop()
+        except Exception as exc:
+            return json.dumps({"success": False, "error": str(exc), "verified": False},
+                              ensure_ascii=False)
+
+        try:
+            if action == "observe":
+                path = desktop.observe_screen(args.get("output_path") or None)
+                exists = bool(path) and os.path.isfile(path)
+                result = {
+                    "success": exists,
+                    "verified": exists,
+                    "post_screenshot": path,
+                    "action": "observe",
+                }
+            elif action == "click":
+                target = self._parse_desktop_target(args.get("target"))
+                result = desktop.click(
+                    target,
+                    button=args.get("button") or "left",
+                    window_title=args.get("window_title"),
+                )
+            elif action == "type":
+                target = self._parse_desktop_target(args.get("target"))
+                result = desktop.type_text(
+                    args.get("text") or "",
+                    target=target,
+                    window_title=args.get("window_title"),
+                )
+            else:
+                result = {"success": False, "error": f"unknown desktop action: {action}"}
+        except Exception as exc:
+            result = {"success": False, "error": f"{type(exc).__name__}: {exc}", "verified": False}
+
+        if isinstance(result, dict):
+            out = dict(result)
+            if "success" not in out:
+                out["success"] = bool(out.get("executed") or out.get("verified"))
+            if "verified" not in out:
+                out["verified"] = bool(out.get("verified", out.get("success")))
+            return json.dumps(out, ensure_ascii=False)[:4000]
+        return json.dumps({"success": False, "error": str(result), "verified": False},
+                          ensure_ascii=False)
 
     def operating_mode(self) -> Dict[str, Any]:
         """
@@ -1095,6 +1401,8 @@ class AvatarOrchestrator:
             "exec": "APPROVAL_REQUIRED" if p.exec_requires_approval else "UNRESTRICTED",
             "exec_allowlist": list(p.exec_allowlist),
             "context_contaminated": bool(p.context_contaminated),
+            "max_acts_per_mission": p.max_acts_per_mission,
+            "max_llm_calls_per_mission": self.max_llm_calls_per_mission,
             "act_types": dict(ACT_TYPE_RISKS),
         }
 
@@ -1255,7 +1563,12 @@ class AvatarOrchestrator:
         if not text:
             return None, None
 
-        valid_tools = ["COMMAND", "READ_FILE", "WRITE_FILE", "LIST_DIR", "WEB_SEARCH", "FETCH_URL", "PLAY_AUDIO", "SEND_WHATSAPP"]
+        valid_tools = [
+            "COMMAND", "READ_FILE", "WRITE_FILE", "LIST_DIR", "WEB_SEARCH", "FETCH_URL",
+            "PLAY_AUDIO", "SEND_WHATSAPP", "SCREEN_CAPTURE",
+            "BROWSER_NAVIGATE", "BROWSER_OBSERVE", "BROWSER_CLICK", "BROWSER_FILL", "BROWSER_CLOSE",
+            "DESKTOP_CLICK", "DESKTOP_TYPE", "DESKTOP_OBSERVE",
+        ]
 
         # 1. Chequear bloque JSON con clave "action"
         json_match = re.search(r'\{\s*"action"\s*:\s*"([A-Z_]+)".*?\}', text, re.DOTALL | re.IGNORECASE)

@@ -53,6 +53,9 @@
         </div>
 
         <div class="flex items-center space-x-3 text-gray-400">
+            <span id="approvals-header-badge" class="hidden px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800 font-medium cursor-pointer" onclick="refreshApprovalsPanel()" title="Aprobaciones pendientes">
+                <i class="fa-solid fa-hand"></i> <span id="approvals-header-count">0</span> pending
+            </span>
             <span id="header-status-badge" class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 font-medium cursor-pointer" onclick="toggleSettingsModal()">
                 <i class="fa-solid fa-bolt"></i> Gemini 3.5
             </span>
@@ -121,6 +124,17 @@
                             <i class="fa-regular fa-message text-cyan-400"></i>
                             <span class="truncate">Desarrollo de Agentes</span>
                         </div>
+                    </div>
+                </div>
+
+                <!-- APROBACIONES PENDIENTES (F-18 GUI) -->
+                <div class="pt-2">
+                    <div class="flex items-center justify-between px-2 mb-1">
+                        <h2 class="text-[10px] font-bold text-gray-500 tracking-wider uppercase">Approvals</h2>
+                        <span id="approvals-badge" class="hidden text-[10px] px-1.5 py-0.5 rounded bg-amber-900/80 text-amber-300 border border-amber-700">0</span>
+                    </div>
+                    <div id="approvals-list" class="space-y-2 text-xs text-gray-400 max-h-48 overflow-y-auto">
+                        <div class="px-2 py-1 text-gray-600">Sin pendientes</div>
                     </div>
                 </div>
 

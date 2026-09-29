@@ -28,6 +28,14 @@
     "url": "",
     "model": ""
   },
+  "autonomy": {
+    "dry_run": true,
+    "allow_external_messages": false,
+    "max_acts_per_mission": 40,
+    "max_llm_calls_per_mission": 20,
+    "browser_headless": true,
+    "browser_allowed_domains": []
+  },
   "security": {
     "auto_approve_safe_commands": true,
     "allowed_workspace": "",

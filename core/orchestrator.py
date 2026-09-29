@@ -922,11 +922,12 @@ class AvatarOrchestrator:
 
         Policy resolution, in order of precedence:
           1. `autonomy` block in config.json (explicit operator choice)
-          2. `security` block in config.json (workspace guard, denied acts)
-          3. Safe defaults — dry-run on, external messages refused.
+          2. `security` block in config.json (workspace guard, denied acts, EXEC approval
+             and its allowlist)
+          3. Safe defaults — dry-run on, external messages refused, commands need approval.
 
-        Defaults are deliberately conservative: anything that reaches a human stays blocked
-        until the operator turns it on.
+        Defaults are deliberately conservative: anything that reaches a human, and any
+        arbitrary command, stays blocked until the operator turns it on.
         """
 
         autonomy = self.config.get("autonomy", {}) or {}
@@ -938,7 +939,13 @@ class AvatarOrchestrator:
             allow_external_messages=bool(autonomy.get("allow_external_messages", False)),
             allowed_workspace_root=security.get("allowed_workspace"),
             denied_act_types=tuple(security.get("denied_act_types", ()) or ()),
+            exec_requires_approval=bool(security.get("exec_requires_approval", True)),
+            exec_allowlist=tuple(security.get("exec_allowlist", ()) or ()),
         )
+
+        def _take_screenshot(a):
+            from tools.screen_tool import ScreenTool
+            return ScreenTool.take_screenshot()
 
         executors = {
             "COMMAND": lambda a: ShellTool.execute_command(
@@ -955,6 +962,8 @@ class AvatarOrchestrator:
                 AudioTool.play_local_audio(a.get("audio_source") or a.get("params") or "")
                 if os.path.exists(a.get("audio_source") or a.get("params") or "")
                 else AudioTool.play_online_music(a.get("audio_source") or a.get("params") or "")),
+            "AUDIO_CONTROL": lambda a: AudioTool.pause_audio(),
+            "SCREEN_CAPTURE": _take_screenshot,
             "SEND_WHATSAPP": lambda a: WhatsAppAutoReply.send_reply(
                 a.get("message") or a.get("params") or ""),
             "WHATSAPP_STATUS": lambda a: self._exec_whatsapp_status(a or {}),
@@ -987,6 +996,9 @@ class AvatarOrchestrator:
             "external_effects": external,
             "allowed_workspace_root": p.allowed_workspace_root,
             "denied_act_types": list(p.denied_act_types),
+            # DRY_RUN only covers external messages; commands are governed separately.
+            "exec": "APPROVAL_REQUIRED" if p.exec_requires_approval else "UNRESTRICTED",
+            "exec_allowlist": list(p.exec_allowlist),
             "act_types": dict(ACT_TYPE_RISKS),
         }
 
@@ -1168,7 +1180,8 @@ class AvatarOrchestrator:
         auto_approve = self.config.get("security", {}).get("auto_approve_safe_commands", True)
 
         # Optional interactive confirmation, only when someone is actually watching a TTY.
-        if tool_name in ("COMMAND", "WRITE_FILE") and not auto_approve:
+        # COMMAND approval is owned by the chokepoint policy, not by this prompt.
+        if tool_name == "WRITE_FILE" and not auto_approve:
             try:
                 interactive = sys.stdin is not None and sys.stdin.isatty()
             except Exception:

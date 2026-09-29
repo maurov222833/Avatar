@@ -108,6 +108,18 @@ def switch_model_menu(console, orchestrator, arg: str = ""):
     orchestrator.llm.load_config()
     console.print(f"\n✅ [bold green]Motor de IA cambiado exitosamente a: {new_provider.upper()}[/bold green]\n")
 
+def tty_exec_approver(act_type: str, args: dict) -> bool:
+    """Ask the operator at the terminal before an approval-gated act runs. Default is no."""
+    command = args.get("command") or args.get("params") or ""
+    print("\n🛡️  [AVATAR] Se requiere tu aprobación para ejecutar un comando en tu PC:")
+    print(f"   {act_type}: {command}")
+    try:
+        answer = input("👉 ¿Autorizas esta ejecución? (s/N) > ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return False
+    return answer in ("s", "si", "sí", "y", "yes")
+
+
 def run_cli():
     # Habilitar Virtual Terminal Processing (ANSI TrueColor) en consolas de Windows
     if os.name == "nt":
@@ -121,6 +133,12 @@ def run_cli():
 
     console = Console(force_terminal=True, color_system="truecolor") if RICH_AVAILABLE else None
     orchestrator = AvatarOrchestrator()
+    try:
+        interactive = sys.stdin is not None and sys.stdin.isatty()
+    except Exception:
+        interactive = False
+    if interactive and orchestrator.chokepoint is not None:
+        orchestrator.chokepoint.approver = tty_exec_approver
 
     if RICH_AVAILABLE:
         os.system("cls" if os.name == "nt" else "clear")

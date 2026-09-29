@@ -30,11 +30,14 @@
   },
   "security": {
     "auto_approve_safe_commands": true,
-    "allowed_workspace": ""
+    "allowed_workspace": "",
+    "exec_requires_approval": true,
+    "exec_allowlist": ["git status", "git log", "git diff", "Get-ChildItem", "dir"]
   },
   "telegram": {
     "enabled": true,
     "bot_token": "",
-    "bot_username": ""
+    "bot_username": "",
+    "allowed_chat_ids": []
   }
 }

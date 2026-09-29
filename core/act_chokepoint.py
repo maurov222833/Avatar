@@ -65,6 +65,8 @@ ACT_TYPES: Dict[str, str] = {
     "WEB_SEARCH": ActRisk.NETWORK,
     "FETCH_URL": ActRisk.NETWORK,
     "PLAY_AUDIO": ActRisk.LOCAL_WRITE,
+    "AUDIO_CONTROL": ActRisk.LOCAL_WRITE,
+    "SCREEN_CAPTURE": ActRisk.READ,
     "WRITE_FILE": ActRisk.LOCAL_WRITE,
     "COMMAND": ActRisk.EXEC,
     "SEND_WHATSAPP": ActRisk.EXTERNAL_MESSAGE,
@@ -79,6 +81,41 @@ ACT_TYPES: Dict[str, str] = {
 #: Risk levels that require the operator to opt in before they may run.
 RISKS_REQUIRING_CONSENT = {ActRisk.EXTERNAL_MESSAGE}
 
+EXEC_APPROVAL_REASON = "EXEC_REQUIRES_OPERATOR_APPROVAL"
+
+#: Characters that let one command line smuggle another (PowerShell and POSIX shells).
+#: An allowlisted prefix followed by any of these is not the allowlisted command anymore.
+#: PowerShell evaluates `(...)`, `{...}` and `$var` inside arguments, so they are excluded too.
+_COMMAND_CHAINING_TOKENS = (";", "&", "|", "`", "$", "(", ")", "{", "}", ">", "<", "\n", "\r")
+
+
+def command_matches_allowlist(command: str, allowlist: Tuple[str, ...]) -> bool:
+    """
+    True only if `command` is an allowlisted command, optionally followed by plain arguments.
+
+    Matching is case-insensitive on whitespace-normalised text, and any chaining or
+    redirection token disqualifies the command, so `git status; Remove-Item x` never matches
+    an allowlist entry of `git status`.
+    """
+    text = " ".join((command or "").split())
+    if not text or any(tok in (command or "") for tok in _COMMAND_CHAINING_TOKENS):
+        return False
+    lowered = text.lower()
+    for entry in allowlist or ():
+        norm = " ".join((entry or "").split()).lower()
+        if norm and (lowered == norm or lowered.startswith(norm + " ")):
+            return True
+    return False
+
+
+def _is_within_root(target: str, root: str) -> bool:
+    target_abs = os.path.normcase(os.path.abspath(target))
+    root_abs = os.path.normcase(os.path.abspath(root))
+    try:
+        return os.path.commonpath([target_abs, root_abs]) == root_abs
+    except ValueError:
+        return False
+
 
 # ---------------------------------------------------------------------------
 # Policy
@@ -89,7 +126,9 @@ class ActPolicy:
     Decides whether an act may proceed.
 
     Defaults are deliberately conservative for anything that reaches a human: external
-    messages require explicit consent and, by default, run in dry-run.
+    messages require explicit consent and, by default, run in dry-run. Arbitrary command
+    execution requires operator approval unless the exact command is allowlisted; dry-run
+    does not cover it, because a command's effects are not external messages.
     """
 
     dry_run: bool = True
@@ -97,6 +136,8 @@ class ActPolicy:
     allowed_workspace_root: Optional[str] = None
     denied_act_types: Tuple[str, ...] = ()
     max_acts_per_mission: Optional[int] = None
+    exec_requires_approval: bool = True
+    exec_allowlist: Tuple[str, ...] = ()
 
     def decide(self, act_type: str, args: Dict[str, Any]) -> Tuple[bool, str]:
         """Return `(allowed, reason)`. `reason` is always populated so refusals are explainable."""
@@ -107,10 +148,15 @@ class ActPolicy:
             return False, "ACT_TYPE_DENIED_BY_POLICY"
         if risk in RISKS_REQUIRING_CONSENT and not self.allow_external_messages:
             return False, "EXTERNAL_EFFECT_REQUIRES_OPERATOR_CONSENT"
+        if risk == ActRisk.EXEC and self.exec_requires_approval:
+            command = args.get("command") or args.get("params") or ""
+            if command_matches_allowlist(command, self.exec_allowlist):
+                return True, "ALLOWED_BY_EXEC_ALLOWLIST"
+            return False, EXEC_APPROVAL_REASON
         if risk == ActRisk.LOCAL_WRITE and self.allowed_workspace_root:
             root = os.path.abspath(self.allowed_workspace_root)
             target = args.get("file_path") or args.get("audio_source") or ""
-            if target and not os.path.abspath(target).startswith(root):
+            if target and not _is_within_root(target, root):
                 return False, f"WRITE_OUTSIDE_ALLOWED_ROOT:{root}"
         return True, "ALLOWED"
 
@@ -180,6 +226,14 @@ def _observe_command(args: Dict[str, Any], result: str) -> Dict[str, Any]:
             "verified": exit_code == 0}
 
 
+def _observe_screen_capture(args: Dict[str, Any], result: str) -> Dict[str, Any]:
+    """The executor returns the image path; verified means a non-empty file really exists."""
+    path = (result or "").strip()
+    exists = bool(path) and os.path.isfile(path)
+    size = os.path.getsize(path) if exists else 0
+    return {"file_path": path, "exists": exists, "size": size, "verified": size > 0}
+
+
 def _observe_whatsapp_report(args: Dict[str, Any], result: str) -> Dict[str, Any]:
     """
     Los ejecutores WHATSAPP_STATUS/READ reportan 'RESULT:OK ...' o 'RESULT:ERROR ...'.
@@ -229,11 +283,15 @@ class ActChokepoint:
 
     def __init__(self, state_db=None, policy: Optional[ActPolicy] = None,
                  executors: Optional[Dict[str, Callable[[Dict[str, Any]], str]]] = None,
-                 observers: Optional[Dict[str, Callable]] = None):
+                 observers: Optional[Dict[str, Callable]] = None,
+                 approver: Optional[Callable[[str, Dict[str, Any]], bool]] = None):
         self.state_db = state_db
         self.policy = policy or ActPolicy()
         self.executors: Dict[str, Callable[[Dict[str, Any]], str]] = dict(executors or {})
         self.observers: Dict[str, Callable] = dict(observers or {})
+        # Only set by a surface with a human present (the interactive CLI). Remote channels
+        # and the GUI server never set it, so approval-gated acts are refused there.
+        self.approver = approver
         self._ensure_schema()
         self._register_default_observers()
 
@@ -270,6 +328,7 @@ class ActChokepoint:
     def _register_default_observers(self):
         self.observers.setdefault("WRITE_FILE", _observe_write_file)
         self.observers.setdefault("COMMAND", _observe_command)
+        self.observers.setdefault("SCREEN_CAPTURE", _observe_screen_capture)
         self.observers.setdefault("SEND_WHATSAPP", _observe_external_message)
         self.observers.setdefault("WHATSAPP_STATUS", _observe_whatsapp_report)
         self.observers.setdefault("WHATSAPP_READ", _observe_whatsapp_report)
@@ -331,6 +390,13 @@ class ActChokepoint:
         )
 
         allowed, reason = self.policy.decide(act_type, args or {})
+        if not allowed and reason == EXEC_APPROVAL_REASON and self.approver is not None:
+            try:
+                approved = bool(self.approver(act_type, dict(args or {})))
+            except Exception:
+                approved = False
+            allowed = approved
+            reason = "APPROVED_BY_OPERATOR" if approved else "REJECTED_BY_OPERATOR"
         record.policy_reason = reason
         if not allowed:
             record.status = ActStatus.DENIED

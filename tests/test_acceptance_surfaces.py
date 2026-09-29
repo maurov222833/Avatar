@@ -82,6 +82,15 @@ class TestHttpSurface(unittest.TestCase):
                 self.assertNotIn(marker, flat,
                                  f"a raw credential prefix leaked: {marker}")
 
+            r = client.post("/api/terminal/execute", json={"command": "echo AVATAR_DENY_PROBE"})
+            self.assertEqual(r.status_code, 200)
+            acts = server.orchestrator.chokepoint.list_acts()
+            self.assertEqual(acts[-1]["act_type"], "COMMAND")
+            self.assertEqual(acts[-1]["status"], ActStatus.DENIED,
+                             "commands need operator approval by default")
+            self.assertEqual(acts[-1]["policy_reason"], "EXEC_REQUIRES_OPERATOR_APPROVAL")
+
+            server.orchestrator.chokepoint.policy.exec_requires_approval = False
             r = client.post("/api/terminal/execute", json={"command": "echo AVATAR_ACCEPT_PROBE"})
             self.assertEqual(r.status_code, 200)
             self.assertIn("AVATAR_ACCEPT_PROBE", r.json()["output"])
@@ -169,6 +178,7 @@ class TestLegacyTextPath(unittest.TestCase):
         """
         with _TempWorld():
             orch = AvatarOrchestrator()
+            orch.chokepoint.policy.exec_requires_approval = False
             mission_id = orch.state_db.create_mission(
                 session_id=orch.session_id, raw_prompt="legacy", required_capabilities=[])
             orch._legacy_mission_id = mission_id
@@ -177,6 +187,15 @@ class TestLegacyTextPath(unittest.TestCase):
             acts = orch.chokepoint.list_acts(mission_id)
             self.assertTrue(acts, "the legacy path must record an act")
             self.assertEqual(acts[-1]["act_type"], "COMMAND")
+            self.assertIn(acts[-1]["status"], (ActStatus.OBSERVED, ActStatus.OBSERVATION_FAILED),
+                          "the command must have actually run, not been echoed by a denial")
+
+    def test_text_parsed_command_needs_approval_by_default(self):
+        with _TempWorld():
+            orch = AvatarOrchestrator()
+            out = orch._dispatch_tool_action("COMMAND", "echo LEGACY_DENY_PROBE")
+            self.assertIn("EXEC_REQUIRES_OPERATOR_APPROVAL", out)
+            self.assertEqual(orch.chokepoint.list_acts()[-1]["status"], ActStatus.DENIED)
 
     def test_text_parsed_whatsapp_is_blocked(self):
         """Proves: the legacy path cannot bypass the external-effect policy either."""
@@ -227,6 +246,7 @@ class TestResumeSurface(unittest.TestCase):
         """
         with _TempWorld():
             orch = AvatarOrchestrator()
+            orch.chokepoint.policy.exec_requires_approval = False
             mission_id = orch.state_db.create_mission(
                 session_id=orch.session_id, raw_prompt="resume-binding",
                 required_capabilities=[], declare_no_requirements=True)

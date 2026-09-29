@@ -97,8 +97,29 @@ class TestExecPolicy(unittest.TestCase):
         for path in (".git/config", "repo/.git/hooks/pre-commit", "C:\\Users\\m\\.gitconfig"):
             allowed, reason = policy.decide("WRITE_FILE", {"file_path": path, "content": "x"})
             self.assertFalse(allowed, path)
-            self.assertEqual(reason, "WRITE_TO_GIT_METADATA_DENIED")
+            self.assertEqual(reason, "WRITE_TO_PROTECTED_PATH_DENIED")
         self.assertTrue(policy.decide("WRITE_FILE", {"file_path": "docs/.gitignore"})[0])
+
+    def test_git_guard_follows_links_and_windows_aliases(self):
+        from core.act_chokepoint import _is_git_metadata, _normalized_parts
+        repo = tempfile.mkdtemp(prefix="avatar_git_")
+        os.makedirs(os.path.join(repo, ".git", "hooks"))
+        config = os.path.join(repo, ".git", "config")
+        with open(config, "w") as f:
+            f.write("[core]\n")
+        os.symlink(os.path.join(repo, ".git"), os.path.join(repo, "link"))
+        os.link(config, os.path.join(repo, "notes.txt"))
+        policy = ActPolicy(allowed_workspace_root=repo)
+        for rel in ("link/hooks/pre-commit", "notes.txt"):
+            allowed, reason = policy.decide("WRITE_FILE", {"file_path": os.path.join(repo, rel)})
+            self.assertFalse(allowed, rel)
+            self.assertEqual(reason, "WRITE_TO_PROTECTED_PATH_DENIED")
+        for alias in ("C:/repo/.git./hooks/pre-commit", "C:/repo/.git /hooks/x",
+                      "C:/repo/.GIT.../config", "C:/Users/m/.gitconfig.",
+                      "C:/Users/m/.gitconfig::$DATA", "C:/repo/.git::$INDEX_ALLOCATION/x",
+                      "C:/Users/m/.config/git/config", "C:/Program Files/Git/etc/gitconfig"):
+            self.assertTrue(_is_git_metadata(_normalized_parts(alias)), alias)
+        self.assertFalse(_is_git_metadata(_normalized_parts("C:/repo/src/gitlab.py")))
 
     def test_approver_approves_and_rejects(self):
         cp, ran = _chokepoint()
@@ -228,7 +249,11 @@ class TestTelegramAllowlist(unittest.TestCase):
             no_from = {"chat": {"id": 111, "type": "private"}, "text": "captura"}
             bot = _tg_message(user_id=111)
             bot["from"]["is_bot"] = True
-            for msg in (group_owner, group_attacker, no_from, bot):
+            no_is_bot = _tg_message(user_id=111)
+            del no_is_bot["from"]["is_bot"]
+            string_id = _tg_message(user_id=111)
+            string_id["from"]["id"] = "111"
+            for msg in (group_owner, group_attacker, no_from, bot, no_is_bot, string_id):
                 self.assertFalse(b.is_authorized(msg), msg)
 
     def test_usernames_are_not_accepted_as_identity(self):
@@ -338,6 +363,8 @@ class TestWhatsAppDefaultSenders(unittest.TestCase):
         self.assertEqual(legacy_sender, "Mauro Vanegas 2025:")
         self.assertEqual(WhatsAppWebReader._id_sender(meta), legacy_sender)
         self.assertEqual(WhatsAppWebReader._parse_meta(meta)[0], "Mauro Vanegas 2025")
+        self.assertEqual(WhatsAppWebReader._parse_meta("[t] Mauro Vanegas 2025:: ")[0],
+                         "Mauro Vanegas 2025:")
         self.assertTrue(_synthetic_id(True, legacy_sender, "t", "x"))
 
 
@@ -380,19 +407,35 @@ class TestSecretRedaction(unittest.TestCase):
         self.assertNotIn(self.KEY, text)
         self.assertIn(REDACTED, res["error"])
 
-    def test_successful_tool_responses_are_redacted(self):
+    def _tool_result(self, part):
         from core.llm_provider import LLMProvider
         p = LLMProvider(config_path=os.path.join(tempfile.mkdtemp(), "none.json"))
-        body = {"candidates": [{"content": {"parts": [
-            {"functionCall": {"name": "WRITE_FILE",
-                              "args": {"file_path": "k.txt", "content": f"key {self.KEY}"}}}]}}]}
+        body = {"candidates": [{"content": {"parts": [part]}}]}
         resp = mock.Mock(status_code=200, text="", json=lambda: body)
         with mock.patch.dict(os.environ, {"GEMINI_API_KEY": self.KEY}), \
                 mock.patch("requests.post", return_value=resp):
             p.config["default_provider"] = "gemini"
-            res = p.generate_response_with_tools("s", [{"role": "user", "parts": [{"text": "x"}]}],
-                                                 [{"functionDeclarations": [{"name": "WRITE_FILE"}]}])
+            return p.generate_response_with_tools(
+                "s", [{"role": "user", "parts": [{"text": "x"}]}],
+                [{"functionDeclarations": [{"name": "WRITE_FILE"}]}])
+
+    def test_tool_call_carrying_a_loaded_key_is_refused(self):
+        res = self._tool_result({"functionCall": {"name": "WRITE_FILE", "args": {
+            "file_path": "k.txt", "content": f"key {self.KEY}"}}})
+        self.assertEqual(res["type"], "provider_error")
+        self.assertEqual(res["reason"], "TOOL_CALL_CONTAINS_SECRET")
+        self.assertNotIn(self.KEY, repr(res))
+
+    def test_tool_arguments_are_never_rewritten(self):
+        args = {"file_path": "doc.md",
+                "content": "ejemplo sk-" + "a" * 24 + " y https://x.com/s?token=publico&x=1"}
+        res = self._tool_result({"functionCall": {"name": "WRITE_FILE", "args": dict(args)}})
         self.assertEqual(res["type"], "function_call")
+        self.assertEqual(res["args"], args)
+
+    def test_text_responses_are_redacted(self):
+        res = self._tool_result({"text": f"tu clave es {self.KEY}"})
+        self.assertEqual(res["type"], "text")
         self.assertNotIn(self.KEY, repr(res))
 
     def test_shape_patterns_without_known_values(self):

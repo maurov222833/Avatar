@@ -10,6 +10,10 @@ from core.redaction import redact_secret_text
 #: Providers whose keys are redacted from any text the facade returns.
 _KEYED_PROVIDERS = ("gemini", "openai", "groq", "github")
 
+#: Real provider keys are far longer; a short configured value must not make every
+#: tool call look like it carries a secret.
+_MIN_TOOL_SECRET_LEN = 16
+
 
 def _gemini_headers(api_key: str) -> Dict[str, str]:
     # Header auth keeps the key out of URLs, which requests echoes into exception messages.
@@ -725,13 +729,28 @@ class LLMProvider:
         if isinstance(res, dict) and res.get("type") == "function_call":
             # Arguments are executed, so they are never rewritten: a call carrying a loaded
             # key is refused instead, and shape patterns never touch legitimate arguments.
-            if any(s in repr(res) for s in secrets):
+            if self._contains_secret(res, [s for s in secrets if len(s) >= _MIN_TOOL_SECRET_LEN]):
                 return {"type": "provider_error", "provider": res.get("provider", ""),
                         "error": "La llamada a herramienta contenía una clave API cargada; no se ejecuta.",
                         "status_code": 0, "reason": "TOOL_CALL_CONTAINS_SECRET",
                         "recoverable": False}
             return res
         return self._redact_structure(res, secrets)
+
+    @staticmethod
+    def _contains_secret(value, secrets) -> bool:
+        if not secrets:
+            return False
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", "replace")
+        if isinstance(value, str):
+            return any(s in value for s in secrets)
+        if isinstance(value, dict):
+            return any(LLMProvider._contains_secret(k, secrets) or
+                       LLMProvider._contains_secret(v, secrets) for k, v in value.items())
+        if isinstance(value, (list, tuple)):
+            return any(LLMProvider._contains_secret(v, secrets) for v in value)
+        return False
 
     @staticmethod
     def _redact_structure(value, secrets):

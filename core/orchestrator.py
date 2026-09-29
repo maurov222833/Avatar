@@ -238,7 +238,11 @@ class AvatarOrchestrator:
                 pass
         return {}
 
-    def process_user_input(self, user_input: str, max_steps: int = 5) -> str:
+    #: Only a local channel, and only a message that starts with this prefix, may be parsed
+    #: straight into shell tasks. Remote text that merely looks like commands is not.
+    MULTI_TASK_PREFIX = "avatar-exec:"
+
+    def process_user_input(self, user_input: str, max_steps: int = 5, channel: str = "local") -> str:
         # 0. Clasificar tipo de interacción PRIMERO (Autoridad Semántica de Precedencia)
         interaction_type = SemanticMissionEngine.classify_interaction(user_input)
         print(f"[AvatarOrchestrator]: Clasificación Semántica -> InteractionType.{interaction_type.value}")
@@ -282,9 +286,10 @@ class AvatarOrchestrator:
         has_json_block = "```json" in user_input and "[" in user_input
         multi_specs = None
 
-        if interaction_type == InteractionType.DIRECT_ACTION or has_json_block:
+        multi_body = self._local_multi_task_body(user_input, channel)
+        if multi_body is not None and (interaction_type == InteractionType.DIRECT_ACTION or has_json_block):
             print(f"[AvatarOrchestrator]: Evaluando _parse_multi_task_specs (DIRECT_ACTION/JSON_BLOCK)...")
-            multi_specs = self._parse_multi_task_specs(user_input)
+            multi_specs = self._parse_multi_task_specs(multi_body)
             if multi_specs:
                 print(f"[AvatarOrchestrator]: Multi-task Parser Activado -> {len(multi_specs)} tareas generadas.")
             else:
@@ -1020,6 +1025,16 @@ class AvatarOrchestrator:
             task_id=task_id,
             execution_id=execution_id,
         )
+
+    def _local_multi_task_body(self, user_input: str, channel: str) -> Optional[str]:
+        """Return the text after the explicit prefix, or None when multi-task must not run."""
+        if channel != "local":
+            return None
+        stripped = (user_input or "").lstrip()
+        prefix = self.MULTI_TASK_PREFIX
+        if not stripped.lower().startswith(prefix):
+            return None
+        return stripped[len(prefix):].lstrip()
 
     def _parse_multi_task_specs(self, user_input: str) -> Optional[List[Dict[str, Any]]]:
         """

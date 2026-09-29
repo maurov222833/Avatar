@@ -215,7 +215,7 @@ class TelegramBridge:
             return
 
         # Procesar con el orquestador
-        raw_output = self.orchestrator.process_user_input(text)
+        raw_output = self.orchestrator.process_user_input(text, channel="remote")
         clean_output = ReasoningEngine.extract_clean_response(raw_output)
 
         # Evitar enviar bloques de codigo Python crudo como mensaje de chat conversacional

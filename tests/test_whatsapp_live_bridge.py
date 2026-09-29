@@ -97,7 +97,7 @@ def _bridge(reader, **kw):
     kw.setdefault("authorized_senders", ["Mauro"])
     b = WhatsAppBridge(reader=reader, poll_seconds=0,
                        state_path=os.path.join(tmp, "state.json"), **kw)
-    b.orchestrator.process_user_input = lambda text: f"eco: {text}"
+    b.orchestrator.process_user_input = lambda text, **kw: f"eco: {text}"
     return b
 
 
@@ -112,7 +112,7 @@ class TestLiveLoop(unittest.TestCase):
             b = _bridge(reader)
             calls = []
             orig_process = b.orchestrator.process_user_input
-            b.orchestrator.process_user_input = lambda m: calls.append(m) or "ok"
+            b.orchestrator.process_user_input = lambda m, **kw: calls.append(m) or "ok"
             b._deliver = lambda **k: "delivered"
             summary = b.start_live_bridge("Chat Prueba", max_polls=2)
             self.assertEqual(len(calls), 1, "el mismo mensaje no se reprocesa")
@@ -123,7 +123,7 @@ class TestLiveLoop(unittest.TestCase):
             reader = FakeReader([[ _msg("m2", "Desconocido", "haz esto") ]])
             b = _bridge(reader, authorized_senders=["Mauro"])
             calls = []
-            b.orchestrator.process_user_input = lambda m: calls.append(m) or "ok"
+            b.orchestrator.process_user_input = lambda m, **kw: calls.append(m) or "ok"
             b._deliver = lambda **k: "delivered"
             b.start_live_bridge("Chat Prueba", max_polls=1)
             self.assertEqual(calls, [])
@@ -133,7 +133,7 @@ class TestLiveLoop(unittest.TestCase):
             reader = FakeReader([[ _msg("m3", "Mauro", "solo mira") ]])
             b = _bridge(reader, observe_only=True)
             calls = []
-            b.orchestrator.process_user_input = lambda m: calls.append(m) or "ok"
+            b.orchestrator.process_user_input = lambda m, **kw: calls.append(m) or "ok"
             b.start_live_bridge("Chat Prueba", max_polls=1)
             self.assertEqual(calls, [])
             self.assertIn("m3", b._replied_ids)
@@ -166,7 +166,7 @@ class TestLiveLoop(unittest.TestCase):
             ])
             b = _bridge(reader)
             calls = []
-            b.orchestrator.process_user_input = lambda m: calls.append(m) or "ok"
+            b.orchestrator.process_user_input = lambda m, **kw: calls.append(m) or "ok"
             b._deliver = lambda **k: "delivered"
             summary = b.start_live_bridge("Chat Prueba", max_polls=2)
             self.assertEqual(len(calls), 1)
@@ -185,7 +185,7 @@ class TestLiveLoop(unittest.TestCase):
         with _TempWorld():
             reader = FakeReader([[ _msg("m6", "Mauro", "hola?") ]])
             b = _bridge(reader)
-            b.orchestrator.process_user_input = lambda t: (
+            b.orchestrator.process_user_input = lambda t, **kw: (
                 "⚠️ El proveedor devolvió respuestas vacías 2 veces seguidas.")
             delivered = []
             b._deliver = lambda **k: delivered.append(k) or "skip"
@@ -200,7 +200,7 @@ class TestLiveLoop(unittest.TestCase):
             reader = FakeReader([[ _msg("m7", "?", "enciende la luz", incoming=False) ]])
             b = _bridge(reader, respond_to_own_outgoing=True)
             calls = []
-            b.orchestrator.process_user_input = lambda m: calls.append(m) or "ok"
+            b.orchestrator.process_user_input = lambda m, **kw: calls.append(m) or "ok"
             b._deliver = lambda **k: reader.sent_texts.add(" ".join("ok".split())) or "d"
             b.start_live_bridge("Chat Prueba", max_polls=1)
             self.assertEqual(calls, ["enciende la luz"])
@@ -210,7 +210,7 @@ class TestLiveLoop(unittest.TestCase):
             reader = FakeReader([[ _msg("m8", "?", "ruido", incoming=False) ]])
             b = _bridge(reader)  # respond_to_own_outgoing=False
             calls = []
-            b.orchestrator.process_user_input = lambda m: calls.append(m) or "ok"
+            b.orchestrator.process_user_input = lambda m, **kw: calls.append(m) or "ok"
             b.start_live_bridge("Chat Prueba", max_polls=1)
             self.assertEqual(calls, [])
 
@@ -219,7 +219,7 @@ class TestLiveLoop(unittest.TestCase):
             reader = FakeReader([[ _msg("a1", "M", "uno") ], [ _msg("a2", "M", "dos") ]])
             b = _bridge(reader, max_replies=None, authorized_senders=["M"])
             n = []
-            b.orchestrator.process_user_input = lambda m: n.append(m) or "ok"
+            b.orchestrator.process_user_input = lambda m, **kw: n.append(m) or "ok"
             b._deliver = lambda **k: "d"
             summary = b.start_live_bridge("Chat Prueba", max_polls=2)
             self.assertEqual(n, ["uno", "dos"])
@@ -233,7 +233,7 @@ class TestLiveLoop(unittest.TestCase):
             reader = FakeReader([[ _msg("s1", "M", "nunca") ]])
             b = _bridge(reader)
             calls = []
-            b.orchestrator.process_user_input = lambda m: calls.append(m) or "ok"
+            b.orchestrator.process_user_input = lambda m, **kw: calls.append(m) or "ok"
             summary = b.start_live_bridge("Chat Prueba", max_polls=5,
                                           stop_path=stop)
             self.assertEqual(summary["polls"], 0)

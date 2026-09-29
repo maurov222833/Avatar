@@ -104,7 +104,7 @@ class WhatsAppBridge:
         mensaje real podía salir a otra persona sin política, sin registro y sin dry-run.
         """
         print(f"\n💬 [Mensaje de WhatsApp de {sender}]: {message_body}")
-        response = self.orchestrator.process_user_input(message_body)
+        response = self.orchestrator.process_user_input(message_body, channel="remote")
         self._deliver(sender=sender, message_body=message_body, response=response)
         return response
 
@@ -252,7 +252,7 @@ class WhatsAppBridge:
                     break
                 processed += 1
                 try:
-                    response = self.orchestrator.process_user_input(msg.text)
+                    response = self.orchestrator.process_user_input(msg.text, channel="remote")
                     send, shaped = self.format_whatsapp_reply(response)
                     if not send:
                         print(f"[WhatsAppBridge] respuesta suprimida por política "

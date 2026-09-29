@@ -18,6 +18,7 @@ class TestCognitivePipelineIntegration(unittest.TestCase):
             "1. Tarea 1: echo TEST_E2E_OUTPUT_1\n"
             "2. Tarea 2: echo TEST_E2E_OUTPUT_2"
         )
+        user_input = "avatar-exec:\n" + user_input
         self.orchestrator.chokepoint.policy.exec_requires_approval = False
         response = self.orchestrator.process_user_input(user_input)
         self.assertIn("Ejecución Multi-Tarea Continua Completada", response)

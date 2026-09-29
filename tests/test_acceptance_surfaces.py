@@ -72,17 +72,18 @@ class TestHttpSurface(unittest.TestCase):
         with _TempWorld():
             import server
             client = TestClient(server.app)
+            headers = server.auth_headers()
 
             self.assertEqual(client.get("/").status_code, 200)
 
-            cfg = client.get("/api/config").json()
+            cfg = client.get("/api/config", headers=headers).json()
             flat = str(cfg)
             self.assertIn("api_key", flat, "the key name is still visible")
             for marker in ("sk-", "gsk_", "AIza"):
                 self.assertNotIn(marker, flat,
                                  f"a raw credential prefix leaked: {marker}")
 
-            r = client.post("/api/terminal/execute", json={"command": "echo AVATAR_DENY_PROBE"})
+            r = client.post("/api/terminal/execute", json={"command": "echo AVATAR_DENY_PROBE"}, headers=headers)
             self.assertEqual(r.status_code, 200)
             acts = server.orchestrator.chokepoint.list_acts()
             self.assertEqual(acts[-1]["act_type"], "COMMAND")
@@ -91,7 +92,7 @@ class TestHttpSurface(unittest.TestCase):
             self.assertEqual(acts[-1]["policy_reason"], "EXEC_REQUIRES_OPERATOR_APPROVAL")
 
             server.orchestrator.chokepoint.policy.exec_requires_approval = False
-            r = client.post("/api/terminal/execute", json={"command": "echo AVATAR_ACCEPT_PROBE"})
+            r = client.post("/api/terminal/execute", json={"command": "echo AVATAR_ACCEPT_PROBE"}, headers=headers)
             self.assertEqual(r.status_code, 200)
             self.assertIn("AVATAR_ACCEPT_PROBE", r.json()["output"])
 
@@ -111,7 +112,7 @@ class TestHttpSurface(unittest.TestCase):
         with _TempWorld():
             import server
             client = TestClient(server.app)
-            r = client.get("/api/whatsapp/status")
+            r = client.get("/api/whatsapp/status", headers=server.auth_headers())
             self.assertEqual(r.status_code, 200)
             body = r.json()
             self.assertIn("heartbeat", body)
@@ -132,7 +133,7 @@ class TestHttpSurface(unittest.TestCase):
             import server
             client = TestClient(server.app)
 
-            body = client.post("/api/config/update", json={}).json()
+            body = client.post("/api/config/update", json={}, headers=server.auth_headers()).json()
             flat = str(body.get("config", body))
             for marker in ("sk-", "gsk_", "AIza", "AQ."):
                 self.assertNotIn(marker, flat,
@@ -273,7 +274,8 @@ class TestResumeSurface(unittest.TestCase):
             import server
             client = TestClient(server.app)
 
-            r = client.post("/api/missions/resume", json={"mission_id": "msn_inexistente"})
+            r = client.post("/api/missions/resume", json={"mission_id": "msn_inexistente"},
+                            headers=server.auth_headers())
             self.assertEqual(r.status_code, 200)
             body = r.json()
             self.assertEqual(body["status"], "NO_ACTIVE_MISSION")

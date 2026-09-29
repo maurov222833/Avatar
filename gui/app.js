@@ -1,4 +1,12 @@
 // Lógica interactiva completa para Avatar Desktop GUI
+function avatarFetch(url, options) {
+    const opts = options ? Object.assign({}, options) : {};
+    const headers = new Headers(opts.headers || {});
+    if (window.AVATAR_HTTP_TOKEN) headers.set("X-Avatar-Token", window.AVATAR_HTTP_TOKEN);
+    opts.headers = headers;
+    return fetch(url, opts);
+}
+
 let attachedFileContent = "";
 let monacoEditorInstance = null;
 
@@ -71,7 +79,7 @@ function setupEventListeners() {
 
 async function loadConfig() {
     try {
-        const res = await fetch("/api/config");
+        const res = await avatarFetch("/api/config");
         if (res.ok) {
             const config = await res.json();
             const provider = config.default_provider || "gemini";
@@ -97,7 +105,7 @@ async function saveSettings() {
     const ollamaUrl = document.getElementById("ollama-url-input").value.trim();
 
     try {
-        const res = await fetch("/api/config/update", {
+        const res = await avatarFetch("/api/config/update", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -148,7 +156,7 @@ function updateHeaderBadge(provider) {
 async function changeActiveModel() {
     const selectedProvider = document.getElementById("model-select").value;
     try {
-        const res = await fetch("/api/config/provider", {
+        const res = await avatarFetch("/api/config/provider", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ provider: selectedProvider })
@@ -169,7 +177,7 @@ function changeAgentMode() {
 
 async function loadProjects() {
     try {
-        const res = await fetch("/api/projects");
+        const res = await avatarFetch("/api/projects");
         if (res.ok) {
             const data = await res.json();
             const listEl = document.getElementById("projects-list");
@@ -189,7 +197,7 @@ async function loadProjects() {
 
 async function selectProject(name) {
     try {
-        const res = await fetch("/api/workspace/set", {
+        const res = await avatarFetch("/api/workspace/set", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ project_name: name })
@@ -214,7 +222,7 @@ async function handleFileSelected(event) {
     formData.append("file", file);
 
     try {
-        const res = await fetch("/api/attach", {
+        const res = await avatarFetch("/api/attach", {
             method: "POST",
             body: formData
         });
@@ -285,7 +293,7 @@ async function sendMessage() {
     const loadingId = appendLoadingBubble();
 
     try {
-        const res = await fetch("/api/chat", {
+        const res = await avatarFetch("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ message: message })
@@ -442,7 +450,7 @@ async function handleTerminalCommand(e) {
         appendTerminalLog(`PS b:\\PROYECTOS ANTIGRAVITY> ${cmd}`);
 
         try {
-            const res = await fetch("/api/terminal/execute", {
+            const res = await avatarFetch("/api/terminal/execute", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ command: cmd })

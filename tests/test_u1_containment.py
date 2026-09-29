@@ -240,7 +240,7 @@ class TestTelegramAllowlist(unittest.TestCase):
         b.sent = []
         b.send_message = lambda chat_id, text: b.sent.append((chat_id, text))
         b.send_photo = lambda chat_id, path, caption="": b.sent.append((chat_id, "PHOTO"))
-        b.orchestrator.process_user_input = lambda text: f"eco: {text}"
+        b.orchestrator.process_user_input = lambda text, **kw: f"eco: {text}"
         return b
 
     def test_no_allowlist_rejects_everything(self):
@@ -342,7 +342,7 @@ class TestWhatsAppDefaultSenders(unittest.TestCase):
             b = WhatsAppBridge(reader=Reader(), poll_seconds=0, respond_to_own_outgoing=True,
                                state_path=os.path.join(world.dir, "state.json"))
             seen = []
-            b.orchestrator.process_user_input = lambda m: seen.append(m) or "ok"
+            b.orchestrator.process_user_input = lambda m, **kw: seen.append(m) or "ok"
             b._deliver = lambda **k: "delivered"
             b._poll_loop(b.reader, "Mauro Vanegas 2025", max_polls=1,
                          stop_path=os.path.join(world.dir, "STOP"))
@@ -367,7 +367,7 @@ class TestWhatsAppDefaultSenders(unittest.TestCase):
             b = WhatsAppBridge(reader=reader, poll_seconds=0,
                                state_path=os.path.join(world.dir, "state.json"))
             seen = []
-            b.orchestrator.process_user_input = lambda m: seen.append(m) or "ok"
+            b.orchestrator.process_user_input = lambda m, **kw: seen.append(m) or "ok"
             b._deliver = lambda **k: "delivered"
             b._poll_loop(reader, "Mauro Vanegas 2025", max_polls=1,
                          stop_path=os.path.join(world.dir, "STOP"))

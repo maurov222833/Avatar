@@ -1,10 +1,13 @@
+import hashlib
+import hmac
 import os
+import secrets
 import sys
 import json
 import uuid
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 
@@ -16,6 +19,47 @@ from tools.shell_tool import ShellTool
 from tools.file_tool import FileTool
 
 app = FastAPI(title="Avatar AI GUI Backend", version="1.0.0")
+
+# A browser page on another origin must not be able to drive this API. The GUI is served by
+# this process and receives the token in its own HTML; every /api call has to send it back.
+# Host/Origin stay on loopback names so a DNS-rebinding page is rejected before the token matters.
+_LOCAL_HOSTS = {"127.0.0.1", "localhost", "testserver", "[::1]"}
+http_token = os.environ.get("AVATAR_HTTP_TOKEN", "").strip() or secrets.token_urlsafe(32)
+
+
+def auth_headers() -> Dict[str, str]:
+    return {"X-Avatar-Token": http_token}
+
+
+def _host_name(value: str) -> str:
+    text = (value or "").strip().lower()
+    if text.startswith("["):
+        end = text.find("]")
+        return text[:end + 1] if end != -1 else text
+    return text.split(":", 1)[0]
+
+
+def _token_matches(presented: str) -> bool:
+    # Hash both sides so a length mismatch cannot raise or short-circuit early.
+    return hmac.compare_digest(
+        hashlib.sha256((presented or "").encode("utf-8")).digest(),
+        hashlib.sha256(http_token.encode("utf-8")).digest())
+
+
+@app.middleware("http")
+async def local_http_guard(request: Request, call_next):
+    if _host_name(request.headers.get("host", "")) not in _LOCAL_HOSTS:
+        return JSONResponse({"detail": "HOST_NOT_ALLOWED"}, status_code=403)
+    origin = request.headers.get("origin")
+    if origin:
+        origin_host = ""
+        if "://" in origin:
+            origin_host = _host_name(origin.split("://", 1)[1].split("/", 1)[0])
+        if origin_host not in _LOCAL_HOSTS:
+            return JSONResponse({"detail": "ORIGIN_NOT_ALLOWED"}, status_code=403)
+    if request.url.path.startswith("/api/") and not _token_matches(request.headers.get("x-avatar-token", "")):
+        return JSONResponse({"detail": "HTTP_TOKEN_REQUIRED"}, status_code=401)
+    return await call_next(request)
 
 # Instancia del Orquestador
 orchestrator = AvatarOrchestrator()
@@ -71,9 +115,17 @@ class WorkspaceRequest(BaseModel):
 @app.get("/", response_class=HTMLResponse)
 def read_root():
     index_path = os.path.join(gui_dir, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return "<h1>Avatar GUI Index no encontrado</h1>"
+    if not os.path.exists(index_path):
+        return HTMLResponse("<h1>Avatar GUI Index no encontrado</h1>")
+    with open(index_path, "r", encoding="utf-8") as f:
+        html = f.read()
+    # json.dumps makes the token a quoted JS string, so it cannot break out of the script.
+    tag = "<script>window.AVATAR_HTTP_TOKEN = " + json.dumps(http_token) + ";</script>"
+    if "</head>" in html:
+        html = html.replace("</head>", tag + "\n</head>", 1)
+    else:
+        html = tag + html
+    return HTMLResponse(html)
 
 @app.get("/api/config")
 def get_config():
@@ -153,7 +205,7 @@ def whatsapp_webhook(req: WhatsAppWebhookRequest):
         return {"status": "ignored", "reason": "empty message"}
     
     print(f"\n💬 [Mensaje Entrante de WhatsApp - {req.sender}]: {req.message}")
-    raw_response = orchestrator.process_user_input(req.message)
+    raw_response = orchestrator.process_user_input(req.message, channel="remote")
     from tools.reasoning_engine import ReasoningEngine
     clean_response = ReasoningEngine.extract_clean_response(raw_response)
     

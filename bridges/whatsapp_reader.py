@@ -35,6 +35,14 @@ except ImportError:  # pragma: no cover - environment without playwright
 WA_WEB_URL = "https://web.whatsapp.com"
 
 
+
+def _rlog(message: str, level: str = "INFO") -> None:
+    try:
+        from core.logging_util import log
+        log(level, message, component="WhatsAppReader")
+    except Exception:
+        pass
+
 class WhatsAppReadError(Exception):
     """Honest failure: reason codes, never a fake message list."""
 
@@ -231,8 +239,7 @@ class WhatsAppWebReader:
         # perfil. Sin esto cada herramienta deja ventanas blancas huerfanas.
         leftovers = self._own_chromium_pids()
         if worker.is_alive() or leftovers:
-            print("[WhatsAppReader] barriendo chromium propio restante...",
-                  flush=True)
+            _rlog("[WhatsAppReader] barriendo chromium propio restante...")
             self._kill_own_chromium()
         self._release_lock()
 
@@ -246,7 +253,7 @@ class WhatsAppWebReader:
                  "get", "ProcessId,CommandLine", "/format:csv"],
                 capture_output=True, text=True, timeout=20)
         except Exception as exc:
-            print(f"[WhatsAppReader] wmic no disponible: {exc}", flush=True)
+            _rlog(f"[WhatsAppReader] wmic no disponible: {exc}")
             return []
         pids = []
         for line in (out.stdout or "").splitlines():
@@ -265,8 +272,7 @@ class WhatsAppWebReader:
             try:
                 subprocess.run(['taskkill', '/PID', pid, '/F'],
                                capture_output=True, timeout=10)
-                print(f'[WhatsAppReader] proceso propio {pid} terminado.',
-                      flush=True)
+                _rlog(f"[WhatsAppReader] proceso propio {pid} terminado.")
             except Exception:
                 pass
 

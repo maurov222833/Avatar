@@ -5,6 +5,14 @@ from typing import List, Dict, Any, Optional
 from core.state_db import StateEngine
 from core.paths import memory_dir as default_memory_dir
 
+
+def _mlog(message: str, level: str = "INFO") -> None:
+    try:
+        from core.logging_util import log
+        log(level, message, component="RAGMemory")
+    except Exception:
+        pass
+
 class RAGMemory:
     """
     MÓDULO 2: Memoria Persistente, Base de Conocimiento Acumulativa y RAG para Avatar AI.
@@ -55,7 +63,7 @@ class RAGMemory:
                             ctx_data.get("status", "ACTIVE")
                         )
         except Exception as e:
-            print(f"[RAGMemory Migration Warning]: {e}")
+            _mlog(f"[RAGMemory Migration Warning]: {e}")
 
     @staticmethod
     def _now_stamp() -> str:
@@ -74,7 +82,7 @@ class RAGMemory:
             with open(self.history_file, "w", encoding="utf-8") as f:
                 json.dump(stored, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"[Error guardando memoria]: {e}")
+            _mlog(f"[Error guardando memoria]: {e}")
 
     def load_history(self) -> List[Dict[str, str]]:
         try:
@@ -109,7 +117,7 @@ class RAGMemory:
             with open(self.context_file, "w", encoding="utf-8") as f:
                 json.dump(task_data, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"[Error guardando tarea activa]: {e}")
+            _mlog(f"[Error guardando tarea activa]: {e}")
 
     def get_active_task(self) -> Dict[str, Any]:
         try:
@@ -138,7 +146,7 @@ class RAGMemory:
             with open(self.knowledge_file, "w", encoding="utf-8") as f:
                 json.dump(kb, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"[Error guardando en base de conocimiento]: {e}")
+            _mlog(f"[Error guardando en base de conocimiento]: {e}")
 
     def save_mission_summary(
         self,

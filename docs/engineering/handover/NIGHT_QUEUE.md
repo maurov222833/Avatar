@@ -13,9 +13,13 @@ No abrir pull requests. No cambiar `exec_requires_approval`. No automatizar el e
 - `scratch/telegram_service.py` no lo arranca Avatar; quedó advertido (sin allowlist, no borrar)
 - El fixture del navegador explica si el puerto 8765 está ocupado
 
-## Siguiente, en orden
+- Prints de WhatsApp (auto-reply, bridge y reader), watchdog, chokepoint, memoria y bucle continuo al logger JSON
 
-1. Pasar al logger los `print` que quedan en producción: `tools/whatsapp_auto_reply.py`, `core/watchdog.py`, `bridges/whatsapp_bridge.py`. No tocar scripts de `scratch/`.
+## Siguiente
+
+La cola escrita está cerrada. No abras R7 ni cambies la política EXEC.
+En el siguiente turno solo corrige un test rojo o un hueco ya nombrado en STATUS.md.
+No inventes módulos nuevos.
 
 ## Parar
 

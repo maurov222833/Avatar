@@ -457,6 +457,14 @@ def _observe_external_message(args: Dict[str, Any], result: str) -> Dict[str, An
 # ---------------------------------------------------------------------------
 # Chokepoint
 # ---------------------------------------------------------------------------
+
+def _clog(message: str, level: str = "INFO") -> None:
+    try:
+        from core.logging_util import log
+        log(level, message, component="ActChokepoint")
+    except Exception:
+        pass
+
 class ActChokepoint:
     """
     The only sanctioned path to a side effect.
@@ -552,7 +560,7 @@ class ActChokepoint:
         """Mark the active context as having ingested untrusted text (F-06)."""
         self.policy.context_contaminated = True
         if reason:
-            print(f"[ActChokepoint]: contexto contaminado -> {reason}")
+            _clog(f"[ActChokepoint]: contexto contaminado -> {reason}")
 
     def clear_contamination(self) -> None:
         """Reset provenance for a new user turn."""

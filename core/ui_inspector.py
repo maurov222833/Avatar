@@ -85,6 +85,14 @@ class LocalOCREngine:
                 return b
         return None
 
+
+def _uilog(message: str, level: str = "INFO") -> None:
+    try:
+        from core.logging_util import log
+        log(level, message, component="UIInspector")
+    except Exception:
+        pass
+
 class UIInspector:
     """
     Inspector de Interfaz de Usuario y Ventanas de Windows para Avatar AI (Fase 3).
@@ -159,7 +167,7 @@ class UIInspector:
                 except Exception:
                     pass
         except Exception as e:
-            print(f"[UIInspector List Warning]: {e}")
+            _uilog(f"[UIInspector List Warning]: {e}")
 
         # Fallback si PowerShell no devolvió datos
         if not windows:
@@ -241,7 +249,7 @@ class UIInspector:
             res = user32.SetForegroundWindow(hwnd)
             return bool(res)
         except Exception as e:
-            print(f"[UIInspector Focus Warning]: {e}")
+            _uilog(f"[UIInspector Focus Warning]: {e}")
             return False
 
     @staticmethod

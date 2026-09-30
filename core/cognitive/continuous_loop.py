@@ -7,6 +7,14 @@ from core.cognitive.verifier import Verifier
 from core.cognitive.recovery_engine import RecoveryEngine
 from core.cognitive.recovery_policy import RecoveryStrategy
 
+
+def _llog(message: str, level: str = "INFO") -> None:
+    try:
+        from core.logging_util import log
+        log(level, message, component="ContinuousLoop")
+    except Exception:
+        pass
+
 class ContinuousExecutionEngine:
     """
     Motor de Ejecución Continua y Autodesarrollo Controlado V2 para Avatar AI.
@@ -67,7 +75,7 @@ class ContinuousExecutionEngine:
                         )
                     except Exception as chk_err:
                         # Without a durable pre-checkpoint the tool must not run.
-                        print(f"[ContinuousExecutionEngine]: Pre-checkpoint failed; aborting tool: {chk_err}")
+                        _llog(f"[ContinuousExecutionEngine]: Pre-checkpoint failed; aborting tool: {chk_err}")
                         last_output = f"[Checkpoint]: no se pudo guardar el estado previo ({chk_err})"
                         last_result = TaskResult(
                             task_id=task.task_id,
@@ -111,7 +119,7 @@ class ContinuousExecutionEngine:
                                 evidence_data={"output": tool_output[:200]}
                             )
                         except Exception as chk_err:
-                            print(f"[ContinuousExecutionEngine Warning]: Post-checkpoint failed: {chk_err}")
+                            _llog(f"[ContinuousExecutionEngine Warning]: Post-checkpoint failed: {chk_err}")
                 else:
                     new_plan, rec_record = self.recovery_engine.handle_task_failure(
                         goal=goal, plan=plan, task=task, result=task_result, evidence=evidence

@@ -7,7 +7,7 @@ Este archivo es el estado corto. Los `AVATAR_*.md` de la raíz son auditoría hi
 
 - Un orquestador por proceso; efectos por `ActChokepoint`.
 - Telegram: allowlist, listener durable, captura con `send_photo`, música en el navegador del sistema, `DESKTOP_HOTKEY` (minimizar) sin aprobación EXEC.
-- Logger JSON (`core/logging_util.py`) y `requirements.lock` (R2). Audio y captura ya no usan `print`.
+- Logger JSON (`core/logging_util.py`) y `requirements.lock` (R2). El núcleo (orquestador, chokepoint, audio, captura, WhatsApp, watchdog, memoria) ya no usa `print` para diagnóstico.
 - Cascada de proveedores y ledger de uso (R4).
 - Watchdog en proceso (D-7). El Programador de tareas de Windows sigue opcional.
 

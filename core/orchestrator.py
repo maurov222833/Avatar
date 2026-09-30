@@ -2059,13 +2059,8 @@ class AvatarOrchestrator:
         if not text:
             return None, None
 
-        valid_tools = [
-            "COMMAND", "READ_FILE", "WRITE_FILE", "LIST_DIR", "WEB_SEARCH", "FETCH_URL",
-            "PLAY_AUDIO", "AUDIO_CONTROL", "SEND_WHATSAPP", "SCREEN_CAPTURE", "UPDATE_CONFIG",
-            "TELEGRAM_STATUS", "TELEGRAM_SEND", "TELEGRAM_TEST",
-            "BROWSER_NAVIGATE", "BROWSER_OBSERVE", "BROWSER_CLICK", "BROWSER_FILL", "BROWSER_CLOSE",
-            "DESKTOP_CLICK", "DESKTOP_TYPE", "DESKTOP_OBSERVE", "DESKTOP_HOTKEY",
-        ]
+        from core.cognitive.tool_registry import ToolRegistry
+        valid_tools = set(ToolRegistry.list_tools())
 
         # 1. Chequear bloque JSON con clave "action"
         json_match = re.search(r'\{\s*"action"\s*:\s*"([A-Z_]+)".*?\}', text, re.DOTALL | re.IGNORECASE)

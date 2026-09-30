@@ -1,4 +1,9 @@
-import subprocess
+"""Subagentes de desarrollo desatendido.
+
+Producción (orquestador, server, Telegram) no importa este módulo.
+Lo ejercita `tests/test_acceptance_surfaces.py`: el proxy registra
+`git status` por el chokepoint. No borrar mientras ese contrato exista.
+"""
 from core.llm_provider import LLMProvider
 from tools.shell_tool import ShellTool
 from tools.file_tool import FileTool

@@ -13,12 +13,12 @@
                                              │
       ┌────────────────┬─────────────────────┼─────────────────────┬────────────────┐
       ▼                ▼                     ▼                     ▼                ▼
- [AutoLoop ReAct] [Memoria RAG]     [Deep Research Web]    [Telegram Daemon] [Monaco IDE]
- (core/autoloop)  (core/rag_memory) (tools/web_tool)       (bridges/telegram)(gui/index.html)
+ [Orquestador]   [Memoria RAG]     [Deep Research Web]    [Telegram Daemon] [Monaco IDE]
+ (core/orchestrator) (core/rag_memory) (tools/web_tool)  (bridges/telegram)(gui/index.html)
 ```
 
-1. **Bucle Autónomo ReAct (AutoLoop Engine - `core/autoloop.py`):**
-   - Motor de autocorrección para ejecutar tareas multi-paso en PowerShell/Python sin quedarse bloqueado.
+1. **Bucle ReAct (`core/orchestrator.py`):**
+   - El turno real pasa por el orquestador y el chokepoint. `core/autoloop.py` se retiró (R6): no tenía importadores.
 
 2. **Memoria RAG y Conocimiento Acumulativo (`core/rag_memory.py` + `memory/knowledge_base.json`):**
    - Registra de forma continua todas las lecciones aprendidas, comandos, configuraciones y contextos de proyectos de Mauro.

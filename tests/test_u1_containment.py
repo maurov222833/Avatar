@@ -447,6 +447,9 @@ class TestSecretRedaction(unittest.TestCase):
                 mock.patch("requests.post", side_effect=fake_post), \
                 mock.patch("time.sleep"):
             p.config["default_provider"] = "gemini"
+            # R4 cascade must not hop to Groq/OpenAI if those keys leaked into the process.
+            p.config.setdefault("providers", {})["cascade"] = []
+            p.config["providers"]["local_fallback"] = False
             p.generate_response_with_tools("s", [{"role": "user", "parts": [{"text": "x"}]}], [])
             p.generate_response("s", "x")
         self.assertTrue(calls)

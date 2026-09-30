@@ -114,8 +114,19 @@ class ToolRegistry:
 
     @classmethod
     def list_tools(cls) -> List[str]:
-        """Alias de clase usado por StructuredActionRecoveryLayer."""
-        return default_tool_registry.list_registered_tools()
+        """
+        Nombres que el parser de texto y SAR pueden aceptar.
+
+        Unión del registro cognitivo y de ACT_TYPES (chokepoint): una sola
+        fuente para no mantener otra lista a mano en el orquestador.
+        """
+        names = set(default_tool_registry.list_registered_tools())
+        try:
+            from core.act_chokepoint import ACT_TYPES
+            names.update(ACT_TYPES.keys())
+        except Exception:
+            pass
+        return sorted(names)
 
 # Instancia global por defecto
 default_tool_registry = ToolRegistry()

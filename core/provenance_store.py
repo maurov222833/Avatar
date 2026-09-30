@@ -26,6 +26,28 @@ def detect_injection(text: str) -> Optional[str]:
     return match.group(0) if match else None
 
 
+def record_external(text: str, *, url: str, domain: str, path: Optional[str] = None) -> Dict[str, Any]:
+    """Añade una línea de procedencia. El texto largo se guarda recortado; el hash es del original."""
+    import json
+    import os
+    destination = path or os.environ.get("AVATAR_PROVENANCE_PATH")
+    if not destination:
+        root = os.environ.get("AVATAR_HOME") or os.getcwd()
+        destination = os.path.join(root, "memory", "provenance.jsonl")
+    entry = {
+        "url": url,
+        "domain": domain,
+        "state": "RAW_EXTERNAL",
+        "content_hash": content_hash(text),
+        "injection": detect_injection(text),
+        "excerpt": (text or "")[:500],
+    }
+    os.makedirs(os.path.dirname(destination), exist_ok=True)
+    with open(destination, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    return entry
+
+
 class ProvenanceStore:
     def __init__(self) -> None:
         self.entries: List[Dict[str, Any]] = []

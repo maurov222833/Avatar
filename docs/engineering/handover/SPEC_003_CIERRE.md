@@ -9,13 +9,13 @@ Pruebas: `tests/test_spec003.py` en Linux (`TESTED_LINUX`). El 2026-09-30 Mauro 
 
 | Unidad | Estado | Dónde | Qué no quedó |
 |---|---|---|---|
-| U1 Parada | `IMPLEMENTED + INTEGRATED + TESTED_LINUX + VERIFIED_PC` (`/pause` en un acto inocuo) | `core/halt.py`. En Telegram, `/pause` pausa la primera vez y quita la pausa la segunda. `/stop` y `/kill` siguen siendo paradas que `/pause` no apaga. | Mauro descartó la tecla `Ctrl+Alt+Shift+X`. El segundo `/pause` queda por probar en el PC. |
+| U1 Parada | `IMPLEMENTED + INTEGRATED + TESTED_LINUX + VERIFIED_PC` | `core/halt.py`. `/pause` pausa y el segundo `/pause` quita la pausa. Mauro lo confirmó en el PC. | `/stop` y `/kill` no se apagan con `/pause`. La tecla global no se instala. |
 | U2 Rutas | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | `core/path_guard.py` en escrituras y en comandos que nombran una ruta prohibida | Junctions, nombres 8.3 y UNC no se crearon en Windows. La denylist se probó sobre el texto de la ruta. |
 | U3 Comandos | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | `core/command_risk.py`, `core/grants.py`, ADR en `U3_COMMAND_RISK_ADR.md` | Sin AST de PowerShell. Sin grant, nada rutinario se cuela: sigue la aprobación de EXEC. |
 | U4 Contención | `IMPLEMENTED + TESTED_LINUX` | `core/containment.py`. El orquestador la enciende solo si `security.containment_enabled` es verdadero | Apagada por defecto para no pausar el PC a los cinco actos iguales sin que Mauro lo active. |
-| U5 Procedencia | `IMPLEMENTED + TESTED_LINUX` | `core/provenance_store.py` | `FETCH_URL` todavía no guarda solo en este almacén. |
-| U6 Informes | `IMPLEMENTED + TESTED_LINUX` | `core/mission_report.py` | El orquestador aún no sustituye su texto final por este cálculo. |
-| U7 Modelos | `IMPLEMENTED + TESTED_LINUX` | `core/model_inventory.py`. La cascada de `core/llm_provider.py` se mantiene | El inventario nuevo no elige el proveedor en vivo. Precios no comprobados quedan `UNKNOWN`. |
+| U5 Procedencia | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Cada página o búsqueda deja una línea en `memory/provenance.jsonl`. Una orden dentro del texto contamina el turno. | No promociona sola nada a memoria permanente. |
+| U6 Informes | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Si el turno ejecutó actos, la respuesta cierra con `Estado de la misión:` calculado desde la evidencia. | Una charla sin actos no lleva esa línea. |
+| U7 Modelos | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Un proveedor listado en `providers.paid_upgrade` no entra como reemplazo. | El precio real sigue `UNKNOWN` si no se comprobó. |
 | U8 IDE | `IMPLEMENTED + TESTED_LINUX` | `core/external_dev.py`, adaptador simulado | Ningún IDE real. Falta la lista que autorice Mauro. |
 | U9 Canal | `IMPLEMENTED + INTEGRATED + TESTED_LINUX + VERIFIED_PC` en tres pasos | `core/remote_guard.py` dentro de `handle_message`. En el PC: captura, play/pausa de la misma canción y `/pause`. | WhatsApp no usa todavía el mismo anti-repetición. Falta el resto del protocolo (remitente ajeno, reinicio a mitad, pantalla bloqueada). |
 | U10 Subagentes | `PARTIAL + TESTED_LINUX` | `run_scoped` en `core/subagents.py` | El servidor y Telegram siguen sin lanzar la flota. |
@@ -33,4 +33,4 @@ La parada vive en el proceso. Otro código que llame a una herramienta saltándo
 
 ## Siguiente paso
 
-En el PC, el segundo `/pause` debe responder «Pausa quitada». La contención automática sigue apagada hasta que Mauro pida encenderla. Con la sesión bloqueada, captura y actos de escritorio se niegan si `session_locked` está activo; Avatar todavía no detecta solo el bloqueo de Windows.
+La contención automática sigue apagada hasta que Mauro pida encenderla. Lo que sigue en el orden, cuando se programe, son los respaldos que una misión no pueda borrar y el modo noche dentro de un sobre. WhatsApp aún no comparte el anti-repetición de Telegram.

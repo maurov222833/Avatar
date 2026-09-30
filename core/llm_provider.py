@@ -937,6 +937,8 @@ class LLMProvider:
         cascade = self._provider_cascade()
         primary = cascade[0] if cascade else self.get_active_provider()
         tried = set()
+        skipped_paid = False
+        tried_free_fallback = False
         last_res: Dict[str, Any] = {
             "type": "provider_error",
             "provider": primary,
@@ -951,6 +953,12 @@ class LLMProvider:
                 continue
             tried.add(provider)
             # Primary (idx 0) always runs so MISSING_KEY / adapter errors surface.
+            if idx > 0:
+                from core.model_inventory import peer_is_paid_upgrade
+                if peer_is_paid_upgrade(provider, self.config, primary=False):
+                    skipped_paid = True
+                    continue
+                tried_free_fallback = True
             if idx > 0 and not self._provider_eligible(provider):
                 continue
 
@@ -1015,4 +1023,11 @@ class LLMProvider:
                 _llog("INFO", f"Derivado a proveedor sano '{provider}'.", component="LLMProvider")
             return res
 
+        if skipped_paid and not tried_free_fallback and last_res.get("type") == "provider_error":
+            last_res = dict(last_res)
+            last_res["reason"] = "PAID_ALTERNATIVE_BLOCKED"
+            last_res["error"] = (
+                "La alternativa implica un pago extra. La misión queda guardada "
+                "hasta que Mauro decida."
+            )
         return last_res

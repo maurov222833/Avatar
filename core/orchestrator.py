@@ -802,7 +802,15 @@ class AvatarOrchestrator:
                 if self.chokepoint is not None:
                     provenance = self.chokepoint.note_tool_provenance(tool_name, args)
                 if tool_name in ("FETCH_URL", "WEB_SEARCH", "BROWSER_OBSERVE") and isinstance(tool_output, str):
-                    from core.provenance_store import detect_injection
+                    from core.provenance_store import detect_injection, record_external
+                    try:
+                        record_external(
+                            tool_output,
+                            url=str((args or {}).get("url") or (args or {}).get("params") or ""),
+                            domain=tool_name,
+                        )
+                    except Exception:
+                        pass
                     if detect_injection(tool_output):
                         if self.chokepoint is not None:
                             self.chokepoint.mark_contaminated("external_injection")
@@ -1050,16 +1058,20 @@ class AvatarOrchestrator:
                 # nunca con una plantilla genérica (el usuario no puede distinguirla de éxito).
                 final_user_response = self._build_executive_fallback(executed_tools_summary)
 
+        # Reconciliar antes de guardar la respuesta. Si hubo actos, el estado que ve
+        # Mauro sale de la evidencia, no de la frase del modelo.
+        if self.state_db and current_mission_id:
+            raw_status = self._reconcile_mission(current_mission_id)
+            if executed_tools_summary and raw_status:
+                from core.mission_report import from_transition
+                final_user_response = (
+                    f"{final_user_response}\n\nEstado de la misión: {from_transition(raw_status)}."
+                )
+
         # Guardar en memoria de conversación corta descontaminada
         self.history.append({"role": "user", "content": user_input})
         self.history.append({"role": "assistant", "content": final_user_response})
         self.memory.save_history(self.history)
-
-        # Reconciliar el estado de la misión al cerrar el turno.
-        # Sin esto, toda ruta que no sea multi-tarea dejaba la misión en IN_PROGRESS para
-        # siempre, acumulando misiones colgantes que Resume luego intentaría reanudar.
-        if self.state_db and current_mission_id:
-            self._reconcile_mission(current_mission_id)
 
         return final_user_response
 

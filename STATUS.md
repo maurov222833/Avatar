@@ -40,4 +40,4 @@ Mauro la ejecutó y confirmó que funcionó:
 2. «Dale play» y «pausa»: la misma canción.
 3. `/pause` a mitad de un acto inocuo.
 
-Eso es `VERIFIED_PC` para esos tres pasos. Mauro eligió `/pause` como único gesto: la primera vez pausa y la segunda quita la pausa. La tecla `Ctrl+Alt+Shift+X` no se instala.
+Eso es `VERIFIED_PC` para esos tres pasos. Mauro eligió `/pause` como único gesto y confirmó el segundo `/pause` en el PC. La tecla `Ctrl+Alt+Shift+X` no se instala. Si un turno ejecuta actos, la respuesta cierra con el estado calculado de la misión. Un proveedor marcado en `providers.paid_upgrade` no se usa como reemplazo.

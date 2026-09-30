@@ -7,6 +7,17 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 
+def peer_is_paid_upgrade(name: str, config: Optional[Dict[str, Any]], *, primary: bool) -> bool:
+    """Un proveedor de pago extra no se activa como reemplazo. El primario sí corre."""
+    if primary or not name:
+        return False
+    raw = ((config or {}).get("providers") or {}).get("paid_upgrade") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    blocked = {str(item).lower().strip() for item in raw if str(item).strip()}
+    return name.lower() in blocked
+
+
 def normalize_entry(raw: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "provider": raw.get("provider") or "UNKNOWN",

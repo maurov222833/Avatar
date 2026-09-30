@@ -48,7 +48,8 @@ def launch_desktop_gui():
     # Esperar a que el servidor (y su lifespan/Telegram daemon) quede activo
     time.sleep(1.5)
     # Idempotente: si el lifespan aún no arrancó el listener, lo arrancamos ahora.
-    ensure_telegram_daemon()
+    from core.telegram_daemon import kick_telegram_listener
+    kick_telegram_listener()
 
     print("[AVATAR] Lanzando Ventana Grafica de Escritorio Avatar AI...")
 

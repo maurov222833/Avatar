@@ -25,8 +25,18 @@ async def _avatar_lifespan(app: FastAPI):
     # Telegram must listen even when Avatar is started as plain uvicorn/server
     # (not only via main_gui). Idempotent with the GUI thread starter.
     try:
-        from core.telegram_daemon import ensure_telegram_daemon
+        from core.telegram_daemon import ensure_telegram_daemon, kick_telegram_listener
         ensure_telegram_daemon(orchestrator=get_shared_orchestrator())
+        # Second pass after brief settle (config may load async on some boots).
+        def _delayed_kick():
+            import time as _t
+            _t.sleep(2.0)
+            try:
+                kick_telegram_listener(orchestrator=get_shared_orchestrator())
+            except Exception as e:
+                print(f"[AVATAR]: delayed Telegram kick: {e}")
+        import threading as _th
+        _th.Thread(target=_delayed_kick, name="avatar-telegram-kick", daemon=True).start()
     except Exception as e:
         print(f"[AVATAR]: No se pudo arrancar Telegram daemon: {e}")
     yield
@@ -176,10 +186,13 @@ def update_config(req: ConfigUpdateRequest):
         cfg.setdefault("github", {})["api_key"] = req.github_key.strip()
     if req.ollama_url is not None:
         cfg.setdefault("ollama", {})["url"] = req.ollama_url.strip()
+    telegram_changed = False
     if req.telegram_bot_token is not None:
         cfg.setdefault("telegram", {})["bot_token"] = req.telegram_bot_token.strip()
+        telegram_changed = True
     if req.telegram_bot_username is not None:
         cfg.setdefault("telegram", {})["bot_username"] = req.telegram_bot_username.strip()
+        telegram_changed = True
     if req.telegram_allowed_chat_ids is not None:
         parts = [
             p.strip()
@@ -193,14 +206,29 @@ def update_config(req: ConfigUpdateRequest):
             except ValueError:
                 ids.append(p)
         cfg.setdefault("telegram", {})["allowed_chat_ids"] = ids
+        telegram_changed = True
         
     with open(resolve_config_path(), "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
     orchestrator.llm.config_path = resolve_config_path()
         
     orchestrator.llm.load_config(force=True)
-    # Nunca devolver secretos en claro: /api/config los redacta y este endpoint debe igualarlo.
-    return {"status": "success", "config": redact_secrets(cfg)}
+    # Si se guardó token/allowlist de Telegram, arrancar/reanimar el listener YA.
+    tg_daemon = None
+    if telegram_changed:
+        try:
+            from core.telegram_daemon import kick_telegram_listener
+            tg_daemon = kick_telegram_listener(orchestrator=orchestrator)
+        except Exception as e:
+            tg_daemon = {"running": False, "error": str(e)[:160]}
+    out = {"status": "success", "config": redact_secrets(cfg)}
+    if tg_daemon is not None:
+        out["telegram_daemon"] = {
+            "running": bool(tg_daemon.get("running")),
+            "status": tg_daemon.get("status"),
+            "hint": tg_daemon.get("hint") or tg_daemon.get("message"),
+        }
+    return out
 
 @app.post("/api/config/provider")
 def set_provider(req: ModelChangeRequest):
@@ -352,17 +380,19 @@ def watchdog_tick():
 
 @app.get("/api/telegram/status")
 def telegram_status():
-    """Listener + getMe + allowlist (diagnóstico si el bot 'no ve' mensajes)."""
-    from core import telegram_daemon
-    return telegram_daemon.status()
+    """Diagnóstico + auto-arranque si el listener está caído."""
+    from core.telegram_daemon import kick_telegram_listener, status as tg_status
+    st = tg_status()
+    if not st.get("running"):
+        st = kick_telegram_listener(orchestrator=orchestrator)
+    return st
 
 
 @app.post("/api/telegram/start")
 def telegram_start():
-    """Arranca (o reusa) el daemon getUpdates; fuerza recuperación del candado si está huérfano."""
-    from core.telegram_daemon import ensure_telegram_daemon, force_recover_telegram
-    force_recover_telegram()
-    return ensure_telegram_daemon(orchestrator=orchestrator)
+    """Arranca o reanima el daemon getUpdates (fuerza recuperación)."""
+    from core.telegram_daemon import kick_telegram_listener
+    return kick_telegram_listener(orchestrator=orchestrator)
 
 
 @app.get("/api/whatsapp/status")

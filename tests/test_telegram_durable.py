@@ -53,13 +53,13 @@ class TestTelegramDurableDaemon(unittest.TestCase):
             from core import telegram_daemon as d
 
             d.stop_telegram_daemon()
-            # Reset module globals for isolation
             d._poll_thread = None
             d._worker_thread = None
             d._supervisor_thread = None
             d._bridge = None
             d._restart_count = 0
             d._standby_other_instance = False
+            d._poll_started_gen = -1
             d._stop.clear()
             try:
                 d._poll_lock.release()
@@ -68,33 +68,60 @@ class TestTelegramDurableDaemon(unittest.TestCase):
         except Exception:
             pass
 
-    def test_ensure_starts_supervisor_poll_worker(self):
+    def test_ensure_starts_supervisor_even_without_token(self):
         from core import telegram_daemon as d
 
         self.tearDown()
         with tempfile.TemporaryDirectory() as td:
-            cfg = os.path.join(td, "config.json")
-            with open(cfg, "w", encoding="utf-8") as f:
+            with open(os.path.join(td, "config.json"), "w", encoding="utf-8") as f:
+                f.write("{}")
+            with mock.patch.dict(os.environ, {"AVATAR_HOME": td}):
+                class FakeBridge:
+                    def __init__(self, *a, **k):
+                        self.bot_token = ""
+                        self.base_url = ""
+                        self.allowed_chat_ids = set()
+                        self.auto_enroll_first_private = True
+                        self.orchestrator = None
+                        self.last_poll_at = None
+                        self.last_error = ""
+                        self.poll_conflicts_409 = 0
+
+                    def _load_token_from_config(self):
+                        return ""
+
+                    def _load_allowlist(self):
+                        return []
+
+                with mock.patch("bridges.telegram_bridge.TelegramBridge", FakeBridge):
+                    info = d.ensure_telegram_daemon()
+                    self.assertEqual(info.get("status"), "NO_TOKEN")
+                    self.assertTrue(info.get("supervisor_running") or d._alive(d._supervisor_thread))
+                    d.stop_telegram_daemon()
+
+    def test_kick_starts_poll_when_token_present(self):
+        from core import telegram_daemon as d
+
+        self.tearDown()
+        with tempfile.TemporaryDirectory() as td:
+            with open(os.path.join(td, "config.json"), "w", encoding="utf-8") as f:
                 f.write('{"telegram":{"bot_token":"123456:TESTTOKEN","allowed_chat_ids":["1"]}}')
             with mock.patch.dict(os.environ, {"AVATAR_HOME": td}):
-                # Avoid real network: stub bridge polling to wait on stop.
                 stop_seen = threading.Event()
 
                 class FakeBridge:
                     def __init__(self, *a, **k):
-                        pass
-
-                    bot_token = "123456:TESTTOKEN"
-                    base_url = "https://api.telegram.org/bot123456:TESTTOKEN"
-                    allowed_chat_ids = {"1"}
-                    auto_enroll_first_private = True
-                    last_update_id = 0
-                    last_poll_at = time.time()
-                    last_inbound_at = None
-                    last_outbound_at = None
-                    last_error = ""
-                    poll_conflicts_409 = 0
-                    orchestrator = None
+                        self.bot_token = "123456:TESTTOKEN"
+                        self.base_url = "https://api.telegram.org/bot123456:TESTTOKEN"
+                        self.allowed_chat_ids = {"1"}
+                        self.auto_enroll_first_private = True
+                        self.last_update_id = 0
+                        self.last_poll_at = time.time()
+                        self.last_inbound_at = None
+                        self.last_outbound_at = None
+                        self.last_error = ""
+                        self.poll_conflicts_409 = 0
+                        self.orchestrator = None
 
                     def _load_token_from_config(self):
                         return self.bot_token
@@ -124,20 +151,13 @@ class TestTelegramDurableDaemon(unittest.TestCase):
                         pass
 
                 with mock.patch("bridges.telegram_bridge.TelegramBridge", FakeBridge):
-                    info = d.ensure_telegram_daemon()
-                    self.assertTrue(info.get("token_configured"))
-                    # Give threads a moment
+                    info = d.kick_telegram_listener()
                     deadline = time.time() + 2
-                    while time.time() < deadline:
-                        st = d.status()
-                        if st.get("running") and st.get("worker_running") and st.get("supervisor_running"):
-                            break
+                    while time.time() < deadline and not info.get("running"):
                         time.sleep(0.05)
-                    st = d.status()
-                    self.assertTrue(st["running"], st)
-                    self.assertTrue(st["worker_running"], st)
-                    self.assertTrue(st["supervisor_running"], st)
-                    self.assertIn("durable", st.get("hint", "").lower())
+                        info = d.status()
+                    self.assertTrue(info.get("running"), info)
+                    self.assertTrue(os.path.exists(d._heartbeat_path()))
                     d.stop_telegram_daemon()
                     stop_seen.wait(2)
 

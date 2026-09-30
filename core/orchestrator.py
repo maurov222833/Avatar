@@ -1496,6 +1496,20 @@ class AvatarOrchestrator:
             except Exception:
                 pass
 
+        # Tras guardar token/allowlist, reanimar el listener (antes quedaba caído
+        # si Avatar arrancó sin token y nadie volvía a ensure_telegram_daemon).
+        tg_note = ""
+        if key.startswith("telegram."):
+            try:
+                from core.telegram_daemon import kick_telegram_listener
+                st = kick_telegram_listener(orchestrator=self)
+                tg_note = (
+                    f" Listener Telegram: status={st.get('status')} "
+                    f"running={st.get('running')} hint={st.get('hint') or st.get('message') or ''}."
+                )
+            except Exception as e:
+                tg_note = f" Listener Telegram no pudo reiniciarse: {e}."
+
         # Never echo the secret back — only confirm which key was set.
         shown = value
         if isinstance(shown, str) and len(shown) > 8 and (
@@ -1504,7 +1518,7 @@ class AvatarOrchestrator:
             shown = f"{shown[:4]}…{shown[-4:]} (len={len(value)})"
         return (
             f"RESULT:OK UPDATE_CONFIG key={key} written to config.json. "
-            f"Valor confirmado (enmascarado): {shown}"
+            f"Valor confirmado (enmascarado): {shown}.{tg_note}"
         )
 
     def _telegram_bridge(self):
@@ -1527,9 +1541,14 @@ class AvatarOrchestrator:
                 daemon = {"running": False, "status": "UNKNOWN"}
             if not daemon.get("running") and bridge.bot_token:
                 try:
-                    from core.telegram_daemon import ensure_telegram_daemon, force_recover_telegram
-                    force_recover_telegram()
-                    daemon = ensure_telegram_daemon(orchestrator=self)
+                    from core.telegram_daemon import kick_telegram_listener
+                    daemon = kick_telegram_listener(orchestrator=self)
+                except Exception as e:
+                    daemon = {"running": False, "error": str(e)[:120]}
+            elif not daemon.get("running"):
+                try:
+                    from core.telegram_daemon import kick_telegram_listener
+                    daemon = kick_telegram_listener(orchestrator=self)
                 except Exception as e:
                     daemon = {"running": False, "error": str(e)[:120]}
             # NUNCA hacer getUpdates aquí si el daemon ya hace long-poll → HTTP 409.

@@ -447,20 +447,20 @@ class TelegramBridge:
 
         # Detección directa de solicitud de pausa / silenciar / detener música
         if not is_instruction and any(kw in text_lower for kw in ["pausa", "pausar", "paúsala", "pausala", "detén", "deten", "silenciar", "parar", "stop"]):
-            self.send_message(chat_id, "⏸️ Enviando señal multimedia para pausar la música en tu PC...")
+            self.send_message(chat_id, "Pausando la música en tu PC…")
             res_msg = self._perform("AUDIO_CONTROL", {"action": "pause"}, chat_id, "pause-audio", text)
-            self.send_message(chat_id, f"AVATAR AI:\n{res_msg}")
+            self.send_message(chat_id, self._redact(res_msg))
             return
 
         # Detección directa de solicitud de música / reproducción
         if not is_instruction and any(kw in text_lower for kw in ["reproduce", "reproduzca", "cancion", "canción", "musica", "música"]):
             from tools.audio_tool import AudioTool
             song_query = AudioTool.sanitize_query(text)
-            self.send_message(chat_id, f"🎵 Abriendo YouTube y reproduciendo directamente '{song_query}' en tu PC...")
+            self.send_message(chat_id, f"Abriendo YouTube para reproducir «{song_query}» en tu PC…")
             # Reproducir música abre un navegador: es un efecto externo y
             # pasa por el chokepoint para quedar registrado y sujeto a política.
             res_msg = self._perform("PLAY_AUDIO", {"audio_source": song_query}, chat_id, "play-music", text)
-            self.send_message(chat_id, f"AVATAR AI:\n{res_msg}")
+            self.send_message(chat_id, self._redact(res_msg))
             return
 
         # Procesar con el orquestador
@@ -471,4 +471,4 @@ class TelegramBridge:
         if "class ScreenTool" in clean_output or "import os" in clean_output:
             clean_output = "Acción procesada en tu PC. Sistema listo para tu siguiente comando."
 
-        self.send_message(chat_id, f"AVATAR AI:\n{self._redact(clean_output)}")
+        self.send_message(chat_id, self._redact(clean_output))

@@ -279,7 +279,9 @@ class TestTelegramAllowlist(unittest.TestCase):
             b = self._bridge(allowed_chat_ids=["111"])
             b.handle_message(_tg_message(user_id=111, text="hola"))
             b.handle_message(_tg_message(user_id=333, username="mauro", text="hola"))
-            authorized = [c for c, t in b.sent if str(t).startswith("AVATAR AI:")]
+            # Respuestas autorizadas van en prosa (sin prefijo "AVATAR AI:");
+            # los rechazos mencionan allowlist.
+            authorized = [c for c, t in b.sent if "eco:" in str(t)]
             notices = [c for c, t in b.sent if "allowlist" in str(t).lower()]
             self.assertEqual(authorized, ["111"])
             self.assertEqual(notices, ["333"])

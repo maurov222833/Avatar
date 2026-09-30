@@ -16,11 +16,25 @@ class TestSemanticMissionEngine(unittest.TestCase):
             "Avatar estas ahí?",
             "Estas listo para trabajar conmigo",
             "Hola",
-            "Buenos días Avatar"
+            "Buenos días Avatar",
+            "Como te sientes hoy?",
+            "Cuéntame, si puedes abrir videos en YouTube?",
+            "¿puedes reproducir música?",
+            "quién eres",
         ]
         for prompt in prompts:
             itype = SemanticMissionEngine.classify_interaction(prompt)
             self.assertEqual(itype, InteractionType.CONVERSATION_NORMAL, f"Fallo en prompt: {prompt}")
+
+    def test_001b_greeting_substring_does_not_steal_direct_action(self):
+        """'hola' dentro de una orden no debe clasificar como charla."""
+        for prompt in (
+            "ejecuta echo hola",
+            "Ejecuta echo AVATAR_DIRECT_ACTION_OK",
+            "run echo hello",
+        ):
+            itype = SemanticMissionEngine.classify_interaction(prompt)
+            self.assertEqual(itype, InteractionType.DIRECT_ACTION, f"Fallo en prompt: {prompt}")
 
     def test_002_direct_action(self):
         """TEST 2: Acción directa pasa por el pipeline cognitivo completo."""

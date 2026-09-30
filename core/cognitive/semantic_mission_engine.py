@@ -39,50 +39,97 @@ class SemanticMissionEngine:
         ]
         has_negative_constraint = any(p in text_lower for p in negative_action_patterns)
 
-        # 1. Conversación Normal
+        # 1. Acción directa ANTES que charla — evita que "ejecuta echo hola" caiga
+        # en CONVERSATION_NORMAL por la subcadena "hola".
+        direct_prefixes = [
+            "ejecuta ", "ejecutar ", "ejecuta:", "ejecutar:",
+            "run ", "cmd: ", "command: ", "read_file: ", "list_dir: ",
+        ]
+        is_direct_prefix = any(
+            text_lower.startswith(prefix)
+            or ("\nejecuta:" in text_lower)
+            or ("\nejecuta\n" in text_lower)
+            for prefix in direct_prefixes
+        )
+
+        matching_task_lines = []
+        for raw_l in text.splitlines():
+            cl = re.sub(
+                r'^(?:#+|-|\*|(?:Tarea|Task|T)?\s*\d+[\.\)\:\-])\s*',
+                '',
+                raw_l.strip(),
+                flags=re.IGNORECASE,
+            ).strip()
+            cl = re.sub(
+                r'^(?:Tarea|Task|T)\s*\d+[\.\)\:\-]\s*',
+                '',
+                cl,
+                flags=re.IGNORECASE,
+            ).strip()
+            cl_lower = cl.lower()
+            if cl and (
+                cl.startswith(":")
+                or any(
+                    cl_lower.startswith(k)
+                    for k in [
+                        "command:", "read_file:", "write_file:", "list_dir:",
+                        "echo ", "python ", "python3 ", "pytest", "unittest",
+                        "git ", "dir ", "ls ", "mkdir ", "copy ", "del ",
+                    ]
+                )
+            ):
+                matching_task_lines.append(cl)
+
+        is_explicit_multi_task = len(matching_task_lines) >= 2
+        if (is_direct_prefix or is_explicit_multi_task) and not has_negative_constraint:
+            return InteractionType.DIRECT_ACTION
+
+        # 2. Conversación / charla (saludos, ánimo, capacidad)
         norm_text = text_lower.translate(str.maketrans("áéíóúüñàèìòù", "aeiouunaeiou"))
         norm_text = re.sub(r'[^\w\s]', '', norm_text).strip()
         greetings = [
             "hola", "buenos dias", "buenas tardes", "buenas noches", "como estas",
+            "como te sientes", "que tal", "que tal estas", "como va", "todo bien",
             "gracias", "saludos", "estas ahi", "estas listo",
             "estas listo para trabajar", "avatar estas ahi",
-            "quien eres", "que puedes hacer", "estas disponible"
+            "quien eres", "que puedes hacer", "estas disponible",
+            "puedes abrir", "puedes reproducir", "sabes abrir", "eres capaz",
+            "cuentame", "me puedes", "eres capaz de",
         ]
-        if any(norm_text == g or norm_text.startswith(g + " ") or g in norm_text for g in greetings) and len(text.split()) <= 10 and not has_negative_constraint:
+
+        def _phrase_match(haystack: str, phrase: str) -> bool:
+            if haystack == phrase or haystack.startswith(phrase + " "):
+                return True
+            # Frases multi-palabra: coincidencia por límites de palabra (no subcadena
+            # suelta). Palabras sueltas ("hola") solo exacto o al inicio — evita
+            # falsos positivos dentro de órdenes.
+            if " " not in phrase:
+                return False
+            return bool(re.search(rf'(?:^|\s){re.escape(phrase)}(?:\s|$)', haystack))
+
+        if (
+            any(_phrase_match(norm_text, g) for g in greetings)
+            and len(text.split()) <= 14
+            and not has_negative_constraint
+        ):
             return InteractionType.CONVERSATION_NORMAL
 
-        # 2. Misión de Ingeniería Abierta / Auditoría / Diagnóstico
+        # 3. Misión de Ingeniería Abierta / Auditoría / Diagnóstico
         mission_keywords = [
             "analiza", "analizar", "investiga", "investigar", "determina", "determinar",
             "diagnostica", "diagnosticar", "evalúa", "evaluar", "audita", "auditar",
             "busca debilidades", "encuentra fallos", "revisa arquitectura", "comprueba autonomía"
         ]
-        is_open_mission = any(kw in text_lower for kw in mission_keywords) and (len(text.split()) >= 3 or has_negative_constraint)
+        is_open_mission = any(kw in text_lower for kw in mission_keywords) and (
+            len(text.split()) >= 3 or has_negative_constraint
+        )
 
         if has_negative_constraint or is_open_mission:
             if is_open_mission:
                 return InteractionType.OPEN_ENGINEERING_MISSION
             return InteractionType.INFORMATIVE_QUERY
 
-        # 3. Acción Directa Explícita (comandos shell o herramientas directas o especificaciones multi-tarea)
-        direct_prefixes = ["ejecuta ", "ejecutar ", "ejecuta:", "ejecutar:", "run ", "cmd: ", "command: ", "read_file: ", "list_dir: "]
-        is_direct_prefix = any(text_lower.startswith(prefix) or ("\nejecuta:" in text_lower) or ("\nejecuta\n" in text_lower) for prefix in direct_prefixes)
-
-        # Reconocer formato explícito de lista de tareas ejecutables (ej: "1. Tarea 1: echo...", "Tarea 1: python...")
-        matching_task_lines = []
-        for raw_l in text.splitlines():
-            cl = re.sub(r'^(?:#+|-|\*|(?:Tarea|Task|T)?\s*\d+[\.\)\:\-])\s*', '', raw_l.strip(), flags=re.IGNORECASE).strip()
-            cl = re.sub(r'^(?:Tarea|Task|T)\s*\d+[\.\)\:\-]\s*', '', cl, flags=re.IGNORECASE).strip()
-            cl_lower = cl.lower()
-            if cl and (cl.startswith(":") or any(cl_lower.startswith(k) for k in ["command:", "read_file:", "write_file:", "list_dir:", "echo ", "python ", "python3 ", "pytest", "unittest", "git ", "dir ", "ls ", "mkdir ", "copy ", "del "])):
-                matching_task_lines.append(cl)
-
-        is_explicit_multi_task = len(matching_task_lines) >= 2
-
-        if (is_direct_prefix or is_explicit_multi_task) and not has_negative_constraint:
-            return InteractionType.DIRECT_ACTION
-
-        # 4. Consulta Informativa por defecto para preguntas o textos explicativos
+        # 4. Consulta informativa por defecto
         if "?" in text or text_lower.startswith(("qué", "cómo", "por qué", "explica", "explicar", "cuál")):
             return InteractionType.INFORMATIVE_QUERY
 

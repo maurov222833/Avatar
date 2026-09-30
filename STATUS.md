@@ -30,7 +30,7 @@ Texto íntegro: `docs/engineering/handover/MASTER_DIRECTIVE_002.md`.
 Dictamen: `docs/engineering/handover/MASTER_DIRECTIVE_002_COMPARISON.md`.
 Plan de unidades: `docs/engineering/handover/ENGINEERING_SPEC_003.md` (v2, U0 a U17).
 Comparación de negocio y asistente: `docs/engineering/handover/SPEC_003_V2_GAP.md`.
-U0 archivó la directriz. U11 a U17 están registradas y sin iniciar. El motor no cambia hasta que Mauro autorice la parada de emergencia (U1 de la spec, distinta de la contención de canales ya hecha).
+U0 archivó la directriz. U1 a U17 tienen código en `cursor/spec-003-u1-u17-5763`, con el cierre en `docs/engineering/handover/SPEC_003_CIERRE.md`. La parada de emergencia consulta el chokepoint. `exec_requires_approval` sigue activo. No hay tiendas ni brokers conectados. Falta la prueba en el PC de Mauro.
 
 ## Mañana en Telegram (prueba corta)
 

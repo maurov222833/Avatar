@@ -103,7 +103,10 @@ RISKS_REQUIRING_CONSENT = {ActRisk.EXTERNAL_MESSAGE}
 
 EXEC_APPROVAL_REASON = "EXEC_REQUIRES_OPERATOR_APPROVAL"
 CONTAMINATED_APPROVAL_REASON = "CONTAMINATED_CONTEXT_REQUIRES_APPROVAL"
-APPROVAL_GATE_REASONS = frozenset({EXEC_APPROVAL_REASON, CONTAMINATED_APPROVAL_REASON})
+PATH_MASS_APPROVAL_REASON = "PATH_MASS_OPERATION"
+APPROVAL_GATE_REASONS = frozenset({
+    EXEC_APPROVAL_REASON, CONTAMINATED_APPROVAL_REASON, PATH_MASS_APPROVAL_REASON,
+})
 
 #: Tools whose outputs are untrusted instruction sources (F-06 / D4).
 #: Personal messaging (WhatsApp / Telegram) is trusted by owner decision (2026-09-29):
@@ -260,6 +263,10 @@ class ActPolicy:
     #: Set when the mission has ingested untrusted text (web, WhatsApp, off-workspace files).
     #: While True, EXEC / LOCAL_WRITE / EXTERNAL_MESSAGE need operator approval (F-06).
     context_contaminated: bool = False
+    #: Grant de misión (U3). None conserva la política anterior: EXEC pide aprobación.
+    mission_grant: Optional[Dict[str, Any]] = None
+    #: Contadores de contención (U4). Apagado por defecto para no frenar la suite.
+    containment_enabled: bool = False
 
     def is_trusted_personal_send(self, act_type: str, args: Dict[str, Any]) -> bool:
         """Telegram send/test to the owner skips external consent/dry-run."""
@@ -295,6 +302,14 @@ class ActPolicy:
             # steered by untrusted text into asking for a "safe-looking" command.
             # Personal Telegram to the owner still needs approval when contaminated by web.
             return False, CONTAMINATED_APPROVAL_REASON
+        if risk == ActRisk.EXEC and act_type == "COMMAND":
+            from core.command_risk import PROHIBITED, classify_command, grant_allows
+            command_text = args.get("command") or args.get("params") or ""
+            level, why = classify_command(str(command_text))
+            if level == PROHIBITED:
+                return False, f"COMMAND_PROHIBITED:{why}"
+            if grant_allows(level, self.mission_grant):
+                return True, f"ALLOWED_MISSION_LEVEL_{level}"
         if risk == ActRisk.EXEC and self.exec_requires_approval:
             # Desktop GUI acts have no shell command line to allowlist — always ask.
             if act_type in ("DESKTOP_CLICK", "DESKTOP_TYPE"):
@@ -321,6 +336,19 @@ class ActPolicy:
             for target in path_candidates:
                 if target and not _is_within_root(target, root):
                     return False, f"WRITE_OUTSIDE_ALLOWED_ROOT:{root}"
+        if act_type == "WRITE_FILE":
+            from core.path_guard import ALLOW, authorize_path
+            target = args.get("file_path") or ""
+            if target:
+                try:
+                    affected = int(args.get("affected_count") or 1)
+                except (TypeError, ValueError):
+                    return False, "PATH_EMPTY_OR_AMBIGUOUS"
+                decision, why = authorize_path(
+                    target, "write", self.allowed_workspace_root, affected_count=affected,
+                )
+                if decision != ALLOW:
+                    return False, why
         if trusted_personal:
             return True, "ALLOWED_PERSONAL_TELEGRAM"
         return True, "ALLOWED"
@@ -704,6 +732,10 @@ class ActChokepoint:
         On approve, runs the original request through the registered executor and updates
         both the approval row and the linked act record. On reject, marks both as denied.
         """
+        from core.halt import current_block_reason
+        halted = current_block_reason()
+        if halted:
+            return {"ok": False, "error": halted, "approval_id": approval_id}
         row = self.get_approval(approval_id)
         if row is None:
             return {"ok": False, "error": "APPROVAL_NOT_FOUND", "approval_id": approval_id}
@@ -858,6 +890,17 @@ class ActChokepoint:
             created_at=_now(),
         )
 
+        from core.halt import current_block_reason
+        halted = current_block_reason()
+        if halted:
+            record.policy_reason = halted
+            record.status = ActStatus.DENIED
+            self._persist(record)
+            return (
+                f"[Bloqueado por política: {halted}] No se ejecutó '{act_type}'. "
+                f"Solicitud: {json.dumps(args or {}, ensure_ascii=False)[:200]}"
+            )
+
         acts_already = None
         if mission_id and self.policy.max_acts_per_mission is not None:
             try:
@@ -953,4 +996,21 @@ class ActChokepoint:
                 record.status = ActStatus.OBSERVATION_FAILED
 
         self._persist(record)
+        if self.policy.containment_enabled and record.status in (
+            ActStatus.EXECUTED, ActStatus.OBSERVED, ActStatus.OBSERVATION_FAILED,
+        ):
+            trip = self._containment_monitor().observe(
+                act_type, args or {}, mission_status="ACTIVE",
+            )
+            if trip:
+                from core.halt import engage
+                engage("PAUSE", source="containment", actor="containment")
         return result
+
+    def _containment_monitor(self):
+        monitor = getattr(self, "_containment", None)
+        if monitor is None:
+            from core.containment import ContainmentMonitor
+            monitor = ContainmentMonitor()
+            self._containment = monitor
+        return monitor

@@ -591,13 +591,47 @@ class TelegramBridge:
                 # Enrolled; fall through and process this same message.
                 pass
             else:
+                from core.halt import apply_control_command, interpret_control_command
+                if interpret_control_command(text):
+                    user_id = str((message.get("from") or {}).get("id", ""))
+                    apply_control_command(
+                        text, authorized=False, actor=user_id, source="telegram",
+                    )
                 self._report_rejected(message)
                 return
 
         if not text:
             return
 
+        from core.halt import apply_control_command, interpret_control_command
+        if interpret_control_command(text):
+            user_id = str((message.get("from") or {}).get("id", ""))
+            authorized = self.is_authorized(message)
+            level = apply_control_command(
+                text, authorized=authorized, actor=user_id, source="telegram",
+            )
+            if not authorized:
+                self._report_rejected(message)
+                return
+            self.send_message(chat_id, f"Parada {level} activa.")
+            return
+
         self.last_inbound_at = time.time()
+        inbox = getattr(self, "_remote_inbox", None)
+        if inbox is None:
+            from core.remote_guard import RemoteInbox
+            inbox = RemoteInbox()
+            self._remote_inbox = inbox
+        accepted, why = inbox.accept(
+            sender=chat_id,
+            message_id=str(message.get("message_id") or ""),
+            text=text,
+            authorized=True,
+            sent_at=message.get("date"),
+        )
+        if not accepted:
+            _plog(f"[Telegram Bridge]: mensaje no aceptado ({why}).")
+            return
         _plog(f"\n[Orden remota recibida de Telegram]: {text}")
         # Feedback inmediato en Telegram: se ve "escribiendo…" mientras piensa el LLM.
         self.send_chat_action(chat_id, "typing")

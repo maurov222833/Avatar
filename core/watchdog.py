@@ -90,6 +90,10 @@ class Watchdog:
 
     def tick(self) -> WatchdogTickReport:
         report = WatchdogTickReport()
+        from core.halt import missions_blocked
+        if missions_blocked():
+            report.notes.append("halt_active")
+            return report
         if not self.config.enabled:
             report.notes.append("watchdog.disabled")
             return report

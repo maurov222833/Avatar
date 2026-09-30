@@ -1389,6 +1389,7 @@ class AvatarOrchestrator:
             exec_requires_approval=bool(security.get("exec_requires_approval", True)),
             exec_allowlist=tuple(security.get("exec_allowlist", ()) or ()),
             trusted_telegram_chat_ids=tuple(trusted_tg),
+            containment_enabled=bool(security.get("containment_enabled", False)),
         )
 
         def _take_screenshot(a):

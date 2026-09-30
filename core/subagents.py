@@ -75,7 +75,6 @@ class AntigravityProxyAgent:
         else:
             log_result = "(chokepoint no disponible; estado del repositorio no consultado)"
 
-
         # 3. Formatear informe final para el usuario
         summary = (
             f"✅ [Informe de Trabajo Desatendido]\n"
@@ -85,3 +84,20 @@ class AntigravityProxyAgent:
             f"🔍 Estado Final de la Terminal:\n{log_result}"
         )
         return summary
+
+
+def run_scoped(chokepoint, scope: str, act_type: str, args: dict, mission_id: str) -> str:
+    """Un subagente no hereda el disco entero. La escritura fuera del alcance no llega al acto."""
+    from core.path_guard import ALLOW, authorize_path
+    target = (args or {}).get("file_path") or ""
+    if target:
+        decision, reason = authorize_path(target, "write", scope)
+        if decision != ALLOW:
+            return reason
+    return chokepoint.perform(
+        act_type=act_type,
+        args=args,
+        mission_id=mission_id,
+        task_id="subagent",
+        execution_id="subagent",
+    )

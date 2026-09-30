@@ -51,6 +51,10 @@ class FileTool:
         workspace = FileTool.get_allowed_workspace()
         if not FileTool.is_within_workspace(filepath, workspace):
             return f"[Seguridad]: Escritura fuera del workspace denegada ({filepath})."
+        from core.path_guard import ALLOW, authorize_path
+        decision, why = authorize_path(filepath, "write", workspace)
+        if decision != ALLOW:
+            return f"[Seguridad]: {why} ({filepath})."
         try:
             os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
             with open(filepath, "w", encoding="utf-8") as f:

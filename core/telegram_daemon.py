@@ -10,6 +10,10 @@ from typing import Any, Dict, Optional
 
 from core.paths import memory_dir
 from core.telegram_poll_lock import TelegramPollLock
+from core.logging_util import log as _avatar_log
+
+def _dlog(message: str, level: str = "INFO", **fields):
+    _avatar_log(level, message, component="TelegramDaemon", **fields)
 
 _lock = threading.Lock()
 _poll_thread: Optional[threading.Thread] = None
@@ -117,7 +121,7 @@ def ensure_telegram_daemon(orchestrator=None) -> Dict[str, Any]:
                 daemon=True,
             )
             _supervisor_thread.start()
-            print("[AVATAR Telegram]: Supervisor arrancado.")
+            _dlog("[AVATAR Telegram]: Supervisor arrancado.")
 
         if not _bridge.bot_token:
             _write_heartbeat({"status": "NO_TOKEN"})
@@ -147,7 +151,7 @@ def kick_telegram_listener(orchestrator=None) -> Dict[str, Any]:
     try:
         force_recover_telegram()
     except Exception as e:
-        print(f"[AVATAR Telegram]: force_recover: {e}")
+        _dlog(f"[AVATAR Telegram]: force_recover: {e}")
     return ensure_telegram_daemon(orchestrator=orchestrator)
 
 
@@ -166,7 +170,7 @@ def _ensure_workers_locked() -> None:
     if _alive(_poll_thread) and _poll_started_gen == _poll_gen:
         return
     if _alive(_poll_thread) and _poll_started_gen != _poll_gen:
-        print("[AVATAR Telegram]: Poll de generación vieja aún vivo; esperando salida…")
+        _dlog("[AVATAR Telegram]: Poll de generación vieja aún vivo; esperando salida…")
         return
 
     if not _poll_lock.held:
@@ -175,7 +179,7 @@ def _ensure_workers_locked() -> None:
             got = _poll_lock.force_acquire()
         if not got:
             _standby_other_instance = True
-            print(
+            _dlog(
                 "[AVATAR Telegram]: En espera — otra instancia tiene el candado "
                 f"({_poll_lock.last_reject_reason})."
             )
@@ -191,13 +195,13 @@ def _ensure_workers_locked() -> None:
         return _stop.is_set() or my_gen != _poll_gen
 
     def _run() -> None:
-        print("[AVATAR Telegram]: Poll loop activo (getUpdates desacoplado del LLM).")
+        _dlog("[AVATAR Telegram]: Poll loop activo (getUpdates desacoplado del LLM).")
         _write_heartbeat({"status": "POLL_START"})
         try:
             assert _bridge is not None
             _bridge.start_polling(on_update=_enqueue_update, should_stop=_should_stop)
         except Exception as e:
-            print(f"[AVATAR Telegram Poll Error]: {e}")
+            _dlog(f"[AVATAR Telegram Poll Error]: {e}")
             if _bridge is not None:
                 _bridge.last_error = f"poll_loop: {e}"[:240]
         finally:
@@ -206,11 +210,11 @@ def _ensure_workers_locked() -> None:
             except Exception:
                 pass
             _write_heartbeat({"status": "POLL_EXIT"})
-            print("[AVATAR Telegram]: Poll loop terminó (supervisor puede reiniciar).")
+            _dlog("[AVATAR Telegram]: Poll loop terminó (supervisor puede reiniciar).")
 
     _poll_thread = threading.Thread(target=_run, name="avatar-telegram-poll", daemon=True)
     _poll_thread.start()
-    print(f"[AVATAR Telegram]: Poll arrancado (restart #{_restart_count}, lock={_poll_lock.mode}).")
+    _dlog(f"[AVATAR Telegram]: Poll arrancado (restart #{_restart_count}, lock={_poll_lock.mode}).")
     _write_heartbeat({"status": "POLL_STARTED"})
 
 
@@ -226,11 +230,11 @@ def _enqueue_update(msg: dict) -> None:
                 pass
         _msg_queue.put(msg)
     except Exception as e:
-        print(f"[AVATAR Telegram]: enqueue failed: {e}")
+        _dlog(f"[AVATAR Telegram]: enqueue failed: {e}")
 
 
 def _worker_loop() -> None:
-    print("[AVATAR Telegram]: Worker de mensajes activo.")
+    _dlog("[AVATAR Telegram]: Worker de mensajes activo.")
     while not _stop.is_set():
         try:
             msg = _msg_queue.get(timeout=1.0)
@@ -240,14 +244,14 @@ def _worker_loop() -> None:
             if _bridge is not None:
                 _bridge.handle_message(msg)
         except Exception as e:
-            print(f"[AVATAR Telegram Worker Error]: {e}")
+            _dlog(f"[AVATAR Telegram Worker Error]: {e}")
             if _bridge is not None:
                 _bridge.last_error = f"worker: {e}"[:240]
 
 
 def _supervisor_loop() -> None:
     global _last_supervisor_at, _standby_other_instance, _poll_gen
-    print("[AVATAR Telegram]: Supervisor de conexión activo.")
+    _dlog("[AVATAR Telegram]: Supervisor de conexión activo.")
     while not _stop.is_set():
         _last_supervisor_at = time.time()
         try:
@@ -256,7 +260,7 @@ def _supervisor_loop() -> None:
                     try:
                         tok = _bridge._load_token_from_config()
                         if tok and tok != (_bridge.bot_token or ""):
-                            print("[AVATAR Telegram]: Token nuevo detectado en config — aplicando.")
+                            _dlog("[AVATAR Telegram]: Token nuevo detectado en config — aplicando.")
                             _bridge.bot_token = tok
                             _bridge.base_url = f"https://api.telegram.org/bot{tok}"
                         elif tok and not _bridge.bot_token:
@@ -270,7 +274,7 @@ def _supervisor_loop() -> None:
                     if _alive(_poll_thread) and last is not None:
                         age = time.time() - float(last)
                         if age > _stale_poll_seconds:
-                            print(
+                            _dlog(
                                 "[AVATAR Telegram]: Poll stale "
                                 f"({age:.0f}s sin getUpdates). Señal de reinicio."
                             )
@@ -295,7 +299,7 @@ def _supervisor_loop() -> None:
                         _ensure_workers_locked()
                 _write_heartbeat()
         except Exception as e:
-            print(f"[AVATAR Telegram Supervisor Error]: {e}")
+            _dlog(f"[AVATAR Telegram Supervisor Error]: {e}")
         # Faster retry when down; normal cadence when healthy.
         wait_s = 3.0 if not _alive(_poll_thread) else 10.0
         _stop.wait(wait_s)

@@ -1,0 +1,40 @@
+# Avatar requirements.lock — árbol transitivo de requirements*.txt (R2 / E-17).
+# Generado 2026-09-30 desde el entorno Avatar (solo dependencias alcanzables).
+# Instalación reproducible:
+#   pip install -r requirements.lock
+#
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+certifi==2026.7.22
+charset-normalizer==3.5.1
+click==8.5.0
+colorama==0.4.6
+fastapi==0.141.1
+greenlet==3.5.6
+h11==0.16.0
+idna==3.20
+iniconfig==2.3.0
+markdown-it-py==4.2.0
+mdurl==0.1.2
+packaging==26.3
+Pillow==12.3.0
+playwright==1.63.0
+pluggy==1.6.0
+pyautogui==0.9.54
+pydantic==2.13.5
+pydantic_core==2.46.5
+pyee==13.0.1
+Pygments==2.21.0
+pyperclip==1.11.0
+pytesseract==0.3.13
+pytest==9.1.1
+python-multipart==0.0.32
+pywebview==6.2.1
+requests==2.34.2
+rich==15.0.0
+starlette==1.7.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+urllib3==2.8.0
+uvicorn==0.54.0

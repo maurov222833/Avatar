@@ -13,10 +13,15 @@ Acts `SCREEN_CAPTURE`/`AUDIO_CONTROL` (READ) con observers físicos; `telegram_b
 por chokepoint; extender guard AST. Aceptación: enviar/capturar por Telegram deja act;
 test AST en verde. Complejidad baja. Tokens: ~15-30k.
 
-## R2 — Logger estructurado + lockfile (E-17)
+## R2 — Logger estructurado + lockfile (E-17) ✅
 
 Sustituir prints por logging JSON con redacción (conservar `redact_secrets`);
 `requirements.lock`. Aceptación: sin secretos en logs; `pip install -r` reproducible.
+
+**Hecho (2026-09-30):** `core/logging_util.py`, cableado en server/GUI/Telegram,
+`requirements.lock`, `tests/test_r2_logging.py`. Informe en el repo de docs:
+`docs/engineering/r2_logging/R2_INFORME.md`.
+
 Complejidad baja. Tokens: ~10-20k.
 
 ## R3 — Watchdog y scheduler (E-18)

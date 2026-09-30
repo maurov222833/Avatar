@@ -1,5 +1,6 @@
 # Avatar runtime — pinned versions (F-21).
 # Install:  pip install -r requirements.txt
+# Reproducible tree (R2):  pip install -r requirements.lock
 # Browsers for live WhatsApp:  playwright install chromium
 #
 # Desktop GUI / OS automation (Windows):  pip install -r requirements-desktop.txt

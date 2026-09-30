@@ -22,10 +22,27 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def _avatar_lifespan(app: FastAPI):
+    # Structured logging first so every subsequent print/log is redacted (R2).
+    try:
+        from core.logging_util import configure_logging, log, register_secrets
+        configure_logging()
+        # Register provider keys already loaded so log lines never echo them.
+        try:
+            orch0 = get_shared_orchestrator()
+            llm = getattr(orch0, "llm", None)
+            if llm is not None and hasattr(llm, "_known_secrets"):
+                register_secrets(llm._known_secrets())
+        except Exception:
+            pass
+        log("INFO", "Avatar HTTP backend starting", component="Avatar")
+    except Exception as e:
+        print(f"[AVATAR]: logging setup failed: {e}")
+
     # Telegram must listen even when Avatar is started as plain uvicorn/server
     # (not only via main_gui). Idempotent with the GUI thread starter.
     try:
         from core.telegram_daemon import ensure_telegram_daemon, kick_telegram_listener
+        from core.logging_util import log
         ensure_telegram_daemon(orchestrator=get_shared_orchestrator())
         # Second pass after brief settle (config may load async on some boots).
         def _delayed_kick():
@@ -34,11 +51,15 @@ async def _avatar_lifespan(app: FastAPI):
             try:
                 kick_telegram_listener(orchestrator=get_shared_orchestrator())
             except Exception as e:
-                print(f"[AVATAR]: delayed Telegram kick: {e}")
+                log("WARNING", f"delayed Telegram kick: {e}", component="Avatar")
         import threading as _th
         _th.Thread(target=_delayed_kick, name="avatar-telegram-kick", daemon=True).start()
     except Exception as e:
-        print(f"[AVATAR]: No se pudo arrancar Telegram daemon: {e}")
+        try:
+            from core.logging_util import log
+            log("ERROR", f"No se pudo arrancar Telegram daemon: {e}", component="Avatar")
+        except Exception:
+            print(f"[AVATAR]: No se pudo arrancar Telegram daemon: {e}")
     yield
 
 app = FastAPI(title="Avatar AI GUI Backend", version="1.0.0", lifespan=_avatar_lifespan)

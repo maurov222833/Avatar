@@ -18,8 +18,10 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from server import app
 from core.telegram_daemon import ensure_telegram_daemon
+from core.logging_util import configure_logging, log
 
 def start_server():
+    configure_logging()
     uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
 
 def start_telegram_daemon():
@@ -29,12 +31,13 @@ def start_whatsapp_daemon():
     try:
         from bridges.whatsapp_bridge import WhatsAppBridge
         bridge = WhatsAppBridge()
-        print("[AVATAR WhatsApp]: Daemon pasarela activo y escuchando en segundo plano.")
+        log("INFO", "Daemon pasarela activo y escuchando en segundo plano.", component="WhatsApp")
         bridge.start_daemon()
     except Exception as e:
-        print(f"[AVATAR WhatsApp Daemon Error]: {e}")
+        log("ERROR", f"Daemon error: {e}", component="WhatsApp")
 
 def launch_desktop_gui():
+    configure_logging()
     # 1. Iniciar servidor Backend FastAPI en segundo plano
     server_thread = threading.Thread(target=start_server, daemon=True)
     server_thread.start()
@@ -51,7 +54,7 @@ def launch_desktop_gui():
     from core.telegram_daemon import kick_telegram_listener
     kick_telegram_listener()
 
-    print("[AVATAR] Lanzando Ventana Grafica de Escritorio Avatar AI...")
+    log("INFO", "Lanzando ventana gráfica de escritorio Avatar AI…", component="Avatar")
 
     # 2. Abrir Ventana Nativa de Escritorio con PyWebView
     try:
@@ -65,7 +68,7 @@ def launch_desktop_gui():
         )
         webview.start()
     except Exception as e:
-        print(f"[AVATAR AVISO] PyWebView fallback: Abriendo en navegador/modo app: {e}")
+        log("WARNING", f"PyWebView fallback: abriendo en navegador: {e}", component="Avatar")
         import webbrowser
         webbrowser.open("http://127.0.0.1:8000")
 

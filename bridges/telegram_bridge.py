@@ -13,6 +13,11 @@ if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
 
 from core.runtime import get_shared_orchestrator
 from core.redaction import redact_secret_text
+from core.logging_util import log as _avatar_log, register_secrets
+
+def _plog(message: str, level: str = "INFO", **fields):
+    _avatar_log(level, message, component="TelegramBridge", **fields)
+
 from tools.reasoning_engine import ReasoningEngine
 
 class TelegramBridge:
@@ -38,9 +43,11 @@ class TelegramBridge:
         self.allowed_chat_ids = {str(e).strip() for e in entries if str(e).strip().isdigit()}
         ignored = [e for e in entries if str(e).strip() and not str(e).strip().isdigit()]
         if ignored:
-            print(f"[Telegram]: Entradas de allowlist ignoradas (se requiere ID numérico): {ignored}")
+            _plog(f"[Telegram]: Entradas de allowlist ignoradas (se requiere ID numérico): {ignored}")
         self.orchestrator = orchestrator if orchestrator is not None else get_shared_orchestrator()
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}" if self.bot_token else ""
+        if self.bot_token:
+            register_secrets([self.bot_token])
         self.last_update_id = 0
         # chat_key -> monotonic time of last rejection notice (cooldown, not forever-silent)
         self._reported_chats = {}
@@ -111,7 +118,7 @@ class TelegramBridge:
         self._reported_chats[key] = now
         where = f"chat {chat.get('id', '?')} ({chat.get('type', '?')})"
         if self.allowed_chat_ids:
-            print(f"[Telegram]: Mensaje rechazado del usuario {user_id} en {where}.")
+            _plog(f"[Telegram]: Mensaje rechazado del usuario {user_id} en {where}.")
             if chat.get("type") == "private" and user_id.isdigit():
                 self.send_message(
                     user_id,
@@ -119,7 +126,7 @@ class TelegramBridge:
                     f"En la GUI de Avatar: UPDATE_CONFIG telegram.allowed_chat_ids = {user_id}",
                 )
         else:
-            print(f"[Telegram]: Sin allowlist configurada; rechazado usuario {user_id} en {where}. "
+            _plog(f"[Telegram]: Sin allowlist configurada; rechazado usuario {user_id} en {where}. "
                   f"Si eres tú, escribe al bot en privado y añade \"{user_id}\" a "
                   f"telegram.allowed_chat_ids en config.json.")
             if chat.get("type") == "private" and user_id.isdigit():
@@ -152,7 +159,7 @@ class TelegramBridge:
                 json.dump(cfg, f, indent=2, ensure_ascii=False)
                 f.write("\n")
         except Exception as e:
-            print(f"[Telegram]: No se pudo persistir allowlist: {self._redact(e)}")
+            _plog(f"[Telegram]: No se pudo persistir allowlist: {self._redact(e)}")
             return False
         try:
             cp = getattr(self.orchestrator, "chokepoint", None)
@@ -160,7 +167,7 @@ class TelegramBridge:
                 cp.policy.trusted_telegram_chat_ids = tuple(sorted(self.allowed_chat_ids))
         except Exception:
             pass
-        print(f"[Telegram]: Auto-enrolado chat_id {uid} (primer privado; allowlist vacía).")
+        _plog(f"[Telegram]: Auto-enrolado chat_id {uid} (primer privado; allowlist vacía).")
         return True
 
     def _try_auto_enroll(self, message: dict) -> bool:
@@ -265,7 +272,7 @@ class TelegramBridge:
                 timeout=20,
             )
             if r.status_code == 409:
-                print("[Telegram]: api_recent_private_chat_ids omitido — 409 (daemon ya hace polling).")
+                _plog("[Telegram]: api_recent_private_chat_ids omitido — 409 (daemon ya hace polling).")
                 return []
             data = r.json() if r.content else {}
             if not (r.status_code == 200 and data.get("ok")):
@@ -333,16 +340,16 @@ class TelegramBridge:
             desc = (data.get("description") or r.text or "")[:200]
             err = {"ok": False, "error": f"HTTP_{r.status_code}", "detail": self._redact(desc)}
             self.last_error = f"sendMessage {err.get('error')}: {err.get('detail', '')}"[:240]
-            print(f"[TelegramBridge]: sendMessage falló: {self.last_error}")
+            _plog(f"[TelegramBridge]: sendMessage falló: {self.last_error}")
             return err
         except Exception as e:
             self.last_error = f"sendMessage REQUEST_FAILED: {self._redact(e)}"[:240]
-            print(f"[TelegramBridge]: {self.last_error}")
+            _plog(f"[TelegramBridge]: {self.last_error}")
             return {"ok": False, "error": "REQUEST_FAILED", "detail": self._redact(e)}
 
     def send_photo(self, chat_id: str, photo_path: str, caption: str = ""):
         if not self.base_url or not os.path.exists(photo_path):
-            print(f"[TelegramBridge Error]: Foto no encontrada en {photo_path}")
+            _plog(f"[TelegramBridge Error]: Foto no encontrada en {photo_path}")
             return {"ok": False, "error": "PHOTO_MISSING"}
         
         url = f"{self.base_url}/sendPhoto"
@@ -354,11 +361,11 @@ class TelegramBridge:
                     files={"photo": photo},
                     timeout=20,
                 )
-                print(f"[TelegramBridge]: Foto enviada exitosamente a Telegram (Chat {chat_id})")
+                _plog(f"[TelegramBridge]: Foto enviada exitosamente a Telegram (Chat {chat_id})")
                 ok = r.status_code == 200
                 return {"ok": ok, "status_code": r.status_code}
         except Exception as e:
-            print(f"[Error envio foto Telegram]: {self._redact(e)}")
+            _plog(f"[Error envio foto Telegram]: {self._redact(e)}")
             return {"ok": False, "error": self._redact(e)}
 
     def _perform(self, act_type: str, args: dict, chat_id: str, task_id: str, text: str) -> str:
@@ -407,7 +414,7 @@ class TelegramBridge:
 
         while not stop():
             if not self.bot_token and not self._reload_token():
-                print("[TelegramBridge]: Sin bot_token — reintento en 15s (config.json / .env).")
+                _plog("[TelegramBridge]: Sin bot_token — reintento en 15s (config.json / .env).")
                 self.last_error = "TOKEN_NOT_CONFIGURED"
                 for _ in range(15):
                     if stop():
@@ -418,13 +425,13 @@ class TelegramBridge:
             # If a webhook is set, getUpdates is empty forever — silent "bot ignores me".
             wh = self.api_webhook_info()
             if wh.get("ok") and wh.get("url"):
-                print(
+                _plog(
                     f"[Telegram Bridge]: Webhook activo ({wh.get('url')[:80]}). "
                     "Lo borro para poder usar getUpdates."
                 )
             deleted = self.api_delete_webhook(drop_pending=False)
             if not deleted.get("ok"):
-                print(f"[Telegram Bridge]: deleteWebhook falló: {deleted}")
+                _plog(f"[Telegram Bridge]: deleteWebhook falló: {deleted}")
 
             if not self.allowed_chat_ids:
                 # Refresh allowlist from disk (auto-enroll may have written it).
@@ -438,12 +445,12 @@ class TelegramBridge:
                     pass
             if not self.allowed_chat_ids:
                 if self.auto_enroll_first_private:
-                    print(
+                    _plog(
                         "[Telegram Bridge]: Allowlist vacía — el primer chat privado "
                         "humano se auto-enrolará."
                     )
                 else:
-                    print(
+                    _plog(
                         "[Telegram Bridge]: Sin allowlist (telegram.allowed_chat_ids): "
                         "se rechazarán todas las órdenes."
                     )
@@ -455,9 +462,9 @@ class TelegramBridge:
                 else "(token ok o pendiente)"
             )
             if me.get("ok"):
-                print(f"[Telegram Bridge]: getMe OK → {bot_label}. Escuchando getUpdates...")
+                _plog(f"[Telegram Bridge]: getMe OK → {bot_label}. Escuchando getUpdates...")
             else:
-                print(
+                _plog(
                     f"[Telegram Bridge]: getMe falló ({me.get('error')}); "
                     "igual intento getUpdates."
                 )
@@ -470,7 +477,7 @@ class TelegramBridge:
                     self._reload_token()
                     continue
 
-            print(f"[Telegram Bridge]: Escuchando ordenes remotas via Telegram {bot_label}...")
+            _plog(f"[Telegram Bridge]: Escuchando ordenes remotas via Telegram {bot_label}...")
             idle_loops = 0
             conflicts_streak = 0
 
@@ -489,14 +496,14 @@ class TelegramBridge:
                         if not results:
                             idle_loops += 1
                             if idle_loops in (1, 10, 30):
-                                print(
+                                _plog(
                                     f"[Telegram Bridge]: sin updates nuevos "
                                     f"(loop vacío #{idle_loops}). "
                                     f"Escribe a {bot_label} en privado."
                                 )
                         else:
                             idle_loops = 0
-                            print(f"[Telegram Bridge]: {len(results)} update(s) recibidos.")
+                            _plog(f"[Telegram Bridge]: {len(results)} update(s) recibidos.")
                         for result in results:
                             self.last_update_id = result["update_id"]
                             msg = (
@@ -509,7 +516,7 @@ class TelegramBridge:
                                     on_update(msg)
                                 except Exception as cb_err:
                                     self.last_error = f"on_update: {self._redact(cb_err)}"[:240]
-                                    print(f"[Telegram Bridge]: {self.last_error}")
+                                    _plog(f"[Telegram Bridge]: {self.last_error}")
                             else:
                                 try:
                                     self.handle_message(msg)
@@ -517,7 +524,7 @@ class TelegramBridge:
                                     self.last_error = (
                                         f"handle_message: {self._redact(msg_err)}"[:240]
                                     )
-                                    print(
+                                    _plog(
                                         f"[Telegram Bridge]: error procesando update: "
                                         f"{self.last_error}"
                                     )
@@ -534,7 +541,7 @@ class TelegramBridge:
                         self.last_error = (
                             "getUpdates 409 Conflict — otra instancia hace polling"
                         )
-                        print(
+                        _plog(
                             "[Telegram Bridge]: 409 Conflict — otra instancia ya está "
                             "haciendo polling. Cierra el otro Avatar; reintento…"
                         )
@@ -545,19 +552,19 @@ class TelegramBridge:
                         time.sleep(min(30, 5 * conflicts_streak))
                         if conflicts_streak >= 8:
                             # Yield outer loop so daemon can release lock / standby.
-                            print(
+                            _plog(
                                 "[Telegram Bridge]: Demasiados 409 — salgo del poll para "
                                 "que el supervisor reintente con candado."
                             )
                             return
                     elif response.status_code in (401, 404):
                         self.last_error = f"getUpdates HTTP {response.status_code} (token?)"
-                        print(f"[Telegram Bridge]: {self.last_error}")
+                        _plog(f"[Telegram Bridge]: {self.last_error}")
                         time.sleep(20)
                         self._reload_token()
                         break  # re-prepare
                     else:
-                        print(
+                        _plog(
                             f"[Telegram Bridge]: getUpdates HTTP {response.status_code}: "
                             f"{self._redact((response.text or '')[:200])}"
                         )
@@ -568,7 +575,7 @@ class TelegramBridge:
                     self.last_poll_at = time.time()
                     continue
                 except Exception as e:
-                    print(f"[Error en loop de Telegram]: {self._redact(e)}")
+                    _plog(f"[Error en loop de Telegram]: {self._redact(e)}")
                     self.last_error = f"poll loop: {self._redact(e)}"[:240]
                     time.sleep(5)
 
@@ -591,7 +598,7 @@ class TelegramBridge:
             return
 
         self.last_inbound_at = time.time()
-        print(f"\n[Orden remota recibida de Telegram]: {text}")
+        _plog(f"\n[Orden remota recibida de Telegram]: {text}")
         # Feedback inmediato en Telegram: se ve "escribiendo…" mientras piensa el LLM.
         self.send_chat_action(chat_id, "typing")
         text_lower = text.lower().strip()
@@ -754,7 +761,7 @@ class TelegramBridge:
                 self.send_message(chat_id, "Te escuché. Hubo un fallo al enviar la respuesta completa; reinténtalo.")
         except Exception as e:
             self.last_error = f"handle_message body: {self._redact(e)}"[:240]
-            print(f"[Telegram Bridge]: {self.last_error}")
+            _plog(f"[Telegram Bridge]: {self.last_error}")
             self.send_message(
                 chat_id,
                 f"Recibí tu mensaje («{(text or '')[:80]}») pero falló al procesarlo en la PC. "

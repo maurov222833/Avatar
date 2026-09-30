@@ -98,6 +98,44 @@ class ToolRegistry:
             execution_mode="sync",
             timeout=180
         ))
+        # Actos que ya ejecuta el chokepoint. El riesgo de aquí es etiqueta del
+        # planificador; la política real sigue en ActPolicy (no cambia EXEC).
+        for name, description, schema, risk in (
+            ("AUDIO_CONTROL", "Pausa, reanuda, cambia o cierra la pestaña de música del navegador del sistema.",
+             {"action": "str", "target": "str", "query": "str"}, RiskLevel.MEDIUM),
+            ("SCREEN_CAPTURE", "Captura el escritorio.",
+             {"output_path": "str"}, RiskLevel.LOW),
+            ("UPDATE_CONFIG", "Actualiza una clave permitida de config.json.",
+             {"key": "str", "value": "str"}, RiskLevel.HIGH),
+            ("TELEGRAM_STATUS", "Estado del bot de Telegram.", {}, RiskLevel.LOW),
+            ("TELEGRAM_SEND", "Envía un mensaje al chat allowlist.",
+             {"chat_id": "str", "message": "str"}, RiskLevel.HIGH),
+            ("TELEGRAM_TEST", "Prueba de ida y vuelta con Telegram.", {}, RiskLevel.MEDIUM),
+            ("BROWSER_NAVIGATE", "Navega en el navegador Playwright.",
+             {"url": "str"}, RiskLevel.MEDIUM),
+            ("BROWSER_OBSERVE", "Lee la página Playwright activa.", {}, RiskLevel.LOW),
+            ("BROWSER_CLICK", "Clic en un selector Playwright.",
+             {"selector": "str"}, RiskLevel.MEDIUM),
+            ("BROWSER_FILL", "Rellena un campo Playwright.",
+             {"selector": "str", "value": "str"}, RiskLevel.MEDIUM),
+            ("BROWSER_CLOSE", "Cierra la sesión Playwright.", {}, RiskLevel.LOW),
+            ("DESKTOP_OBSERVE", "Observa el escritorio.",
+             {"output_path": "str"}, RiskLevel.LOW),
+            ("DESKTOP_CLICK", "Clic de escritorio. Sigue pidiendo aprobación EXEC.",
+             {"target": "str"}, RiskLevel.HIGH),
+            ("DESKTOP_TYPE", "Teclea en el escritorio. Sigue pidiendo aprobación EXEC.",
+             {"text": "str"}, RiskLevel.HIGH),
+            ("DESKTOP_HOTKEY", "Atajo de ventana allowlist (minimizar, escritorio). Sin aprobación EXEC.",
+             {"action": "str", "target": "str"}, RiskLevel.MEDIUM),
+        ):
+            self.register_tool(ToolDefinition(
+                name=name,
+                description=description,
+                input_schema=schema,
+                risk_level=risk,
+                execution_mode="sync",
+                timeout=60,
+            ))
 
     def register_tool(self, tool_def: ToolDefinition):
         tool_def.validate()

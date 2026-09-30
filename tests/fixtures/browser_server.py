@@ -59,7 +59,14 @@ class LocalTestServer:
 
     def start(self):
         handler = TestHandler
-        self.httpd = socketserver.TCPServer(("127.0.0.1", self.port), handler)
+        try:
+            self.httpd = socketserver.TCPServer(("127.0.0.1", self.port), handler)
+        except OSError as exc:
+            raise RuntimeError(
+                f"Puerto {self.port} ocupado por el fixture del navegador. "
+                "Cierra el proceso que lo usa y vuelve a correr el test. "
+                f"Detalle: {exc}"
+            ) from exc
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.thread.start()
 

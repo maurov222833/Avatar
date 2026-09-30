@@ -1,3 +1,9 @@
+"""Script histórico de laboratorio. No lo arranca Avatar.
+
+main_gui.py, server.py y el daemon de Telegram no importan scratch/.
+Este archivo hace getUpdates y responde sin allowlist: lanzarlo a la vez
+que el puente real provoca HTTP 409 y contesta a cualquiera.
+"""
 import json
 import os
 import time

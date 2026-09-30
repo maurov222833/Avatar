@@ -19,6 +19,14 @@ try:
 except ImportError:
     HAS_PYAUTOGUI = False
 
+
+def _wlog(message: str, level: str = "INFO") -> None:
+    try:
+        from core.logging_util import log
+        log(level, message, component="WhatsAppAutoReply")
+    except Exception:
+        pass
+
 class WhatsAppAutoReply:
     """
     Modulo nativo de respuesta automatica con enfoque de ventana en tiempo real.
@@ -54,10 +62,10 @@ class WhatsAppAutoReply:
                 time.sleep(0.1)
                 user32.SetForegroundWindow(top_hwnd)
                 time.sleep(0.2)
-                print(f"[WhatsAppAutoReply]: Ventana enfocada en pantalla (HWND {top_hwnd}).")
+                _wlog(f"[WhatsAppAutoReply]: Ventana enfocada en pantalla (HWND {top_hwnd}).")
                 return True
         except Exception as e:
-            print(f"[WhatsAppAutoReply Warning Focus]: {e}")
+            _wlog(f"[WhatsAppAutoReply Warning Focus]: {e}")
             
         return False
 
@@ -73,7 +81,7 @@ class WhatsAppAutoReply:
             # 1. Traer la ventana de WhatsApp Web al frente de la pantalla
             focused = WhatsAppAutoReply.focus_whatsapp_window()
             if not focused:
-                print("[Aviso]: No se encontro la ventana activa de WhatsApp Web en primer plano.")
+                _wlog("[Aviso]: No se encontro la ventana activa de WhatsApp Web en primer plano.")
 
             # 2. Copiar mensaje al portapapeles
             pyperclip.copy(message_text)
@@ -84,7 +92,7 @@ class WhatsAppAutoReply:
             time.sleep(0.2)
             pyautogui.press('enter')
             
-            print(f"[WhatsAppAutoReply]: Mensaje pegado y enviado al chat activo.")
+            _wlog(f"[WhatsAppAutoReply]: Mensaje pegado y enviado al chat activo.")
             return "✅ Mensaje pegado y enviado exitosamente a la ventana de WhatsApp Web."
         except Exception as e:
             return f"[Error envio WhatsApp]: {str(e)}"
@@ -93,4 +101,4 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         text = " ".join(sys.argv[1:])
         res = WhatsAppAutoReply.send_reply(text)
-        print(res)
+        _wlog(res)

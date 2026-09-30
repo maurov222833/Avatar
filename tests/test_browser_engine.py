@@ -8,6 +8,21 @@ from core.cognitive.physical_fact_verifier import PhysicalFactVerifier
 from core.checkpoint_engine import CheckpointEngine
 from core.state_db import StateEngine
 
+class TestLocalFixturePort(unittest.TestCase):
+    def test_busy_port_explains_the_conflict(self):
+        from unittest import mock
+        with mock.patch(
+            "tests.fixtures.browser_server.socketserver.TCPServer",
+            side_effect=OSError(98, "Address already in use"),
+        ):
+            server = LocalTestServer(port=8765)
+            with self.assertRaises(RuntimeError) as ctx:
+                server.start()
+        message = str(ctx.exception)
+        self.assertIn("8765", message)
+        self.assertIn("ocupado", message)
+
+
 class TestBrowserEngine(unittest.TestCase):
 
     @classmethod

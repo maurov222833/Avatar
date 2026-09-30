@@ -9,12 +9,13 @@ No abrir pull requests. No cambiar `exec_requires_approval`. No automatizar el e
 - R4 cascada de proveedores
 - R6 autoloop fuera; dispatch vía ToolRegistry; STATUS.md
 - Prints de audio, captura y orquestador al logger JSON (`7db7015`)
+- ToolRegistry registra los actos del chokepoint (el planificador ya no los rechaza)
+- `scratch/telegram_service.py` no lo arranca Avatar; quedó advertido (sin allowlist, no borrar)
+- El fixture del navegador explica si el puerto 8765 está ocupado
 
 ## Siguiente, en orden
 
-1. Registrar en `ToolRegistry._register_default_tools` los actos que faltan (AUDIO_CONTROL, SCREEN_CAPTURE, DESKTOP_HOTKEY, TELEGRAM_*, BROWSER_*) para que el planificador no los trate como desconocidos.
-3. Revisar `scratch/` : no es producción. Si un script responde a cualquiera en Telegram, dejarlo fuera del arranque (no borrarlo si un test lo importa).
-4. Si sobra tiempo: un test que falle en claro cuando el puerto 8765 del fixture de navegador esté ocupado, en vez de un error opaco.
+1. Pasar al logger los `print` que quedan en producción: `tools/whatsapp_auto_reply.py`, `core/watchdog.py`, `bridges/whatsapp_bridge.py`. No tocar scripts de `scratch/`.
 
 ## Parar
 

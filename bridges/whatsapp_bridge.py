@@ -29,6 +29,14 @@ DEFAULT_PROFILE_DIR = os.path.join(base_dir, "memory", "whatsapp_profile")
 DEFAULT_STATE_PATH = os.path.join(base_dir, "memory", "whatsapp_bridge_state.json")
 
 
+
+def _walog(message: str, level: str = "INFO") -> None:
+    try:
+        from core.logging_util import log
+        log(level, message, component="WhatsAppBridge")
+    except Exception:
+        pass
+
 class WhatsAppBridge:
     """
     Pasarela de integración para WhatsApp del Proyecto Avatar.
@@ -80,7 +88,7 @@ class WhatsAppBridge:
             with open(self.state_path, "w", encoding="utf-8") as f:
                 json.dump({"replied_ids": sorted(self._replied_ids)[-500:]}, f)
         except Exception as exc:
-            print(f"[WhatsAppBridge aviso]: no se pudo persistir cursor: {exc}")
+            _walog(f"[WhatsAppBridge aviso]: no se pudo persistir cursor: {exc}")
 
     def stop(self):
         self._stop = True
@@ -104,7 +112,7 @@ class WhatsAppBridge:
         llamaba a `WhatsAppAutoReply.send_reply` directamente, lo que significaba que un
         mensaje real podía salir a otra persona sin política, sin registro y sin dry-run.
         """
-        print(f"\n💬 [Mensaje de WhatsApp de {sender}]: {message_body}")
+        _walog(f"\n💬 [Mensaje de WhatsApp de {sender}]: {message_body}")
         response = self.orchestrator.process_user_input(message_body, channel="remote")
         self._deliver(sender=sender, message_body=message_body, response=response)
         return response
@@ -120,7 +128,7 @@ class WhatsAppBridge:
             task_id="whatsapp-reply",
             execution_id=f"wa-exec-{abs(hash(message_body)) % 10**8}",
         )
-        print(f"📤 [Entrega a {sender}]: {delivery[:160]}")
+        _walog(f"📤 [Entrega a {sender}]: {delivery[:160]}")
         return delivery
 
     # -- loop vivo ------------------------------------------------------
@@ -138,9 +146,9 @@ class WhatsAppBridge:
         max_polls=0 significa infinito (hasta stop()); >0 lo limita (útil en pruebas).
         Devuelve un resumen con lo procesado.
         """
-        print("==================================================")
-        print(f"⚡ [AVATAR AI]: Puente de WhatsApp Activo para '{target_chat}'")
-        print("==================================================")
+        _walog("==================================================")
+        _walog(f"⚡ [AVATAR AI]: Puente de WhatsApp Activo para '{target_chat}'")
+        _walog("==================================================")
 
         reader = self.reader or WhatsAppWebReader(profile_dir=DEFAULT_PROFILE_DIR)
         reader.launch()
@@ -217,13 +225,13 @@ class WhatsAppBridge:
             if max_polls and polls >= max_polls:
                 break
             if os.path.exists(stop_file):
-                print(f"[WhatsAppBridge] stop-file detectado ({stop_file}); paro limpio.")
+                _walog(f"[WhatsAppBridge] stop-file detectado ({stop_file}); paro limpio.")
                 break
             polls += 1
             try:
                 messages = reader.read_recent(limit=10)
             except WhatsAppReadError as exc:
-                print(f"[WhatsAppBridge] lectura fallida ({exc.code}): {exc.detail}")
+                _walog(f"[WhatsAppBridge] lectura fallida ({exc.code}): {exc.detail}")
                 time.sleep(self.poll_seconds)
                 continue
             for msg in messages:
@@ -238,17 +246,17 @@ class WhatsAppBridge:
                     continue  # dedup: ya respondido (o descartado) antes
                 # Los salientes salen de la cuenta del dueño; solo los entrantes se filtran.
                 if msg.incoming and msg.sender not in allowed_senders:
-                    print(f"[WhatsAppBridge] remitente no autorizado: {msg.sender}")
+                    _walog(f"[WhatsAppBridge] remitente no autorizado: {msg.sender}")
                     self._replied_ids.add(msg.msg_id)
                     self._save_state()
                     continue
                 if self.observe_only:
-                    print(f"[observe] {msg.sender}: {msg.text[:120]}")
+                    _walog(f"[observe] {msg.sender}: {msg.text[:120]}")
                     self._replied_ids.add(msg.msg_id)
                     self._save_state()
                     continue
                 if self.max_replies and replied >= self.max_replies:
-                    print("[WhatsAppBridge] límite de respuestas alcanzado; paro.")
+                    _walog("[WhatsAppBridge] límite de respuestas alcanzado; paro.")
                     self._stop = True
                     break
                 processed += 1
@@ -256,7 +264,7 @@ class WhatsAppBridge:
                     response = self.orchestrator.process_user_input(msg.text, channel="remote")
                     send, shaped = self.format_whatsapp_reply(response)
                     if not send:
-                        print(f"[WhatsAppBridge] respuesta suprimida por política "
+                        _walog(f"[WhatsAppBridge] respuesta suprimida por política "
                               f"({msg.msg_id}): {response[:80]!r}")
                     else:
                         self._deliver(sender=msg.sender, message_body=msg.text,
@@ -267,7 +275,7 @@ class WhatsAppBridge:
                     self._save_state()
                 except Exception as exc:
                     # No marcar: el mensaje debe poder reintentarse en el siguiente poll.
-                    print(f"[WhatsAppBridge] fallo procesando {msg.msg_id}: {exc}")
+                    _walog(f"[WhatsAppBridge] fallo procesando {msg.msg_id}: {exc}")
             if heartbeat_cb is not None:
                 try:
                     heartbeat_cb({"polls": polls, "processed": processed,
@@ -277,7 +285,7 @@ class WhatsAppBridge:
             time.sleep(self.poll_seconds)
         summary = {"polls": polls, "processed": processed, "replied": replied,
                    "chat": target_chat}
-        print(f"[WhatsAppBridge] fin del loop: {summary}")
+        _walog(f"[WhatsAppBridge] fin del loop: {summary}")
         return summary
 
     def start_daemon(self):
@@ -292,7 +300,7 @@ class WhatsAppBridge:
         except Exception:
             pass
         if not cfg.get("autostart_live"):
-            print("[AVATAR WhatsApp Daemon]: autostart_live desactivado en config; "
+            _walog("[AVATAR WhatsApp Daemon]: autostart_live desactivado en config; "
                   "el puente vivo requiere arranque explícito.")
             return
         self.start_live_bridge(target_chat=cfg.get("target_chat", "Mauro Vanegas 2025"))

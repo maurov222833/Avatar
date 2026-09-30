@@ -24,6 +24,14 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 
+def _wdlog(message: str, level: str = "INFO") -> None:
+    try:
+        from core.logging_util import log
+        log(level, message, component="Watchdog")
+    except Exception:
+        pass
+
+
 @dataclass
 class WatchdogConfig:
     enabled: bool = True
@@ -152,13 +160,13 @@ class Watchdog:
         while not self._stop.is_set():
             try:
                 report = self.tick()
-                print(
+                _wdlog(
                     f"[Watchdog]: tick pendientes={report.to_dict()['pending_count']} "
                     f"reanudadas={len(report.resumed)} "
                     f"inciertas={len(report.skipped_uncertain)}"
                 )
             except Exception as exc:
-                print(f"[Watchdog ERROR]: {type(exc).__name__}: {exc}")
+                _wdlog(f"[Watchdog ERROR]: {type(exc).__name__}: {exc}")
             self._stop.wait(max(1.0, float(self.config.interval_seconds)))
 
     def start_background(self) -> None:

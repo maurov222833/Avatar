@@ -23,6 +23,21 @@ class TestR6Hygiene(unittest.TestCase):
         self.assertIn("DESKTOP_HOTKEY", names)
         self.assertIn("AUDIO_CONTROL", names)
         self.assertIn("WHATSAPP_SEND", names)
+        registered = set(ToolRegistry().list_registered_tools())
+        for act in ("AUDIO_CONTROL", "SCREEN_CAPTURE", "DESKTOP_HOTKEY", "TELEGRAM_STATUS", "BROWSER_CLOSE"):
+            self.assertIn(act, registered)
+        from core.cognitive.models import Goal
+        from core.cognitive.planner import Planner
+        plan = Planner().create_plan_from_task_specs(
+            Goal(goal_id="g-r6", objective="pausar"),
+            [{
+                "task_id": "T1",
+                "tool": "AUDIO_CONTROL",
+                "arguments": {"action": "pause"},
+                "description": "pausa",
+            }],
+        )
+        self.assertEqual(plan.tasks[0].tool, "AUDIO_CONTROL")
         tool, args = AvatarOrchestrator._parse_tool_action(
             None,
             'ACCION: DESKTOP_HOTKEY\nPARAMETROS: minimize',

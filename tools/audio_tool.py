@@ -301,21 +301,48 @@ class AudioTool:
             print(f"[AudioTool Warning Play]: {e}")
 
     @staticmethod
+    def is_resume_request(text: str) -> bool:
+        """True for «dale play», «reanuda», «play nuevamente», etc. (no song title)."""
+        if not text:
+            return False
+        low = " ".join(text.lower().strip().split())
+        if any(
+            kw in low
+            for kw in (
+                "reanuda", "reanudar", "continúa", "continua", "continuar",
+                "despausa", "unpause", "resume",
+            )
+        ):
+            return True
+        # «Dale play» / «dale play nuevamente» / solo «play»
+        if re.search(r"(?i)\bdale\s+play\b", low):
+            return True
+        if re.search(r"(?i)\bplay\s+nuevamente\b", low):
+            return True
+        if re.search(r"(?i)\bdale\s+nuevamente\b", low):
+            return True
+        if low in ("play", "dale play", "play nuevamente", "dale"):
+            return True
+        return False
+
+    @staticmethod
     def pause_audio(force: Optional[str] = "pause") -> str:
         """
         Pausa o reanuda en el navegador del sistema.
         force: 'pause' | 'resume' | 'toggle'
-        Evita el doble-toggle si ya estaba en el estado pedido.
+
+        Pause skips a second press if we already believe it is paused (avoids
+        accidentally un-pausing). Resume ALWAYS sends the key: our `_is_playing`
+        flag drifts (YouTube autoplay, user paused in the browser), and Mauro's
+        «dale play» must force play even when the flag says already playing.
         """
         want = (force or "pause").lower().strip()
         try:
             if want == "pause" and not AudioTool._is_playing:
                 return (
                     "[Audio]: Ya estaba en pausa (no volví a pulsar Play/Pause para "
-                    "no reanudarla por error). Di 'reanuda' si quieres continuar."
+                    "no reanudarla por error). Di 'reanuda' o 'dale play' si quieres continuar."
                 )
-            if want == "resume" and AudioTool._is_playing:
-                return "[Audio]: Ya estaba reproduciendo."
 
             used_yt = AudioTool._youtube_press_k()
             if not used_yt:

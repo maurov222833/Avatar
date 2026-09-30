@@ -33,7 +33,7 @@ class TestF20SchemaAndTaxonomy(unittest.TestCase):
         for act in (
             "BROWSER_NAVIGATE", "BROWSER_OBSERVE", "BROWSER_CLICK",
             "BROWSER_FILL", "BROWSER_CLOSE",
-            "DESKTOP_CLICK", "DESKTOP_TYPE", "DESKTOP_OBSERVE",
+            "DESKTOP_CLICK", "DESKTOP_TYPE", "DESKTOP_OBSERVE", "DESKTOP_HOTKEY",
             "SCREEN_CAPTURE",
         ):
             self.assertIn(act, names)
@@ -46,6 +46,7 @@ class TestF20SchemaAndTaxonomy(unittest.TestCase):
         self.assertEqual(ACT_TYPES["DESKTOP_CLICK"], ActRisk.EXEC)
         self.assertEqual(ACT_TYPES["DESKTOP_TYPE"], ActRisk.EXEC)
         self.assertEqual(ACT_TYPES["DESKTOP_OBSERVE"], ActRisk.READ)
+        self.assertEqual(ACT_TYPES["DESKTOP_HOTKEY"], ActRisk.LOCAL_WRITE)
 
     def test_idempotency_classes(self):
         self.assertEqual(
@@ -121,6 +122,26 @@ class TestF20ChokepointExecutors(unittest.TestCase):
             self.assertIsNone(orch._browser)
             self.assertIn(("close",), calls)
 
+    def test_desktop_hotkey_runs_without_exec_approval(self):
+        with tempfile.TemporaryDirectory(prefix="avatar_f20h_") as tmp:
+            db = StateEngine(db_path=os.path.join(tmp, "state.db"))
+            ran = []
+            cp = ActChokepoint(
+                state_db=db,
+                policy=ActPolicy(dry_run=False, exec_requires_approval=True),
+                executors={
+                    "DESKTOP_HOTKEY": lambda a: ran.append(a) or "[Desktop]: ok",
+                },
+            )
+            out = cp.perform(
+                "DESKTOP_HOTKEY",
+                {"action": "minimize", "target": "chrome"},
+                mission_id="m3",
+            )
+            self.assertEqual(out, "[Desktop]: ok")
+            self.assertEqual(ran[0]["action"], "minimize")
+            self.assertNotEqual(cp.list_acts("m3")[-1]["status"], ActStatus.PENDING_APPROVAL)
+
     def test_desktop_click_requires_approval_without_approver(self):
         with tempfile.TemporaryDirectory(prefix="avatar_f20d_") as tmp:
             db = StateEngine(db_path=os.path.join(tmp, "state.db"))
@@ -151,7 +172,7 @@ class TestF20ChokepointExecutors(unittest.TestCase):
             for name in (
                 "BROWSER_NAVIGATE", "BROWSER_OBSERVE", "BROWSER_CLICK",
                 "BROWSER_FILL", "BROWSER_CLOSE",
-                "DESKTOP_OBSERVE", "DESKTOP_CLICK", "DESKTOP_TYPE",
+                "DESKTOP_OBSERVE", "DESKTOP_CLICK", "DESKTOP_TYPE", "DESKTOP_HOTKEY",
                 "SCREEN_CAPTURE",
             ):
                 self.assertIn(name, orch.chokepoint.executors)

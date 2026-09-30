@@ -596,7 +596,7 @@ class TelegramBridge:
         self.send_chat_action(chat_id, "typing")
         text_lower = text.lower().strip()
 
-        # Función auxiliar para detectar si el mensaje es una instrucción de sistema, pregunta o regla conversacional
+        # Función auxiliar: solo para rutas de charla / reglas. NUNCA bloquea actos físicos.
         instruction_kws = [
             "integres", "integrar", "sistema", "comprendes", "entiendes", "configurar",
             "aprender", "guardar", "regla", "explicar", "instrucción", "instruccion",
@@ -608,20 +608,55 @@ class TelegramBridge:
                          (len(text_lower.split()) > 10 and not any(text_lower.startswith(imp) for imp in ["reproduce ", "reproduzca ", "pon ", "ponme ", "toca ", "escuchar "]))
 
         try:
-            # Detección de solicitud de captura de pantalla o foto
-            if not is_instruction and any(kw in text_lower for kw in ["captura", "pantalla", "screenshot", "foto", "imagen"]):
-                self.send_message(chat_id, "Capturando pantalla del escritorio de tu PC…")
-                img_path = self._perform("SCREEN_CAPTURE", {}, chat_id, "screen-capture", text).strip()
-                if img_path and os.path.isfile(img_path):
-                    self.send_photo(chat_id, img_path, caption="Captura de pantalla de tu PC (Avatar)")
-                else:
-                    self.send_message(chat_id, "No se pudo obtener la captura de pantalla.")
+            from tools.audio_tool import AudioTool
+            from tools.desktop_hotkey import DesktopHotkey
+
+            # ——— Actos físicos: SIEMPRE tienen prioridad sobre is_instruction ———
+            # (mensajes largos tipo «quiero que le tomes una captura…» no deben ir al LLM)
+
+            # 1) Captura → SCREEN_CAPTURE + send_photo (obligatorio en este canal)
+            if any(kw in text_lower for kw in ["captura", "pantalla", "screenshot", "foto del escritorio", "foto de mi pantalla"]):
+                # Evitar falsos positivos de «foto» suelta en charla; «imagen» solo con captura/pantalla
+                wants_shot = (
+                    any(kw in text_lower for kw in ["captura", "pantalla", "screenshot"])
+                    or ("foto" in text_lower and any(k in text_lower for k in ["escritorio", "pantalla", "pc", "envía", "enviame", "envíame", "manda"]))
+                )
+                if wants_shot:
+                    self.send_message(chat_id, "Capturando pantalla del escritorio de tu PC…")
+                    img_path = self._perform("SCREEN_CAPTURE", {}, chat_id, "screen-capture", text).strip()
+                    if img_path and os.path.isfile(img_path):
+                        self.send_photo(chat_id, img_path, caption="Captura de pantalla de tu PC (Avatar)")
+                    else:
+                        self.send_message(chat_id, "No se pudo obtener la captura de pantalla.")
+                    return
+
+            # 2) Hotkeys de ventana (minimizar, escritorio…) — sin EXEC
+            hotkey_action = DesktopHotkey.extract_action(text)
+            if hotkey_action:
+                label = {
+                    "minimize": "Minimizando la ventana…",
+                    "maximize": "Maximizando la ventana…",
+                    "show_desktop": "Mostrando el escritorio…",
+                    "close_window": "Cerrando la ventana enfocada…",
+                    "switch_window": "Cambiando de ventana…",
+                }.get(hotkey_action, f"Enviando atajo «{hotkey_action}»…")
+                self.send_message(chat_id, label)
+                res_msg = self._perform(
+                    "DESKTOP_HOTKEY",
+                    {
+                        "action": hotkey_action,
+                        "target": DesktopHotkey.extract_target(text) or "",
+                    },
+                    chat_id,
+                    "desktop-hotkey",
+                    text,
+                )
+                self.send_message(chat_id, self._redact(res_msg))
                 return
 
-            # Cerrar SOLO la pestaña pedida (YouTube u otra) en el navegador del sistema.
-            from tools.audio_tool import AudioTool
+            # 3) Cerrar SOLO la pestaña pedida (YouTube u otra) en el navegador del sistema.
             close_target = AudioTool.extract_close_target(text)
-            if not is_instruction and close_target is not None:
+            if close_target is not None:
                 label = close_target or "activa"
                 self.send_message(chat_id, f"Cerrando la pestaña «{label}» en tu navegador…")
                 res_msg = self._perform(
@@ -634,10 +669,10 @@ class TelegramBridge:
                 self.send_message(chat_id, self._redact(res_msg))
                 return
 
-            # Siguiente / anterior pista
-            if not is_instruction and any(
+            # 4) Siguiente / anterior pista
+            if any(
                 kw in text_lower for kw in ["siguiente canción", "siguiente cancion", "siguiente pista", "next track", "siguiente tema"]
-            ) or (not is_instruction and text_lower.strip() in ("siguiente", "next", "skip")):
+            ) or text_lower.strip() in ("siguiente", "next", "skip"):
                 self.send_message(chat_id, "Pasando a la siguiente pista…")
                 res_msg = self._perform(
                     "AUDIO_CONTROL", {"action": "next"}, chat_id, "next-track", text
@@ -645,9 +680,9 @@ class TelegramBridge:
                 self.send_message(chat_id, self._redact(res_msg))
                 return
 
-            if not is_instruction and any(
+            if any(
                 kw in text_lower for kw in ["anterior canción", "anterior cancion", "anterior pista", "previous"]
-            ) or (not is_instruction and text_lower.strip() in ("anterior", "prev")):
+            ) or text_lower.strip() in ("anterior", "prev"):
                 self.send_message(chat_id, "Volviendo a la pista anterior…")
                 res_msg = self._perform(
                     "AUDIO_CONTROL", {"action": "previous"}, chat_id, "prev-track", text
@@ -655,10 +690,8 @@ class TelegramBridge:
                 self.send_message(chat_id, self._redact(res_msg))
                 return
 
-            # Reanudar
-            if not is_instruction and any(
-                kw in text_lower for kw in ["reanuda", "reanudar", "continúa", "continua", "despausa"]
-            ):
+            # 5) Reanudar / «dale play» (ANTES que PLAY_AUDIO para no relanzar otra canción)
+            if AudioTool.is_resume_request(text):
                 self.send_message(chat_id, "Reanudando la música en tu PC…")
                 res_msg = self._perform(
                     "AUDIO_CONTROL", {"action": "resume"}, chat_id, "resume-audio", text
@@ -666,11 +699,11 @@ class TelegramBridge:
                 self.send_message(chat_id, self._redact(res_msg))
                 return
 
-            # Detección directa de solicitud de pausa / silenciar / detener música
-            if not is_instruction and any(
+            # 6) Pausa
+            if any(
                 kw in text_lower
                 for kw in ["pausa", "pausar", "paúsala", "pausala", "detén", "deten", "silenciar", "parar", "stop"]
-            ):
+            ) and "desktop" not in text_lower:
                 self.send_message(chat_id, "Pausando la música en tu PC…")
                 res_msg = self._perform(
                     "AUDIO_CONTROL", {"action": "pause"}, chat_id, "pause-audio", text
@@ -678,18 +711,17 @@ class TelegramBridge:
                 self.send_message(chat_id, self._redact(res_msg))
                 return
 
-            # Abrir o CAMBIAR canción (misma pestaña del sistema)
+            # 7) Abrir o CAMBIAR canción (misma pestaña del sistema)
             song_query = None
-            if not is_instruction:
-                if any(
-                    kw in text_lower
-                    for kw in [
-                        "cambia", "cambiar", "reproduce", "reproduzca", "reproduscas",
-                        "reproduzcas", "cancion", "canción", "musica", "música",
-                        "ponme", "pon ",
-                    ]
-                ):
-                    song_query = AudioTool.extract_song_request(text)
+            if any(
+                kw in text_lower
+                for kw in [
+                    "cambia", "cambiar", "reproduce", "reproduzca", "reproduscas",
+                    "reproduzcas", "cancion", "canción", "musica", "música",
+                    "ponme", "pon ",
+                ]
+            ):
+                song_query = AudioTool.extract_song_request(text)
             if song_query:
                 self.send_message(chat_id, f"Reproduciendo «{song_query}» en YouTube (tu PC)…")
                 res_msg = self._perform(
@@ -698,7 +730,8 @@ class TelegramBridge:
                 self.send_message(chat_id, self._redact(res_msg))
                 return
 
-            # Procesar con el orquestador
+            # Charla / reglas → orquestador (is_instruction solo afecta aquí de forma implícita)
+            _ = is_instruction  # retained for diagnostics / future tone routing
             raw_output = self.orchestrator.process_user_input(text, channel="remote")
             clean_output = ReasoningEngine.extract_clean_response(raw_output or "")
 
@@ -712,6 +745,9 @@ class TelegramBridge:
                     "Prueba de nuevo o revisa el proveedor de IA en la PC."
                 )
 
+            # Si el LLM hizo SCREEN_CAPTURE (o dejó la ruta), envía la foto al chat.
+            self._maybe_send_llm_screenshot(chat_id, text_lower, clean_output)
+
             sent = self.send_message(chat_id, self._redact(clean_output)) or {}
             if not sent.get("ok"):
                 # Segundo intento sin markdown raro / texto mínimo.
@@ -724,3 +760,35 @@ class TelegramBridge:
                 f"Recibí tu mensaje («{(text or '')[:80]}») pero falló al procesarlo en la PC. "
                 "Revisa la consola de Avatar.",
             )
+
+    def _maybe_send_llm_screenshot(self, chat_id: str, text_lower: str, clean_output: str) -> None:
+        """After an LLM turn, attach screenshot.png if Mauro asked for a capture."""
+        looks_like_capture = any(
+            kw in text_lower for kw in ("captura", "pantalla", "screenshot")
+        ) or ("foto" in text_lower and "escritorio" in text_lower)
+        path = None
+        # Path returned/mentioned in the reply
+        for token in (clean_output or "").replace("`", " ").replace("'", " ").split():
+            if token.lower().endswith((".png", ".jpg", ".jpeg", ".webp")) and os.path.isfile(token):
+                path = token
+                break
+        if path is None:
+            try:
+                from core.paths import memory_dir
+                candidate = os.path.join(memory_dir(), "screenshot.png")
+            except Exception:
+                candidate = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    "memory",
+                    "screenshot.png",
+                )
+            if looks_like_capture and os.path.isfile(candidate) and os.path.getsize(candidate) > 0:
+                # Only if freshly written (last 3 minutes) — avoids re-sending stale shots
+                try:
+                    age = time.time() - os.path.getmtime(candidate)
+                except Exception:
+                    age = 9999
+                if age <= 180:
+                    path = candidate
+        if path and os.path.isfile(path):
+            self.send_photo(chat_id, path, caption="Captura de pantalla de tu PC (Avatar)")

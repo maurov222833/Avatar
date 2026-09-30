@@ -90,9 +90,12 @@ ACT_TYPES: Dict[str, str] = {
     "BROWSER_FILL": ActRisk.NETWORK,
     "BROWSER_CLOSE": ActRisk.READ,
     # Desktop GUI (F-20): click/type are EXEC (operator approval); observe is READ.
+    # DESKTOP_HOTKEY: allowlisted Win/Alt combos (minimize, show desktop…) — LOCAL_WRITE
+    # so the owner can do common window actions from Telegram without EXEC bureaucracy.
     "DESKTOP_CLICK": ActRisk.EXEC,
     "DESKTOP_TYPE": ActRisk.EXEC,
     "DESKTOP_OBSERVE": ActRisk.READ,
+    "DESKTOP_HOTKEY": ActRisk.LOCAL_WRITE,
 }
 
 #: Risk levels that require the operator to opt in before they may run.

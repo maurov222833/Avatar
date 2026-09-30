@@ -35,6 +35,26 @@ class TestAudioSanitize(unittest.TestCase):
         k.assert_not_called()
         self.assertIn("Ya estaba en pausa", msg)
 
+    def test_resume_always_presses_even_if_flag_says_playing(self):
+        from tools.audio_tool import AudioTool
+
+        AudioTool._is_playing = True
+        with mock.patch.object(AudioTool, "_youtube_press_k", return_value=True) as k:
+            msg = AudioTool.pause_audio(force="resume")
+        k.assert_called_once()
+        self.assertIn("Reanudación", msg)
+        self.assertTrue(AudioTool._is_playing)
+
+    def test_is_resume_request_dale_play(self):
+        from tools.audio_tool import AudioTool
+
+        self.assertTrue(AudioTool.is_resume_request("Dale play"))
+        self.assertTrue(AudioTool.is_resume_request("Dale play nuevamente"))
+        self.assertTrue(AudioTool.is_resume_request("Dale nuevamente que no funcionó"))
+        self.assertTrue(AudioTool.is_resume_request("reanuda"))
+        self.assertFalse(AudioTool.is_resume_request("reproduce Bonito bonito"))
+        self.assertFalse(AudioTool.is_resume_request("hola Mauro"))
+
     def test_control_audio_routes_close(self):
         from tools.audio_tool import AudioTool
 
@@ -196,8 +216,99 @@ class TestPromptSeparatesBrowsers(unittest.TestCase):
                 self.assertIn("PLAY_AUDIO", sp)
                 names = {d["name"] for d in __import__("core.orchestrator", fromlist=["AVATAR_TOOLS_SCHEMA"]).AVATAR_TOOLS_SCHEMA[0]["functionDeclarations"]}
                 self.assertIn("AUDIO_CONTROL", names)
+                self.assertIn("DESKTOP_HOTKEY", names)
                 self.assertIn("ASISTENTE FÍSICO", orch.system_prompt)
                 self.assertIn("action=pause|resume|next|previous|close|change", orch.system_prompt)
+                self.assertIn("DESKTOP_HOTKEY", orch.system_prompt)
+
+
+class TestTelegramPhysicalShortcuts(unittest.TestCase):
+    def _bridge(self, td):
+        from bridges.telegram_bridge import TelegramBridge
+        from core.orchestrator import AvatarOrchestrator
+
+        with mock.patch.dict(
+            os.environ,
+            {"AVATAR_HOME": td, "TELEGRAM_ALLOWED_CHAT_IDS": "111"},
+        ):
+            orch = AvatarOrchestrator()
+            b = TelegramBridge(
+                bot_token="123456:TEST",
+                allowed_chat_ids=["111"],
+                orchestrator=orch,
+                auto_enroll_first_private=False,
+            )
+        b.sent = []
+        b.photos = []
+        b.performed = []
+        b.send_message = lambda chat_id, text: (
+            b.sent.append((chat_id, text)) or {"ok": True}
+        )
+        b.send_photo = lambda chat_id, path, caption="": (
+            b.photos.append((chat_id, path, caption)) or {"ok": True}
+        )
+        b.send_chat_action = lambda *a, **k: {"ok": True}
+        b._perform = lambda act, args, chat_id, task_id, text: (
+            b.performed.append((act, dict(args)))
+            or (
+                "/tmp/fake-shot.png"
+                if act == "SCREEN_CAPTURE"
+                else f"ok:{act}:{args.get('action') or args.get('audio_source') or ''}"
+            )
+        )
+        return b
+
+    def test_long_captura_message_still_sends_photo(self):
+        with tempfile.TemporaryDirectory() as td:
+            shot = os.path.join(td, "fake-shot.png")
+            with open(shot, "wb") as f:
+                f.write(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
+            b = self._bridge(td)
+            b._perform = lambda act, args, chat_id, task_id, text: (
+                b.performed.append((act, dict(args))) or shot
+            )
+            b.handle_message(
+                {
+                    "message_id": 1,
+                    "from": {"id": 111, "is_bot": False},
+                    "chat": {"id": 111, "type": "private"},
+                    "text": (
+                        "Quiero que le tomes una captura a la pantalla de mi "
+                        "escritorio y me la envíes"
+                    ),
+                }
+            )
+            self.assertEqual(b.performed[0][0], "SCREEN_CAPTURE")
+            self.assertEqual(len(b.photos), 1)
+            self.assertEqual(b.photos[0][1], shot)
+
+    def test_dale_play_resumes_not_replay(self):
+        with tempfile.TemporaryDirectory() as td:
+            b = self._bridge(td)
+            b.handle_message(
+                {
+                    "message_id": 1,
+                    "from": {"id": 111, "is_bot": False},
+                    "chat": {"id": 111, "type": "private"},
+                    "text": "Dale play nuevamente",
+                }
+            )
+            self.assertEqual(b.performed[0][0], "AUDIO_CONTROL")
+            self.assertEqual(b.performed[0][1].get("action"), "resume")
+
+    def test_minimize_uses_desktop_hotkey(self):
+        with tempfile.TemporaryDirectory() as td:
+            b = self._bridge(td)
+            b.handle_message(
+                {
+                    "message_id": 1,
+                    "from": {"id": 111, "is_bot": False},
+                    "chat": {"id": 111, "type": "private"},
+                    "text": "Quiero que minimices la ventana del explorador",
+                }
+            )
+            self.assertEqual(b.performed[0][0], "DESKTOP_HOTKEY")
+            self.assertEqual(b.performed[0][1].get("action"), "minimize")
 
 
 if __name__ == "__main__":

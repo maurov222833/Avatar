@@ -19,7 +19,7 @@ class CheckpointEngine:
     NON_IDEMPOTENT_TOOLS = {"WRITE_FILE", "COMMAND", "SEND_WHATSAPP", "DELETE_FILE", "MOVE_FILE",
                             "WHATSAPP_SEND", "UPDATE_CONFIG", "TELEGRAM_SEND", "TELEGRAM_TEST",
                             "BROWSER_NAVIGATE", "BROWSER_CLICK", "BROWSER_FILL",
-                            "DESKTOP_CLICK", "DESKTOP_TYPE"}
+                            "DESKTOP_CLICK", "DESKTOP_TYPE", "DESKTOP_HOTKEY"}
 
     IDEMPOTENT_TOOLS = {"READ_FILE", "LIST_DIR", "FETCH_URL", "WEB_SEARCH",
                         "WHATSAPP_STATUS", "WHATSAPP_READ", "TELEGRAM_STATUS",

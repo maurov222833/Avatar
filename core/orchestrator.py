@@ -360,6 +360,29 @@ AVATAR_TOOLS_SCHEMA = [
                     },
                     "required": ["text"]
                 }
+            },
+            {
+                "name": "DESKTOP_HOTKEY",
+                "description": (
+                    "Atajos de ventana del escritorio REAL (minimize, show_desktop, maximize, "
+                    "close_window, switch_window). NO pide aprobación EXEC. "
+                    "Úsalo para «minimiza el explorador/navegador», Win+D, etc. "
+                    "NO uses DESKTOP_CLICK ni COMMAND para minimizar."
+                ),
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "action": {
+                            "type": "STRING",
+                            "description": "minimize|maximize|show_desktop|close_window|switch_window|restore"
+                        },
+                        "target": {
+                            "type": "STRING",
+                            "description": "Ventana opcional (chrome, edge, youtube, título…)."
+                        }
+                    },
+                    "required": ["action"]
+                }
             }
         ]
     }
@@ -463,18 +486,24 @@ class AvatarOrchestrator:
             "- ASISTENTE FÍSICO EN LA PC DE MAURO (prioridad):\n"
             "  • Cuando Mauro pide una acción concreta en su PC, EJECUTA con herramientas. "
             "No pidas 'luz verde', Ctrl+W ni rodeos para música, pausa, cambio de canción, "
-            "cerrar pestaña o captura de pantalla.\n"
+            "cerrar pestaña, captura de pantalla o minimizar ventanas.\n"
             "  • Música: PLAY_AUDIO (abrir o cambiar canción en la misma pestaña del sistema). "
             "AUDIO_CONTROL action=pause|resume|next|previous|close|change.\n"
+            "  • «Dale play» / reanudar: AUDIO_CONTROL action=resume (NO vuelvas a PLAY_AUDIO "
+            "con otra canción si solo pide play).\n"
             "  • Cerrar SOLO la pestaña pedida: AUDIO_CONTROL action=close target=<youtube|nombre>. "
             "No cierres todo el navegador.\n"
-            "  • Ver el escritorio: SCREEN_CAPTURE. Clics/teclado: DESKTOP_* "
-            "(pueden pedir una aprobación real del chokepoint; si la piden, dilo en una frase).\n"
+            "  • Ver el escritorio: SCREEN_CAPTURE (en Telegram el puente envía la foto al chat).\n"
+            "  • Minimizar / escritorio / maximizar: DESKTOP_HOTKEY action=minimize|show_desktop|maximize "
+            "(sin aprobación EXEC; directiva permanente del dueño).\n"
+            "  • Clics arbitrarios / teclear libre: DESKTOP_CLICK / DESKTOP_TYPE "
+            "(sí pueden pedir una aprobación EXEC real; si la piden, dilo en una frase).\n"
             "  • COMMAND / escribir archivos: actúa; si la política bloquea, explica el bloqueo "
             "una vez — no inventes barreras extras ni digas que 'no puedes' cuando sí hay tool.\n"
             "- YOUTUBE / MÚSICA (navegador del sistema ≠ Playwright):\n"
             "  • PLAY_AUDIO abre/reutiliza Chrome/Edge real de Mauro.\n"
             "  • Para pausar: AUDIO_CONTROL action=pause.\n"
+            "  • Para reanudar / 'dale play': AUDIO_CONTROL action=resume.\n"
             "  • Para cambiar canción: PLAY_AUDIO con el nuevo título (o AUDIO_CONTROL change).\n"
             "  • Para cerrar SOLO la pestaña de YouTube: AUDIO_CONTROL action=close target=youtube.\n"
             "  • BROWSER_* es Chromium de Playwright: NO afecta la pestaña de PLAY_AUDIO.\n"
@@ -1395,6 +1424,7 @@ class AvatarOrchestrator:
             "DESKTOP_OBSERVE": lambda a: self._exec_desktop("observe", a or {}),
             "DESKTOP_CLICK": lambda a: self._exec_desktop("click", a or {}),
             "DESKTOP_TYPE": lambda a: self._exec_desktop("type", a or {}),
+            "DESKTOP_HOTKEY": lambda a: self._exec_desktop_hotkey(a or {}),
         }
         return ActChokepoint(state_db=self.state_db, policy=policy, executors=executors)
 
@@ -1743,6 +1773,17 @@ class AvatarOrchestrator:
             result["verified"] = bool(result.get("success"))
         return json.dumps(result, ensure_ascii=False)[:4000]
 
+    def _exec_desktop_hotkey(self, args: Dict[str, Any]) -> str:
+        """Allowlisted window hotkeys (minimize, show desktop…) — no EXEC gate."""
+        from tools.desktop_hotkey import DesktopHotkey
+        action = str((args or {}).get("action") or (args or {}).get("params") or "").strip()
+        target = (args or {}).get("target") or (args or {}).get("window_title") or None
+        if target is not None:
+            target = str(target).strip() or None
+        if not action:
+            return "[Desktop]: Indica action (minimize, show_desktop, maximize…)."
+        return DesktopHotkey.run(action, target=target)
+
     def _get_desktop(self):
         """Lazy ComputerControl for DESKTOP_* acts (F-20)."""
         if self._desktop is not None:
@@ -2023,7 +2064,7 @@ class AvatarOrchestrator:
             "PLAY_AUDIO", "AUDIO_CONTROL", "SEND_WHATSAPP", "SCREEN_CAPTURE", "UPDATE_CONFIG",
             "TELEGRAM_STATUS", "TELEGRAM_SEND", "TELEGRAM_TEST",
             "BROWSER_NAVIGATE", "BROWSER_OBSERVE", "BROWSER_CLICK", "BROWSER_FILL", "BROWSER_CLOSE",
-            "DESKTOP_CLICK", "DESKTOP_TYPE", "DESKTOP_OBSERVE",
+            "DESKTOP_CLICK", "DESKTOP_TYPE", "DESKTOP_OBSERVE", "DESKTOP_HOTKEY",
         ]
 
         # 1. Chequear bloque JSON con clave "action"

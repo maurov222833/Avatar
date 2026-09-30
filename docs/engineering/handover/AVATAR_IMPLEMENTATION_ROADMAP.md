@@ -41,8 +41,8 @@ Complejidad media. Tokens: ~25-50k.
 
 ## R5 — Integración Telegram Bot API (canal superior) ✅ (código)
 
-Polling con allowlist, daemon durable, `TELEGRAM_STATUS/SEND/TEST`. Residual del
-dueño: probar ida y vuelta con el bot real (captura, play, minimizar).
+Polling con allowlist, daemon durable, `TELEGRAM_STATUS/SEND/TEST`. El 2026-09-30
+Mauro confirmó en el PC la captura, play/pausa de la misma canción y `/pause`.
 
 ## R6 — Higiene y consolidación (E-20, E-15) ✅
 
@@ -64,7 +64,8 @@ Dictamen: `MASTER_DIRECTIVE_002_COMPARISON.md`.
 Plan: `ENGINEERING_SPEC_003.md` (v2, unidades U0 a U17 en el orden de su sección 5).
 Comparación de U11–U17: `SPEC_003_V2_GAP.md`.
 No reemplaza R0–R7. U0 está hecho. La U1 de esta spec es la parada de emergencia;
-no es la U1 histórica de contención de canales. No empieza hasta que Mauro la autorice.
+no es la U1 histórica de contención de canales. Mauro autorizó el recorrido y
+confirmó en el PC la captura, play/pausa y `/pause`. El cierre está en `SPEC_003_CIERRE.md`.
 
 ## Puerta de cada fase
 

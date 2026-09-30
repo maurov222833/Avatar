@@ -62,8 +62,10 @@ No se adelanta ninguna unidad. La seguridad de ejecución va primero.
 
 U11 a U17 están sin iniciar. El detalle de qué ya existe está en `SPEC_003_V2_GAP.md`.
 
-La prueba de Telegram en el PC (captura con foto, «dale play» y «pausa» en la misma canción, minimizar sin luz verde) no necesita código nuevo.
+## Prueba en el PC
 
-## Esperando autorización
+El 2026-09-30 Mauro confirmó que funcionó: captura con foto, «dale play» y «pausa» sobre la misma canción, y `/pause` a mitad de un acto inocuo. Quedó como `VERIFIED_PC` de esos tres pasos en `SPEC_003_CIERRE.md`.
 
-No empieza U1 hasta que Mauro lo diga. Decisiones que la especificación deja en Mauro y que U1 necesitaría antes de codificar el hotkey: tecla de parada y nivel por defecto (`PAUSE`, `STOP` o `KILL_SWITCH`). El diseño puede usar mientras tanto el comando remoto autenticado y un estado `HALT` leído por el chokepoint, si esa es la autorización.
+## Autorización
+
+Mauro autorizó el recorrido U1 a U17. El código está en la rama `cursor/spec-003-u1-u17-5763`. `exec_requires_approval` sigue activo. La tecla global `Ctrl+Alt+Shift+X` queda configurada y sin prueba en el PC.

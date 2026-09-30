@@ -30,10 +30,14 @@ Texto íntegro: `docs/engineering/handover/MASTER_DIRECTIVE_002.md`.
 Dictamen: `docs/engineering/handover/MASTER_DIRECTIVE_002_COMPARISON.md`.
 Plan de unidades: `docs/engineering/handover/ENGINEERING_SPEC_003.md` (v2, U0 a U17).
 Comparación de negocio y asistente: `docs/engineering/handover/SPEC_003_V2_GAP.md`.
-U0 archivó la directriz. U1 a U17 tienen código en `cursor/spec-003-u1-u17-5763`, con el cierre en `docs/engineering/handover/SPEC_003_CIERRE.md`. La parada de emergencia consulta el chokepoint. `exec_requires_approval` sigue activo. No hay tiendas ni brokers conectados. Falta la prueba en el PC de Mauro.
+U0 archivó la directriz. U1 a U17 tienen código en `cursor/spec-003-u1-u17-5763`, con el cierre en `docs/engineering/handover/SPEC_003_CIERRE.md`. La parada de emergencia consulta el chokepoint. `exec_requires_approval` sigue activo. No hay tiendas ni brokers conectados.
 
-## Mañana en Telegram (prueba corta)
+## Prueba en el PC (2026-09-30)
 
-1. Pide una captura: debe llegar la foto.
-2. «Dale play» / «pausa»: misma canción, no otra búsqueda.
-3. «Minimiza el navegador»: sin pedir luz verde.
+Mauro la ejecutó y confirmó que funcionó:
+
+1. Captura: llegó la foto.
+2. «Dale play» y «pausa»: la misma canción.
+3. `/pause` a mitad de un acto inocuo.
+
+Eso es `VERIFIED_PC` para esos tres pasos. La tecla global `Ctrl+Alt+Shift+X` no entra en este reporte.

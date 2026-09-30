@@ -85,9 +85,18 @@ def _ensure_workers_locked() -> None:
     if _alive(_poll_thread):
         return
 
-    if not _poll_lock.held and not _poll_lock.acquire(blocking=False):
-        _standby_other_instance = True
-        return
+    if not _poll_lock.held:
+        got = _poll_lock.acquire(blocking=False)
+        if not got:
+            # Stale/crash leftover or empty-file Windows lock bug → steal if safe.
+            got = _poll_lock.force_acquire()
+        if not got:
+            _standby_other_instance = True
+            print(
+                "[AVATAR Telegram]: En espera — otra instancia tiene el candado "
+                f"({_poll_lock.last_reject_reason})."
+            )
+            return
 
     _standby_other_instance = False
     _restart_count += 1
@@ -113,6 +122,7 @@ def _ensure_workers_locked() -> None:
 
     _poll_thread = threading.Thread(target=_run, name="avatar-telegram-poll", daemon=True)
     _poll_thread.start()
+    print(f"[AVATAR Telegram]: Poll arrancado (restart #{_restart_count}, lock={_poll_lock.mode}).")
 
 
 def _enqueue_update(msg: dict) -> None:
@@ -171,18 +181,17 @@ def _supervisor_loop() -> None:
                                 "[AVATAR Telegram]: Poll stale "
                                 f"({age:.0f}s sin getUpdates). Señal de reinicio."
                             )
-                            # Cooperative stop — no second poller until this one exits.
                             _poll_gen += 1
 
                     if not _alive(_poll_thread):
                         if not _poll_lock.held:
-                            if _poll_lock.acquire(blocking=False):
-                                _standby_other_instance = False
-                            else:
-                                _standby_other_instance = True
+                            if not _poll_lock.acquire(blocking=False):
+                                _poll_lock.force_acquire()
                         if _poll_lock.held:
                             _standby_other_instance = False
                             _ensure_workers_locked()
+                        else:
+                            _standby_other_instance = True
                     else:
                         _standby_other_instance = False
 
@@ -191,6 +200,27 @@ def _supervisor_loop() -> None:
         except Exception as e:
             print(f"[AVATAR Telegram Supervisor Error]: {e}")
         _stop.wait(10.0)
+
+
+def force_recover_telegram() -> Dict[str, Any]:
+    """
+    Break a stale poll lock (dead holder PID / empty Windows lock file) and
+    request a fresh poll generation so the supervisor/ensure can start clean.
+    """
+    global _poll_gen, _standby_other_instance
+    with _lock:
+        _poll_gen += 1
+        _standby_other_instance = False
+        _poll_lock.release()
+        stolen = _poll_lock.force_acquire()
+        # Release again so ensure_telegram_daemon/acquire owns it via the normal path,
+        # unless we want to keep it — keep held so ensure can start poll immediately.
+        return {
+            "recovered": bool(stolen or _poll_lock.held),
+            "lock_held": _poll_lock.held,
+            "lock_mode": _poll_lock.mode,
+            "reject": _poll_lock.last_reject_reason,
+        }
 
 
 def stop_telegram_daemon() -> None:
@@ -220,9 +250,18 @@ def status() -> Dict[str, Any]:
         "restart_count": _restart_count,
         "standby_other_instance": _standby_other_instance,
         "poll_lock_held": _poll_lock.held,
+        "poll_lock_mode": getattr(_poll_lock, "mode", "") or "",
+        "poll_lock_reject": getattr(_poll_lock, "last_reject_reason", "") or "",
         "last_supervisor_at": _last_supervisor_at,
         "poll_generation": _poll_gen,
     }
+    try:
+        holder_pid, holder_ts = _poll_lock.read_holder()
+        info["poll_lock_holder_pid"] = holder_pid
+        info["poll_lock_holder_ts"] = holder_ts
+    except Exception:
+        info["poll_lock_holder_pid"] = None
+        info["poll_lock_holder_ts"] = None
     if _bridge is None:
         info["token_configured"] = False
         info["allowed_chat_ids"] = []
@@ -249,8 +288,10 @@ def status() -> Dict[str, Any]:
         info["webhook"] = wh
         if _standby_other_instance:
             info["hint"] = (
-                "Otra instancia de Avatar ya hace polling (candado telegram_poll.lock). "
-                "Cierra la otra ventana/proceso y deja solo una."
+                "Otra instancia de Avatar tiene el candado de Telegram "
+                f"({info.get('poll_lock_reject') or 'telegram_poll.lock'}). "
+                "Cierra la otra ventana en el Administrador de tareas y reinicia Avatar, "
+                "o POST /api/telegram/start."
             )
         elif info["poll_conflicts_409"] > 0 and not running:
             info["hint"] = (

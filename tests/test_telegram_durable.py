@@ -23,6 +23,29 @@ class TestTelegramPollLock(unittest.TestCase):
             self.assertTrue(b.acquire(blocking=False))
             b.release()
 
+    def test_empty_file_can_be_acquired(self):
+        """Windows msvcrt.locking used to fail on empty files → permanent STANDBY."""
+        from core.telegram_poll_lock import TelegramPollLock
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "telegram_poll.lock")
+            open(path, "w", encoding="utf-8").close()  # empty file
+            lock = TelegramPollLock(path)
+            self.assertTrue(lock.acquire(blocking=False), lock.last_reject_reason)
+            self.assertTrue(lock.held)
+            lock.release()
+
+    def test_force_acquire_steals_dead_pid(self):
+        from core.telegram_poll_lock import TelegramPollLock
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "telegram_poll.lock")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("pid=99999999 ts=1\n")  # almost certainly dead
+            lock = TelegramPollLock(path)
+            self.assertTrue(lock.force_acquire(), lock.last_reject_reason)
+            lock.release()
+
 
 class TestTelegramDurableDaemon(unittest.TestCase):
     def tearDown(self):

@@ -1527,7 +1527,8 @@ class AvatarOrchestrator:
                 daemon = {"running": False, "status": "UNKNOWN"}
             if not daemon.get("running") and bridge.bot_token:
                 try:
-                    from core.telegram_daemon import ensure_telegram_daemon
+                    from core.telegram_daemon import ensure_telegram_daemon, force_recover_telegram
+                    force_recover_telegram()
                     daemon = ensure_telegram_daemon(orchestrator=self)
                 except Exception as e:
                     daemon = {"running": False, "error": str(e)[:120]}

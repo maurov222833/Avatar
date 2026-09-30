@@ -359,8 +359,9 @@ def telegram_status():
 
 @app.post("/api/telegram/start")
 def telegram_start():
-    """Arranca (o reusa) el daemon getUpdates en este proceso."""
-    from core.telegram_daemon import ensure_telegram_daemon
+    """Arranca (o reusa) el daemon getUpdates; fuerza recuperación del candado si está huérfano."""
+    from core.telegram_daemon import ensure_telegram_daemon, force_recover_telegram
+    force_recover_telegram()
     return ensure_telegram_daemon(orchestrator=orchestrator)
 
 

@@ -42,7 +42,13 @@ class TelegramBridge:
         self.orchestrator = orchestrator if orchestrator is not None else get_shared_orchestrator()
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}" if self.bot_token else ""
         self.last_update_id = 0
-        self._reported_chats = set()
+        # chat_key -> monotonic time of last rejection notice (cooldown, not forever-silent)
+        self._reported_chats = {}
+        self.last_inbound_at = None
+        self.last_outbound_at = None
+        self.last_error = ""
+        self.last_poll_at = None
+        self.poll_conflicts_409 = 0
         if auto_enroll_first_private is None:
             auto_enroll_first_private = self._load_auto_enroll_flag()
         self.auto_enroll_first_private = bool(auto_enroll_first_private)
@@ -97,9 +103,12 @@ class TelegramBridge:
         sender = message.get("from", {}) or {}
         user_id = str(sender.get("id", "?"))
         key = (str(chat.get("id", "")), user_id)
-        if key in self._reported_chats:
+        now = time.monotonic()
+        last = self._reported_chats.get(key)
+        # Re-aviso cada 2 min: antes el silencio eterno parecía "el bot no recibe nada".
+        if last is not None and (now - last) < 120:
             return
-        self._reported_chats.add(key)
+        self._reported_chats[key] = now
         where = f"chat {chat.get('id', '?')} ({chat.get('type', '?')})"
         if self.allowed_chat_ids:
             print(f"[Telegram]: Mensaje rechazado del usuario {user_id} en {where}.")
@@ -243,8 +252,9 @@ class TelegramBridge:
     def api_recent_private_chat_ids(self, limit: int = 20) -> list:
         """
         Peek getUpdates for recent private chats (owner likely messaged /start).
-        Does not advance the polling offset permanently in a way that drops work:
-        uses offset=-limit without acknowledging, then leaves daemon offset alone.
+
+        WARNING: a concurrent getUpdates while the daemon long-polls causes HTTP 409
+        and the listener looks dead. Callers must skip this when the daemon is running.
         """
         if not self.base_url:
             return []
@@ -254,13 +264,16 @@ class TelegramBridge:
                 params={"limit": max(1, min(limit, 50)), "timeout": 0},
                 timeout=20,
             )
+            if r.status_code == 409:
+                print("[Telegram]: api_recent_private_chat_ids omitido — 409 (daemon ya hace polling).")
+                return []
             data = r.json() if r.content else {}
             if not (r.status_code == 200 and data.get("ok")):
                 return []
             found = []
             seen = set()
             for upd in data.get("result") or []:
-                msg = upd.get("message") or {}
+                msg = upd.get("message") or upd.get("edited_message") or {}
                 chat = msg.get("chat") or {}
                 sender = msg.get("from") or {}
                 if chat.get("type") != "private":
@@ -283,22 +296,48 @@ class TelegramBridge:
         except Exception:
             return []
 
+    def send_chat_action(self, chat_id: str, action: str = "typing") -> dict:
+        if not self.base_url or not chat_id:
+            return {"ok": False}
+        try:
+            r = requests.post(
+                f"{self.base_url}/sendChatAction",
+                json={"chat_id": chat_id, "action": action},
+                timeout=5,
+            )
+            data = r.json() if r.content else {}
+            return {"ok": bool(r.status_code == 200 and data.get("ok"))}
+        except Exception as e:
+            return {"ok": False, "error": self._redact(e)}
+
     def send_message(self, chat_id: str, text: str) -> dict:
         if not self.base_url:
             return {"ok": False, "error": "TOKEN_NOT_CONFIGURED"}
         if not chat_id:
             return {"ok": False, "error": "CHAT_ID_REQUIRED"}
+        body = (text or "").strip()
+        if not body:
+            body = "Te escuché, pero no generé texto útil. ¿Lo intentamos de nuevo?"
+        # Telegram hard limit ~4096; keep a margin.
+        if len(body) > 4000:
+            body = body[:3990] + "…"
         url = f"{self.base_url}/sendMessage"
-        payload = {"chat_id": chat_id, "text": text}
+        payload = {"chat_id": chat_id, "text": body}
         try:
             r = requests.post(url, json=payload, timeout=10)
             data = r.json() if r.content else {}
             if r.status_code == 200 and data.get("ok"):
                 mid = (data.get("result") or {}).get("message_id")
+                self.last_outbound_at = time.time()
                 return {"ok": True, "chat_id": str(chat_id), "message_id": mid}
             desc = (data.get("description") or r.text or "")[:200]
-            return {"ok": False, "error": f"HTTP_{r.status_code}", "detail": self._redact(desc)}
+            err = {"ok": False, "error": f"HTTP_{r.status_code}", "detail": self._redact(desc)}
+            self.last_error = f"sendMessage {err.get('error')}: {err.get('detail', '')}"[:240]
+            print(f"[TelegramBridge]: sendMessage falló: {self.last_error}")
+            return err
         except Exception as e:
+            self.last_error = f"sendMessage REQUEST_FAILED: {self._redact(e)}"[:240]
+            print(f"[TelegramBridge]: {self.last_error}")
             return {"ok": False, "error": "REQUEST_FAILED", "detail": self._redact(e)}
 
     def send_photo(self, chat_id: str, photo_path: str, caption: str = ""):
@@ -377,6 +416,7 @@ class TelegramBridge:
         idle_loops = 0
         while True:
             try:
+                self.last_poll_at = time.time()
                 url = f"{self.base_url}/getUpdates?offset={self.last_update_id + 1}&timeout=30"
                 response = requests.get(url, timeout=35)
                 if response.status_code == 200:
@@ -392,23 +432,42 @@ class TelegramBridge:
                         print(f"[Telegram Bridge]: {len(results)} update(s) recibidos.")
                     for result in results:
                         self.last_update_id = result["update_id"]
-                        self.handle_message(result.get("message", {}) or {})
+                        # message o edited_message — si no hay texto, handle_message sale limpio.
+                        msg = result.get("message") or result.get("edited_message") or {}
+                        try:
+                            self.handle_message(msg)
+                        except Exception as msg_err:
+                            self.last_error = f"handle_message: {self._redact(msg_err)}"[:240]
+                            print(f"[Telegram Bridge]: error procesando update: {self.last_error}")
+                            chat_id = str((msg.get("chat") or {}).get("id") or "")
+                            if chat_id:
+                                self.send_message(
+                                    chat_id,
+                                    "Recibí tu mensaje pero falló el procesamiento en la PC. "
+                                    "Revisa la consola de Avatar o reinténtalo.",
+                                )
                 elif response.status_code == 409:
                     # Another getUpdates consumer (second Avatar process) holds the poll.
+                    self.poll_conflicts_409 += 1
+                    self.last_error = "getUpdates 409 Conflict — otra instancia hace polling"
                     print("[Telegram Bridge]: 409 Conflict — otra instancia ya está haciendo polling. "
-                          "Cierra el otro Avatar o espera.")
+                          "Cierra el otro Avatar (Task Manager / otra ventana) y deja solo uno.")
                     time.sleep(10)
                 else:
                     print(f"[Telegram Bridge]: getUpdates HTTP {response.status_code}: "
                           f"{self._redact((response.text or '')[:200])}")
+                    self.last_error = f"getUpdates HTTP {response.status_code}"[:240]
                     time.sleep(5)
             except Exception as e:
                 print(f"[Error en loop de Telegram]: {self._redact(e)}")
+                self.last_error = f"poll loop: {self._redact(e)}"[:240]
                 time.sleep(5)
 
     def handle_message(self, message: dict):
+        if not message:
+            return
         chat_id = str(message.get("chat", {}).get("id", ""))
-        text = message.get("text", "")
+        text = message.get("text", "") or message.get("caption", "") or ""
 
         if not self.is_authorized(message):
             if self._try_auto_enroll(message) and self.is_authorized(message):
@@ -421,7 +480,10 @@ class TelegramBridge:
         if not text:
             return
 
+        self.last_inbound_at = time.time()
         print(f"\n[Orden remota recibida de Telegram]: {text}")
+        # Feedback inmediato en Telegram: se ve "escribiendo…" mientras piensa el LLM.
+        self.send_chat_action(chat_id, "typing")
         text_lower = text.lower().strip()
 
         # Función auxiliar para detectar si el mensaje es una instrucción de sistema, pregunta o regla conversacional
@@ -435,40 +497,56 @@ class TelegramBridge:
                          (text_lower.endswith("?") and len(text_lower.split()) > 5) or \
                          (len(text_lower.split()) > 10 and not any(text_lower.startswith(imp) for imp in ["reproduce ", "reproduzca ", "pon ", "ponme ", "toca ", "escuchar "]))
 
-        # Detección de solicitud de captura de pantalla o foto
-        if not is_instruction and any(kw in text_lower for kw in ["captura", "pantalla", "screenshot", "foto", "imagen"]):
-            self.send_message(chat_id, "📸 Capturando pantalla del escritorio de tu PC...")
-            img_path = self._perform("SCREEN_CAPTURE", {}, chat_id, "screen-capture", text).strip()
-            if img_path and os.path.isfile(img_path):
-                self.send_photo(chat_id, img_path, caption="⚡ Captura de pantalla de tu PC (Avatar AI)")
-            else:
-                self.send_message(chat_id, "⚠️ No se pudo obtener la captura de pantalla.")
-            return
+        try:
+            # Detección de solicitud de captura de pantalla o foto
+            if not is_instruction and any(kw in text_lower for kw in ["captura", "pantalla", "screenshot", "foto", "imagen"]):
+                self.send_message(chat_id, "Capturando pantalla del escritorio de tu PC…")
+                img_path = self._perform("SCREEN_CAPTURE", {}, chat_id, "screen-capture", text).strip()
+                if img_path and os.path.isfile(img_path):
+                    self.send_photo(chat_id, img_path, caption="Captura de pantalla de tu PC (Avatar)")
+                else:
+                    self.send_message(chat_id, "No se pudo obtener la captura de pantalla.")
+                return
 
-        # Detección directa de solicitud de pausa / silenciar / detener música
-        if not is_instruction and any(kw in text_lower for kw in ["pausa", "pausar", "paúsala", "pausala", "detén", "deten", "silenciar", "parar", "stop"]):
-            self.send_message(chat_id, "Pausando la música en tu PC…")
-            res_msg = self._perform("AUDIO_CONTROL", {"action": "pause"}, chat_id, "pause-audio", text)
-            self.send_message(chat_id, self._redact(res_msg))
-            return
+            # Detección directa de solicitud de pausa / silenciar / detener música
+            if not is_instruction and any(kw in text_lower for kw in ["pausa", "pausar", "paúsala", "pausala", "detén", "deten", "silenciar", "parar", "stop"]):
+                self.send_message(chat_id, "Pausando la música en tu PC…")
+                res_msg = self._perform("AUDIO_CONTROL", {"action": "pause"}, chat_id, "pause-audio", text)
+                self.send_message(chat_id, self._redact(res_msg))
+                return
 
-        # Detección directa de solicitud de música / reproducción
-        if not is_instruction and any(kw in text_lower for kw in ["reproduce", "reproduzca", "cancion", "canción", "musica", "música"]):
-            from tools.audio_tool import AudioTool
-            song_query = AudioTool.sanitize_query(text)
-            self.send_message(chat_id, f"Abriendo YouTube para reproducir «{song_query}» en tu PC…")
-            # Reproducir música abre un navegador: es un efecto externo y
-            # pasa por el chokepoint para quedar registrado y sujeto a política.
-            res_msg = self._perform("PLAY_AUDIO", {"audio_source": song_query}, chat_id, "play-music", text)
-            self.send_message(chat_id, self._redact(res_msg))
-            return
+            # Detección directa de solicitud de música / reproducción
+            if not is_instruction and any(kw in text_lower for kw in ["reproduce", "reproduzca", "cancion", "canción", "musica", "música"]):
+                from tools.audio_tool import AudioTool
+                song_query = AudioTool.sanitize_query(text)
+                self.send_message(chat_id, f"Abriendo YouTube para reproducir «{song_query}» en tu PC…")
+                res_msg = self._perform("PLAY_AUDIO", {"audio_source": song_query}, chat_id, "play-music", text)
+                self.send_message(chat_id, self._redact(res_msg))
+                return
 
-        # Procesar con el orquestador
-        raw_output = self.orchestrator.process_user_input(text, channel="remote")
-        clean_output = ReasoningEngine.extract_clean_response(raw_output)
+            # Procesar con el orquestador
+            raw_output = self.orchestrator.process_user_input(text, channel="remote")
+            clean_output = ReasoningEngine.extract_clean_response(raw_output or "")
 
-        # Evitar enviar bloques de codigo Python crudo como mensaje de chat conversacional
-        if "class ScreenTool" in clean_output or "import os" in clean_output:
-            clean_output = "Acción procesada en tu PC. Sistema listo para tu siguiente comando."
+            # Evitar enviar bloques de codigo Python crudo como mensaje de chat conversacional
+            if "class ScreenTool" in clean_output or "import os" in clean_output:
+                clean_output = "Acción procesada en tu PC. Sistema listo para tu siguiente comando."
 
-        self.send_message(chat_id, self._redact(clean_output))
+            if not (clean_output or "").strip():
+                clean_output = (
+                    "Te escuché, pero el modelo no devolvió texto. "
+                    "Prueba de nuevo o revisa el proveedor de IA en la PC."
+                )
+
+            sent = self.send_message(chat_id, self._redact(clean_output)) or {}
+            if not sent.get("ok"):
+                # Segundo intento sin markdown raro / texto mínimo.
+                self.send_message(chat_id, "Te escuché. Hubo un fallo al enviar la respuesta completa; reinténtalo.")
+        except Exception as e:
+            self.last_error = f"handle_message body: {self._redact(e)}"[:240]
+            print(f"[Telegram Bridge]: {self.last_error}")
+            self.send_message(
+                chat_id,
+                f"Recibí tu mensaje («{(text or '')[:80]}») pero falló al procesarlo en la PC. "
+                "Revisa la consola de Avatar.",
+            )

@@ -57,7 +57,10 @@ class TestConversationalTone(unittest.TestCase):
                     auto_enroll_first_private=False,
                 )
                 b.sent = []
-                b.send_message = lambda chat_id, text: b.sent.append((chat_id, text))
+                b.send_message = lambda chat_id, text: (
+                    b.sent.append((chat_id, text)) or {"ok": True, "message_id": 1}
+                )
+                b.send_chat_action = lambda chat_id, action="typing": {"ok": True}
                 b.orchestrator.process_user_input = lambda text, **kw: (
                     "En forma: canales estables y listo para lo que necesites."
                 )

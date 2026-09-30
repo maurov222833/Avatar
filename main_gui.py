@@ -39,16 +39,16 @@ def launch_desktop_gui():
     server_thread = threading.Thread(target=start_server, daemon=True)
     server_thread.start()
 
-    # 2. Iniciar pasarela de Telegram en segundo plano
-    tg_thread = threading.Thread(target=start_telegram_daemon, daemon=True)
-    tg_thread.start()
-
-    # 3. Iniciar pasarela de WhatsApp en segundo plano
+    # 2. Pasarela WhatsApp en segundo plano.
+    #    Telegram ya lo arranca el lifespan de FastAPI (server.py) — no lanzar
+    #    un segundo getUpdates aquí: eso provoca HTTP 409 y el bot “no responde”.
     wa_thread = threading.Thread(target=start_whatsapp_daemon, daemon=True)
     wa_thread.start()
 
-    # Esperar 1.5 segundos para que el servidor esté activo
+    # Esperar a que el servidor (y su lifespan/Telegram daemon) quede activo
     time.sleep(1.5)
+    # Idempotente: si el lifespan aún no arrancó el listener, lo arrancamos ahora.
+    ensure_telegram_daemon()
 
     print("[AVATAR] Lanzando Ventana Grafica de Escritorio Avatar AI...")
 

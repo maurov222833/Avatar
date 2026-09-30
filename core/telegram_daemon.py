@@ -58,6 +58,11 @@ def status() -> Dict[str, Any]:
     info["token_configured"] = bool(_bridge.bot_token)
     info["allowed_chat_ids"] = sorted(_bridge.allowed_chat_ids)
     info["auto_enroll_first_private"] = bool(_bridge.auto_enroll_first_private)
+    info["last_inbound_at"] = getattr(_bridge, "last_inbound_at", None)
+    info["last_outbound_at"] = getattr(_bridge, "last_outbound_at", None)
+    info["last_poll_at"] = getattr(_bridge, "last_poll_at", None)
+    info["last_error"] = getattr(_bridge, "last_error", "") or ""
+    info["poll_conflicts_409"] = int(getattr(_bridge, "poll_conflicts_409", 0) or 0)
     try:
         me = _bridge.api_get_me()
         info["bot"] = me
@@ -66,7 +71,12 @@ def status() -> Dict[str, Any]:
     try:
         wh = _bridge.api_webhook_info()
         info["webhook"] = wh
-        if wh.get("ok") and wh.get("url"):
+        if info["poll_conflicts_409"] > 0:
+            info["hint"] = (
+                f"Hubo {info['poll_conflicts_409']} conflicto(s) 409: cierra TODAS las "
+                "ventanas/procesos de Avatar y deja solo uno."
+            )
+        elif wh.get("ok") and wh.get("url"):
             info["hint"] = (
                 "Hay un webhook activo: getUpdates no recibe chats. "
                 "Reinicia Avatar (borra el webhook al arrancar) o dile TELEGRAM_STATUS."
@@ -78,6 +88,8 @@ def status() -> Dict[str, Any]:
                 "Listener activo, allowlist vacía: escribe /start al bot en privado "
                 f"(@{(info.get('bot') or {}).get('username') or 'tu_bot'}) para auto-enrolarte."
             )
+        elif info["last_error"]:
+            info["hint"] = f"Listener activo pero último error: {info['last_error']}"
         else:
             info["hint"] = "Listener activo. Escribe al bot en privado."
     except Exception as e:

@@ -247,8 +247,9 @@ class TestTelegramAllowlist(unittest.TestCase):
                 **defaults,
             )
         b.sent = []
-        b.send_message = lambda chat_id, text: b.sent.append((chat_id, text))
-        b.send_photo = lambda chat_id, path, caption="": b.sent.append((chat_id, "PHOTO"))
+        b.send_message = lambda chat_id, text: b.sent.append((chat_id, text)) or {"ok": True}
+        b.send_photo = lambda chat_id, path, caption="": b.sent.append((chat_id, "PHOTO")) or {"ok": True}
+        b.send_chat_action = lambda chat_id, action="typing": {"ok": True}
         b.orchestrator.process_user_input = lambda text, **kw: f"eco: {text}"
         return b
 

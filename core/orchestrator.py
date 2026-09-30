@@ -1471,7 +1471,6 @@ class AvatarOrchestrator:
             if wh.get("ok") and wh.get("url"):
                 bridge.api_delete_webhook(drop_pending=False)
                 wh = bridge.api_webhook_info()
-            recent = bridge.api_recent_private_chat_ids() if me.get("ok") else []
             try:
                 from core import telegram_daemon
                 daemon = telegram_daemon.status()
@@ -1483,6 +1482,10 @@ class AvatarOrchestrator:
                     daemon = ensure_telegram_daemon(orchestrator=self)
                 except Exception as e:
                     daemon = {"running": False, "error": str(e)[:120]}
+            # NUNCA hacer getUpdates aquí si el daemon ya hace long-poll → HTTP 409.
+            recent = []
+            if me.get("ok") and not daemon.get("running"):
+                recent = bridge.api_recent_private_chat_ids()
             payload = {
                 "success": bool(me.get("ok")),
                 "verified": bool(me.get("ok")),
@@ -1498,6 +1501,11 @@ class AvatarOrchestrator:
                 payload["hint"] = "Token inválido o ausente: UPDATE_CONFIG telegram.bot_token."
             elif wh.get("ok") and wh.get("url"):
                 payload["hint"] = "Webhook aún activo tras delete; reinicia Avatar."
+            elif daemon.get("poll_conflicts_409"):
+                payload["hint"] = (
+                    "Conflicto 409: hay OTRO proceso Avatar haciendo getUpdates. "
+                    "Cierra todas las ventanas y deja solo una."
+                )
             elif not daemon.get("running"):
                 payload["hint"] = (
                     "Token OK pero el listener NO corre. Reinicia Avatar completo "
@@ -1513,7 +1521,9 @@ class AvatarOrchestrator:
             else:
                 payload["hint"] = (
                     f"Listo. Habla en privado con @{me.get('username')}. "
-                    f"Allowlist: {sorted(bridge.allowed_chat_ids)}."
+                    f"Allowlist: {sorted(bridge.allowed_chat_ids)}. "
+                    f"last_inbound={daemon.get('last_inbound_at')} "
+                    f"last_error={daemon.get('last_error') or 'none'}"
                 )
             return json.dumps(payload, ensure_ascii=False)[:4000]
 
@@ -1543,7 +1553,14 @@ class AvatarOrchestrator:
                 elif bridge.allowed_chat_ids:
                     chat_id = sorted(bridge.allowed_chat_ids)[0]
 
-            recent = bridge.api_recent_private_chat_ids()
+            recent = []
+            try:
+                from core import telegram_daemon as _tg_daemon
+                # Evitar 409: no hacer getUpdates paralelo al long-poll del daemon.
+                if not _tg_daemon.status().get("running"):
+                    recent = bridge.api_recent_private_chat_ids()
+            except Exception:
+                recent = bridge.api_recent_private_chat_ids()
             if not chat_id and recent:
                 # Do not auto-trust strangers; report candidates for Mauro to confirm.
                 return json.dumps({

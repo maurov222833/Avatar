@@ -18,6 +18,15 @@ except ImportError:
     HAS_PYAUTOGUI = False
 
 
+
+
+def _alog(message: str, level: str = "INFO") -> None:
+    try:
+        from core.logging_util import log
+        log(level, message, component="AudioTool")
+    except Exception:
+        pass
+
 class AudioTool:
     """
     Reproducción y control multimedia en el navegador DEL SISTEMA (Chrome/Edge
@@ -109,10 +118,10 @@ class AudioTool:
                 if ids:
                     first_id = ids[0]
                     direct_url = f"https://www.youtube.com/watch?v={first_id}&autoplay=1"
-                    print(f"[AudioTool]: Video ID resuelto directamente -> {first_id}")
+                    _alog(f"[AudioTool]: Video ID resuelto directamente -> {first_id}")
                     return direct_url
         except Exception as e:
-            print(f"[AudioTool Warning Direct URL]: {e}")
+            _alog(f"[AudioTool Warning Direct URL]: {e}")
 
         return search_url
 
@@ -127,11 +136,11 @@ class AudioTool:
                 time.sleep(0.2)
                 pyautogui.hotkey("ctrl", "v")
                 pyautogui.press("enter")
-                print("[AudioTool]: Pestaña existente reutilizada con éxito.")
+                _alog("[AudioTool]: Pestaña existente reutilizada con éxito.")
                 AudioTool._last_url = target_url
                 return
             except Exception as e:
-                print(f"[AudioTool Reuse Warning]: {e}")
+                _alog(f"[AudioTool Reuse Warning]: {e}")
 
         webbrowser.open(target_url)
         AudioTool._browser_opened = True
@@ -219,7 +228,7 @@ class AudioTool:
                 hwnd = target.get("hwnd") or target.get("title")
                 return bool(UIInspector.focus_window(hwnd))
         except Exception as e:
-            print(f"[AudioTool Focus Warning]: {e}")
+            _alog(f"[AudioTool Focus Warning]: {e}")
         return False
 
     @staticmethod
@@ -256,7 +265,7 @@ class AudioTool:
             pyautogui.press("k")
             return True
         except Exception as e:
-            print(f"[AudioTool YouTube K Warning]: {e}")
+            _alog(f"[AudioTool YouTube K Warning]: {e}")
             return False
 
     @staticmethod
@@ -295,10 +304,10 @@ class AudioTool:
                 ctypes.windll.user32.keybd_event(0x4B, 0, 2, 0)
                 ctypes.windll.user32.keybd_event(0x20, 0, 0, 0)
                 ctypes.windll.user32.keybd_event(0x20, 0, 2, 0)
-            print("[AudioTool]: Fuerza de reproducción ejecutada con éxito.")
+            _alog("[AudioTool]: Fuerza de reproducción ejecutada con éxito.")
             AudioTool._is_playing = True
         except Exception as e:
-            print(f"[AudioTool Warning Play]: {e}")
+            _alog(f"[AudioTool Warning Play]: {e}")
 
     @staticmethod
     def is_resume_request(text: str) -> bool:

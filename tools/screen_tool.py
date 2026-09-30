@@ -2,6 +2,15 @@ import os
 import subprocess
 from PIL import Image, ImageDraw, ImageFont, ImageGrab
 
+
+
+def _slog(message: str, level: str = "INFO") -> None:
+    try:
+        from core.logging_util import log
+        log(level, message, component="ScreenTool")
+    except Exception:
+        pass
+
 class ScreenTool:
     """
     Herramienta nativa para capturar la pantalla del escritorio en la PC de Mauro.
@@ -18,10 +27,10 @@ class ScreenTool:
         try:
             img = ImageGrab.grab()
             img.save(output_path, "PNG")
-            print(f"[ScreenTool]: Captura guardada con PIL en {output_path}")
+            _slog(f"[ScreenTool]: Captura guardada con PIL en {output_path}")
             return output_path
         except Exception as e1:
-            print(f"[ScreenTool PIL Warning]: {e1}")
+            _slog(f"[ScreenTool PIL Warning]: {e1}")
 
         # Método 2: PowerShell capture.ps1
         ps_file = os.path.join(os.path.dirname(__file__), "capture.ps1")
@@ -37,10 +46,10 @@ class ScreenTool:
                     creationflags=create_no_window
                 )
                 if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                    print(f"[ScreenTool]: Captura guardada con PowerShell en {output_path}")
+                    _slog(f"[ScreenTool]: Captura guardada con PowerShell en {output_path}")
                     return output_path
             except Exception as e2:
-                print(f"[ScreenTool PS Warning]: {e2}")
+                _slog(f"[ScreenTool PS Warning]: {e2}")
 
         # Método 3: Generación de reporte de pantalla interactivo
         try:

@@ -180,6 +180,11 @@ class AudioTool:
         low = text.lower()
         if not any(k in low for k in ("cierra", "cerrar", "close")):
             return None
+        # "cierra la ventana" is not a browser tab. Only a tab word or a known app.
+        known = ("youtube", "youtu", "chrome", "edge", "spotify", "gmail")
+        has_tab = "pestaña" in low or "pestana" in low or re.search(r"\btab\b", low)
+        if not has_tab and not any(tok in low for tok in known):
+            return None
         m = re.search(
             r"(?is)\b(?:cierra|cerrar|close)\s+(?:en\s+concreto\s+)?(?:solo\s+)?"
             r"(?:la\s+)?(?:pesta[ñn]a\s+)?(?:de\s+)?(.+)$",

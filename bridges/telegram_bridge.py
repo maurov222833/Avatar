@@ -644,8 +644,6 @@ class TelegramBridge:
                     "minimize": "Minimizando la ventana…",
                     "maximize": "Maximizando la ventana…",
                     "show_desktop": "Mostrando el escritorio…",
-                    "close_window": "Cerrando la ventana enfocada…",
-                    "switch_window": "Cambiando de ventana…",
                 }.get(hotkey_action, f"Enviando atajo «{hotkey_action}»…")
                 self.send_message(chat_id, label)
                 res_msg = self._perform(

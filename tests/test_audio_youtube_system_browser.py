@@ -86,6 +86,7 @@ class TestAudioSanitize(unittest.TestCase):
             "youtube",
         )
         self.assertIsNone(AudioTool.extract_close_target("hola Mauro"))
+        self.assertIsNone(AudioTool.extract_close_target("Cierra la ventana del explorador"))
 
 
 class TestTelegramYoutubeCloseShortcut(unittest.TestCase):
@@ -309,6 +310,28 @@ class TestTelegramPhysicalShortcuts(unittest.TestCase):
             )
             self.assertEqual(b.performed[0][0], "DESKTOP_HOTKEY")
             self.assertEqual(b.performed[0][1].get("action"), "minimize")
+
+    def test_close_window_is_not_a_standing_hotkey(self):
+        from tools.desktop_hotkey import DesktopHotkey
+
+        self.assertEqual(DesktopHotkey.extract_action("minimiza el navegador"), "minimize")
+        self.assertIsNone(DesktopHotkey.extract_action("cierra la ventana"))
+        self.assertIsNone(DesktopHotkey.extract_action("cambia de ventana"))
+        self.assertNotIn("close_window", DesktopHotkey.ALLOWED)
+        self.assertNotIn("switch_window", DesktopHotkey.ALLOWED)
+
+        with tempfile.TemporaryDirectory() as td:
+            b = self._bridge(td)
+            b.orchestrator.process_user_input = lambda *a, **k: "entendido"
+            b.handle_message(
+                {
+                    "message_id": 1,
+                    "from": {"id": 111, "is_bot": False},
+                    "chat": {"id": 111, "type": "private"},
+                    "text": "Cierra la ventana del explorador",
+                }
+            )
+            self.assertEqual(b.performed, [])
 
 
 if __name__ == "__main__":

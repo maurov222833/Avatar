@@ -6,7 +6,7 @@ Este archivo es el estado corto. Los `AVATAR_*.md` de la raíz son auditoría hi
 ## Qué está cableado
 
 - Un orquestador por proceso; efectos por `ActChokepoint`.
-- Telegram: allowlist, listener durable, captura con `send_photo`, música en el navegador del sistema, `DESKTOP_HOTKEY` (minimizar) sin aprobación EXEC.
+- Telegram: allowlist, listener durable, captura con `send_photo`, música en el navegador del sistema, `DESKTOP_HOTKEY` (minimizar, maximizar, mostrar escritorio) sin aprobación EXEC. Cerrar o cambiar de ventana no es un atajo permanente.
 - Logger JSON (`core/logging_util.py`) y `requirements.lock` (R2). Diagnóstico de núcleo, HTTP, WhatsApp 24/7, chokepoint, audio y captura pasa por ese logger. Si el logger no arranca, el servidor aún avisa por consola.
 - Cascada de proveedores y ledger de uso (R4).
 - Watchdog en proceso (D-7). El Programador de tareas de Windows sigue opcional.

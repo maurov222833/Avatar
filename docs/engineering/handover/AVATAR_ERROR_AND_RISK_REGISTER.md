@@ -10,7 +10,7 @@ LOW (histórico).
 | ID | Nombre | Sev | Estado | Evidencia / causa | Corrección y verificación |
 |---|---|---|---|---|---|
 | E-01 | Fuga de claves en `POST /api/config/update` | Alta | CONFIRMED_FIXED (HIGH) | `server.py:107` devolvía `config.json` crudo; probado con TestClient (5 secretos) | `redact_secrets` en la respuesta + `test_config_update_does_not_return_secrets_in_clear` |
-| E-02 | Bypass Telegram fuera de chokepoint | Alta | CONFIRMED_OPEN (HIGH) | `bridges/telegram_bridge.py:111` `ScreenTool`, `:122` `AudioTool` directos | Pendiente: acts de observación (roadmap R2) |
+| E-02 | Bypass Telegram fuera de chokepoint | Alta | CONFIRMED_FIXED (HIGH) | Captura, audio y hotkeys pasan por `chokepoint.perform`. Allowlist numérica en chat privado. | R1. Alt+F4 y Alt+Tab no son atajos permanentes. Prueba en el bot real: pendiente del dueño. |
 | E-03 | Amenaza Modelo-B (mismo proceso) | Alta | Abierta por diseño (HIGH) | `authority_core.py:19-28`, `act_chokepoint.py:25-28`; HMAC/ledger no resisten código arbitrario local | Requiere verificador externo (ADR-01); sin él, solo Modelo-A |
 | E-04 | Forja/reúso de autorización y evidencia | Alta | CONFIRMED_FIXED en Modelo-A (HIGH) | Suites 003/004/consolidación (129 tests): replay, substitution, mocks | `frozen+HMAC`, `PermissionError`, ledger single-use, re-derivación |
 | E-05 | Sello de requisitos manipulable con resellado | Media | CONFIRMED_PARTIALLY_FIXED (MEDIUM) | `state_db.py:221-227` lo admite; detección → `BLOCKED`, no prevención | Solo proceso separado lo cierra |
@@ -28,12 +28,12 @@ LOW (histórico).
 | E-12 | Playwright sync dentro de loop asyncio | CONFIRMED_FIXED | `run_blocking` en hilo dedicado; probado `RESULT:OK` en loop |
 | E-13 | Relectura ciega a emojis/espacios | CONFIRMED_FIXED | `_text_key` + prueba física |
 | E-14 | Tests atados al config real | CONFIRMED_FIXED | Policies y `local_fallback` fijados por test |
-| E-15 | `main_gui`/`autoloop`/subagentes muertos o sombra | HISTORICAL_ONLY (MEDIUM) | `main_gui.py` leído: daemons separados, sin shadowing; resto 0 importadores |
+| E-15 | `main_gui`/`autoloop`/subagentes muertos o sombra | HISTORICAL_ONLY (MEDIUM) | `core/autoloop.py` retirado. `core/subagents.py` solo lo usa la suite de superficies. |
 | E-16 | RAG por palabras, no vectorial | CONFIRMED_OPEN (HIGH) | `rag_memory.py:141`; además el tópico debe igualar la palabra (`whatsapp` ≠ `whatsapp-24-7`) |
-| E-17 | Sin logger estructurado | CONFIRMED_OPEN (HIGH) | 36 prints en `core/`; UNIT-002 no existe aquí |
-| E-18 | Sin scheduler/watchdog de proceso | CONFIRMED_OPEN (HIGH) | Solo heartbeat de fichero del runner; Task Scheduler externo |
-| E-19 | Capacidades proveedor estáticas + fallback ciego | CONFIRMED_OPEN (MEDIUM) | Flags hardcodeados `llm_provider.py`; cascada local opt-in como mitigación |
-| E-20 | 111 `.md` sin estado único vivo | CONFIRMED_OPEN (LOW) | 64 raíz + 44 `docs/`; v2.0 y este handover como candidatos a canónico |
+| E-17 | Sin logger estructurado | CONFIRMED_FIXED (HIGH) | `core/logging_util.py` y `requirements.lock`. Consola solo si el logger no arranca. |
+| E-18 | Sin scheduler/watchdog de proceso | CONFIRMED_PARTIALLY_FIXED (HIGH) | `core/watchdog.py` reanuda misiones seguras. El Programador de tareas de Windows no se instaló. |
+| E-19 | Capacidades proveedor estáticas + fallback ciego | CONFIRMED_PARTIALLY_FIXED (MEDIUM) | Cascada por salud, ledger de uso y techo por hora. Las capacidades de cada adaptador siguen declaradas en código. |
+| E-20 | 111 `.md` sin estado único vivo | CONFIRMED_PARTIALLY_FIXED (LOW) | `STATUS.md` es el estado corto. Los `AVATAR_*.md` históricos se dejaron para no romper enlaces. |
 
 ## Verificación de cierre (todas)
 

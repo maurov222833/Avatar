@@ -1,13 +1,11 @@
 """Safe desktop hotkeys for the owner (minimize, show desktop, etc.)."""
 from __future__ import annotations
 
-import re
 import time
 from typing import Optional
 
 try:
     import pyautogui
-    pyautogui.FAILSAFE = False
     HAS_PYAUTOGUI = True
 except ImportError:
     HAS_PYAUTOGUI = False
@@ -22,6 +20,8 @@ class DesktopHotkey:
     flow does not need per-click EXEC approval.
     """
 
+    # Standing owner shortcuts only. Closing or switching a window is not
+    # in this set: Alt+F4 / Alt+Tab stay behind EXEC approval.
     ALLOWED = {
         "minimize": "win+down",
         "minimize_window": "win+down",
@@ -30,8 +30,6 @@ class DesktopHotkey:
         "show_desktop": "win+d",
         "desktop": "win+d",
         "restore": "win+shift+up",
-        "close_window": "alt+f4",
-        "switch_window": "alt+tab",
     }
 
     @staticmethod
@@ -73,10 +71,6 @@ class DesktopHotkey:
             )
         ):
             return "show_desktop"
-        if re.search(r"(?i)\bcierra\s+la\s+ventana\b", low) or "cerrar ventana" in low:
-            return "close_window"
-        if "cambia de ventana" in low or "switch window" in low or "alt+tab" in low:
-            return "switch_window"
         return None
 
     @staticmethod
@@ -109,8 +103,6 @@ class DesktopHotkey:
             "muestra escritorio": "show_desktop",
             "mostrar escritorio": "show_desktop",
             "escritorio": "show_desktop",
-            "cierra ventana": "close_window",
-            "cerrar ventana": "close_window",
         }
         if act in aliases:
             act = aliases[act]

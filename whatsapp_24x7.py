@@ -44,7 +44,12 @@ QR_RETRY_S = 300
 
 
 def log(msg):
-    print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} [24x7] {msg}", flush=True)
+    line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} [24x7] {msg}"
+    try:
+        from core.logging_util import log as _structured
+        _structured("INFO", line, component="WhatsApp24x7")
+    except Exception:
+        print(line, flush=True)
 
 
 def load_whatsapp_config():

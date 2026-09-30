@@ -275,9 +275,9 @@ def chat_with_avatar(req: ChatRequest):
     try:
         response = orchestrator.process_user_input(req.message)
     except Exception as e:
-        print(f"[ERROR /api/chat]: {e}")
         import traceback
-        traceback.print_exc()
+        from core.logging_util import log
+        log("ERROR", f"[ERROR /api/chat]: {e}\n{traceback.format_exc()}", component="Avatar")
         response = f"⚠️ Ocurrió un error al procesar tu solicitud: {str(e)}"
 
     active_provider = orchestrator.llm.config.get("default_provider", "gemini")
@@ -297,7 +297,8 @@ def whatsapp_webhook(req: WhatsAppWebhookRequest):
     if not req.message.strip():
         return {"status": "ignored", "reason": "empty message"}
     
-    print(f"\n💬 [Mensaje Entrante de WhatsApp - {req.sender}]: {req.message}")
+    from core.logging_util import log
+    log("INFO", f"Mensaje entrante de WhatsApp ({req.sender}): {req.message}", component="WhatsApp")
     raw_response = orchestrator.process_user_input(req.message, channel="remote")
     from tools.reasoning_engine import ReasoningEngine
     clean_response = ReasoningEngine.extract_clean_response(raw_response)
@@ -346,9 +347,9 @@ def resume_mission(req: MissionResumeRequest):
     try:
         result = orchestrator.resume_mission(req.mission_id.strip())
     except Exception as e:
-        print(f"[ERROR /api/missions/resume]: {e}")
         import traceback
-        traceback.print_exc()
+        from core.logging_util import log
+        log("ERROR", f"[ERROR /api/missions/resume]: {e}\n{traceback.format_exc()}", component="Avatar")
         raise HTTPException(status_code=500, detail=str(e))
     return result
 

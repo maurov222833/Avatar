@@ -14,6 +14,7 @@ No abrir pull requests. No cambiar `exec_requires_approval`. No automatizar el e
 - El fixture del navegador explica si el puerto 8765 está ocupado
 
 - Prints de WhatsApp (auto-reply, bridge y reader), watchdog, chokepoint, memoria y bucle continuo al logger JSON
+- Errores de `/api/chat` y `/api/missions/resume`, el webhook de WhatsApp y `whatsapp_24x7.log` pasan por el logger JSON (consola solo si el logger no arranca)
 
 ## Siguiente
 

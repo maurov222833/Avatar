@@ -395,6 +395,14 @@ _READ_ONLY_FILLER = {
     "BROWSER_OBSERVE", "DESKTOP_OBSERVE", "WHATSAPP_STATUS",
 }
 
+def _olog(message: str, level: str = "INFO") -> None:
+    try:
+        from core.logging_util import log
+        log(level, message, component="AvatarOrchestrator")
+    except Exception:
+        pass
+
+
 class AvatarOrchestrator:
     """
     Orquestador y Supervisor Principal del Agente Avatar.
@@ -426,7 +434,7 @@ class AvatarOrchestrator:
         try:
             self.chokepoint: Optional[ActChokepoint] = self._build_chokepoint()
         except Exception as exc:
-            print(f"[AvatarOrchestrator ERROR]: No se pudo inicializar el chokepoint: {exc}")
+            _olog(f"[AvatarOrchestrator ERROR]: No se pudo inicializar el chokepoint: {exc}")
             self.chokepoint = None
         # Mission context for the legacy text-parsed tool path, which can fire outside the
         # main mission loop (e.g. from the structured-action recovery layer).
@@ -539,7 +547,7 @@ class AvatarOrchestrator:
 
         # 0. Clasificar tipo de interacción PRIMERO (Autoridad Semántica de Precedencia)
         interaction_type = SemanticMissionEngine.classify_interaction(user_input)
-        print(f"[AvatarOrchestrator]: Clasificación Semántica -> InteractionType.{interaction_type.value}")
+        _olog(f"[AvatarOrchestrator]: Clasificación Semántica -> InteractionType.{interaction_type.value}")
 
         # 1. Crear el Goal cognitivo PRIMERO.
         #    El Goal debe existir antes de leer sus requirements: leerlo antes de crearlo
@@ -567,7 +575,7 @@ class AvatarOrchestrator:
                 # Un fallo al registrar la misión es un fallo de integridad, no un detalle:
                 # sin fila de misión no hay requirements, ni evidencia, ni gate. Se propaga
                 # en vez de continuar como si la autoridad no aplicara.
-                print(f"[AvatarOrchestrator ERROR]: No se pudo registrar la misión: {e}")
+                _olog(f"[AvatarOrchestrator ERROR]: No se pudo registrar la misión: {e}")
                 raise
 
         if current_mission_id:
@@ -582,14 +590,14 @@ class AvatarOrchestrator:
 
         multi_body = self._local_multi_task_body(user_input, channel)
         if multi_body is not None and (interaction_type == InteractionType.DIRECT_ACTION or has_json_block):
-            print(f"[AvatarOrchestrator]: Evaluando _parse_multi_task_specs (DIRECT_ACTION/JSON_BLOCK)...")
+            _olog(f"[AvatarOrchestrator]: Evaluando _parse_multi_task_specs (DIRECT_ACTION/JSON_BLOCK)...")
             multi_specs = self._parse_multi_task_specs(multi_body)
             if multi_specs:
-                print(f"[AvatarOrchestrator]: Multi-task Parser Activado -> {len(multi_specs)} tareas generadas.")
+                _olog(f"[AvatarOrchestrator]: Multi-task Parser Activado -> {len(multi_specs)} tareas generadas.")
             else:
-                print(f"[AvatarOrchestrator]: Multi-task Parser Omitido -> Sin tareas parseables válidas.")
+                _olog(f"[AvatarOrchestrator]: Multi-task Parser Omitido -> Sin tareas parseables válidas.")
         else:
-            print(f"[AvatarOrchestrator]: Multi-task Parser Omitido -> InteractionType no es DIRECT_ACTION ({interaction_type.value}).")
+            _olog(f"[AvatarOrchestrator]: Multi-task Parser Omitido -> InteractionType no es DIRECT_ACTION ({interaction_type.value}).")
 
         if multi_specs:
             planner = Planner()
@@ -612,7 +620,7 @@ class AvatarOrchestrator:
                             status="PENDING"
                         )
                     except Exception as persist_err:
-                        print(f"[AvatarOrchestrator]: No se pudo persistir {task.task_id}: {persist_err}")
+                        _olog(f"[AvatarOrchestrator]: No se pudo persistir {task.task_id}: {persist_err}")
                         raise
 
             engine = ContinuousExecutionEngine(
@@ -641,7 +649,7 @@ class AvatarOrchestrator:
                     try:
                         self.state_db.update_planner_task(t_id, status=st, execution_output=out)
                     except Exception as upd_err:
-                        print(f"[AvatarOrchestrator]: No se pudo actualizar {t_id}: {upd_err}")
+                        _olog(f"[AvatarOrchestrator]: No se pudo actualizar {t_id}: {upd_err}")
 
             if self.state_db and current_mission_id:
                 self._reconcile_mission(current_mission_id)
@@ -741,7 +749,7 @@ class AvatarOrchestrator:
                     "llamadas al modelo en esta misión. No se hacen más pasos."
                 )
                 break
-            print(f"[AvatarOrchestrator]: Bucle Autónomo Iteración Paso {step_count}/{max_steps} ({interaction_type.value})...")
+            _olog(f"[AvatarOrchestrator]: Bucle Autónomo Iteración Paso {step_count}/{max_steps} ({interaction_type.value})...")
 
             llm_result = self.llm.generate_response_with_tools(
                 system_prompt=supreme_prompt,
@@ -756,10 +764,10 @@ class AvatarOrchestrator:
                     AVATAR_TOOLS_SCHEMA
                 )
                 if recovered:
-                    print(f"[StructuredActionRecoveryLayer]: Intención estructurada recuperada del texto -> [{recovered['name']}] Args: {recovered['args']}")
+                    _olog(f"[StructuredActionRecoveryLayer]: Intención estructurada recuperada del texto -> [{recovered['name']}] Args: {recovered['args']}")
                     llm_result = recovered
             elif llm_result.get("type") == "provider_error":
-                print(f"[AvatarOrchestrator]: Provider API Error -> {llm_result.get('error')}")
+                _olog(f"[AvatarOrchestrator]: Provider API Error -> {llm_result.get('error')}")
                 final_user_response = f"⚠️ [Error del Proveedor de IA]: {llm_result.get('error')}"
                 break
 
@@ -767,7 +775,7 @@ class AvatarOrchestrator:
                 empty_streak = 0
                 tool_name = llm_result.get("name")
                 args = llm_result.get("args", {})
-                print(f"[AvatarOrchestrator]: Function Calling Nativo -> [{tool_name}] Parámetros: {args}")
+                _olog(f"[AvatarOrchestrator]: Function Calling Nativo -> [{tool_name}] Parámetros: {args}")
 
                 # pipeline cognitivo v2
                 task = CognitiveAdapter.create_task(
@@ -973,11 +981,11 @@ class AvatarOrchestrator:
                     
                     if not eval_res["sufficient"] and step_count < max_steps:
                         if stagnation_state == StagnationState.INSUFFICIENT_EVIDENCE:
-                            print(f"[StagnationDetector]: Estancamiento crítico alcanzado ({stagnation_state.value}). Finalizando misión...")
+                            _olog(f"[StagnationDetector]: Estancamiento crítico alcanzado ({stagnation_state.value}). Finalizando misión...")
                             final_user_response = f"{clean_text}\n\n[Misión finalizada por estancamiento o evidencia insuficiente]."
                             break
 
-                        print(f"[SemanticMissionEngine]: Evidencia insuficiente ({eval_res['reason']}). Forzando continuación de misión...")
+                        _olog(f"[SemanticMissionEngine]: Evidencia insuficiente ({eval_res['reason']}). Forzando continuación de misión...")
                         
                         stag_directive = stagnation_detector.get_stagnation_directive()
                         if stag_directive:
@@ -1169,7 +1177,7 @@ class AvatarOrchestrator:
             if not required_caps:
                 verdict = settle_mission(
                     self.state_db, mission_id, chokepoint=self.chokepoint)
-                print(f"[AvatarOrchestrator]: Misión {mission_id} reconciliada (F-10) "
+                _olog(f"[AvatarOrchestrator]: Misión {mission_id} reconciliada (F-10) "
                       f"-> {verdict.status}")
                 self._persist_mission_summary(mission_id, status=verdict.status)
                 return verdict.status
@@ -1182,11 +1190,11 @@ class AvatarOrchestrator:
             status = self.state_db.complete_mission_with_authorization(
                 mission_id, gate_authorization=gate_auth
             )
-            print(f"[AvatarOrchestrator]: Misión {mission_id} reconciliada -> {status}")
+            _olog(f"[AvatarOrchestrator]: Misión {mission_id} reconciliada -> {status}")
             self._persist_mission_summary(mission_id, status=status)
             return status
         except Exception as exc:
-            print(f"[AvatarOrchestrator ERROR]: No se pudo reconciliar la misión "
+            _olog(f"[AvatarOrchestrator ERROR]: No se pudo reconciliar la misión "
                   f"{mission_id}: {type(exc).__name__}: {exc}")
             return ""
 
@@ -1208,7 +1216,7 @@ class AvatarOrchestrator:
                 acts=acts,
             )
         except Exception as exc:
-            print(f"[AvatarOrchestrator]: No se pudo guardar resumen de misión "
+            _olog(f"[AvatarOrchestrator]: No se pudo guardar resumen de misión "
                   f"{mission_id}: {exc}")
 
     def resume_mission(self, mission_id: str) -> Dict[str, Any]:
@@ -2115,17 +2123,17 @@ class AvatarOrchestrator:
             except Exception:
                 interactive = False
             if interactive:
-                print("\n" + "🛡️ " * 20)
-                print(f"🛡️  [SEGURIDAD AVATAR - AUTORIZACIÓN REQUERIDA]")
-                print(f"   Herramienta propuesta: [{tool_name}]")
-                print(f"   Parámetros: {params}")
-                print("🛡️ " * 20)
+                _olog("\n" + "🛡️ " * 20)
+                _olog(f"🛡️  [SEGURIDAD AVATAR - AUTORIZACIÓN REQUERIDA]")
+                _olog(f"   Herramienta propuesta: [{tool_name}]")
+                _olog(f"   Parámetros: {params}")
+                _olog("🛡️ " * 20)
                 try:
                     confirm = input("👉 ¿Autorizas a Avatar a ejecutar esta acción en tu PC? (s/N) > ").strip().lower()
                 except Exception:
                     confirm = "n"
                 if confirm not in ("s", "si", "y", "yes"):
-                    print("❌ [Acción cancelada por el usuario por seguridad.]")
+                    _olog("❌ [Acción cancelada por el usuario por seguridad.]")
                     return "[Seguridad]: El usuario canceló la ejecución de la herramienta por seguridad."
 
         # Normalise the free-text parameter into the argument shape the chokepoint expects.

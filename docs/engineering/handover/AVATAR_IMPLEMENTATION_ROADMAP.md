@@ -31,10 +31,15 @@ Scheduler documentado. Aceptación: kill nocturno simulado con misión que conti
 sola. Complejidad media. Tokens: ~30-60k. Requiere decisión del dueño (servicio
 propio vs programador del SO).
 
-## R4 — Routing por salud y costos (E-19)
+## R4 — Routing por salud y costos (E-19) ✅
 
 Health real que dirige tráfico, cascada configurable, registro de uso por proveedor,
 techos de costo. Aceptación: caída de groq deriva sin intervención; uso visible.
+
+**Hecho (2026-09-30):** `providers.cascade` / `max_calls_per_hour`, ledger
+`memory/provider_usage.jsonl`, `tests/test_llm_provider_routing.py` (TestR4HealthCascade).
+Informe: `docs/engineering/r4_provider_routing/R4_INFORME.md`.
+
 Complejidad media. Tokens: ~25-50k.
 
 ## R5 — Integración Telegram Bot API (canal superior)

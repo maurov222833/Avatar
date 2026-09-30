@@ -42,8 +42,13 @@ class FakeManager:
 
 def _provider_with(script, provider_name="fake"):
     p = LLMProvider.__new__(LLMProvider)
-    p.config = {"default_provider": provider_name,
-                provider_name: {}, "gemini": {"api_key": ""}}
+    p.config = {
+        "default_provider": provider_name,
+        provider_name: {},
+        "gemini": {"api_key": ""},
+        # No peer fallback unless a test opts into local_fallback / cascade.
+        "providers": {"cascade": [], "local_fallback": False},
+    }
     adapter = FakeAdapter(script)
     p.manager = FakeManager({provider_name: adapter,
                              "gemini": FakeAdapter([{"type": "provider_error",

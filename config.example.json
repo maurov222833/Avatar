@@ -28,6 +28,11 @@
     "url": "",
     "model": ""
   },
+  "providers": {
+    "local_fallback": false,
+    "cascade": ["groq", "gemini", "openai"],
+    "max_calls_per_hour": null
+  },
   "autonomy": {
     "dry_run": true,
     "allow_external_messages": false,

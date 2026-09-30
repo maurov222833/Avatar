@@ -776,6 +776,71 @@ class LLMProvider:
         except Exception:
             return False
 
+    def _provider_cascade(self) -> List[str]:
+        """Ordered providers: active first, then configured/healthy peers (R4).
+
+        ``providers.cascade``:
+        - omitted / null → default cloud peers (and local if local_fallback)
+        - ``[]`` → no fallback (only the active provider)
+        - ``["groq", "gemini", …]`` → those peers after the active one
+        """
+        active = self.get_active_provider()
+        cfg = (self.config or {}).get("providers") or {}
+        raw = cfg.get("cascade", None)
+        rest: List[str] = []
+        if raw is None:
+            cloud = ["groq", "gemini", "openai", "github"]
+            rest = [p for p in cloud if p != active]
+        elif isinstance(raw, list):
+            rest = [str(x).lower().strip() for x in raw if str(x).strip()]
+        if self._local_fallback_enabled():
+            for loc in ("ollama", "lmstudio"):
+                if loc != active and loc not in rest:
+                    rest.append(loc)
+        ordered = [active] + [p for p in rest if p != active]
+        seen = set()
+        out: List[str] = []
+        for name in ordered:
+            if name and name not in seen:
+                seen.add(name)
+                out.append(name)
+        return out
+
+    def _max_calls_per_hour(self) -> Optional[int]:
+        try:
+            raw = (self.config or {}).get("providers", {}).get("max_calls_per_hour")
+            if raw is None or raw == "":
+                return None
+            return max(0, int(raw))
+        except Exception:
+            return None
+
+    def _provider_eligible(self, name: str) -> bool:
+        """True when a cascade *peer* may be tried (primary is always attempted)."""
+        adapter = self.manager.get_adapter(name)
+        if adapter is None:
+            return False
+        if name in ("ollama", "lmstudio") and not self._local_fallback_enabled():
+            return False
+        check = getattr(adapter, "check_health", None)
+        if check is None:
+            # Test doubles / thin adapters: keyed cloud peers need a non-empty key.
+            if name in _KEYED_PROVIDERS:
+                try:
+                    return bool(adapter.get_api_key())
+                except Exception:
+                    return False
+            return True
+        try:
+            health = check()
+        except Exception:
+            return False
+        return getattr(health, "status", "") == "ACTIVE"
+
+    def get_usage_summary(self, window_seconds: float = 3600.0) -> Dict[str, Any]:
+        from core.provider_usage import get_usage_ledger
+        return get_usage_ledger().summary(window_seconds=window_seconds)
+
     def _known_secrets(self) -> List[str]:
         keys = []
         for name in _KEYED_PROVIDERS:
@@ -849,64 +914,105 @@ class LLMProvider:
         return value
 
     def _generate_response_with_tools_unredacted(self, system_prompt: str, contents: List[Dict[str, Any]], tools: List[Dict[str, Any]] = None) -> Dict[str, Any]:
-        provider = self.get_active_provider()
-        adapter = self.manager.get_adapter(provider)
-        res = adapter.generate_response_with_tools(system_prompt, contents, tools)
+        from core.provider_usage import get_usage_ledger
+        try:
+            from core.logging_util import log as _llog
+        except Exception:
+            def _llog(level, message, **fields):
+                print(f"[LLMProvider]: {message}")
 
-        # Normalización: una plantilla de vacío no es texto del modelo.
-        if res.get("type") == "text" and (res.get("text") or "").strip().lower() in _EMPTY_TEXTS:
-            res = {"type": "provider_empty", "provider": res.get("provider", provider),
-                   "error": "La API respondió sin contenido aprovechable."}
+        usage = get_usage_ledger()
+        ceiling = self._max_calls_per_hour()
+        if ceiling is not None and usage.calls_since(3600.0) >= ceiling:
+            usage.record(self.get_active_provider(), outcome="denied_budget", reason="MAX_CALLS_PER_HOUR")
+            return {
+                "type": "provider_error",
+                "provider": self.get_active_provider(),
+                "error": f"Techo de uso: {ceiling} llamadas LLM/hora (providers.max_calls_per_hour).",
+                "status_code": 429,
+                "reason": "USAGE_BUDGET_EXCEEDED",
+                "recoverable": True,
+            }
 
-        # Reparación 1: el modelo invocó una herramienta que no existe en el schema
-        # (p. ej. 'SEARCH_CODE'). Un solo reintento guiado con la lista permitida;
-        # si persiste, se devuelve como texto para que el loop/SAR/fallback decidan.
-        if res.get("type") == "function_call" and tools:
-            allowed = _allowed_tool_names(tools)
-            if allowed and res.get("name") not in allowed:
-                print(f"[LLMProvider]: Tool desconocido '{res.get('name')}'; reintento guiado.")
-                res = adapter.generate_response_with_tools(
+        cascade = self._provider_cascade()
+        primary = cascade[0] if cascade else self.get_active_provider()
+        tried = set()
+        last_res: Dict[str, Any] = {
+            "type": "provider_error",
+            "provider": primary,
+            "error": "Sin proveedores disponibles.",
+            "status_code": 0,
+            "reason": "NO_PROVIDER",
+            "recoverable": True,
+        }
+
+        for idx, provider in enumerate(cascade):
+            if provider in tried:
+                continue
+            tried.add(provider)
+            # Primary (idx 0) always runs so MISSING_KEY / adapter errors surface.
+            if idx > 0 and not self._provider_eligible(provider):
+                continue
+
+            adapter = self.manager.get_adapter(provider)
+            if adapter is None:
+                continue
+            usage.record(provider, outcome="attempt")
+            t0 = time.time()
+            res = adapter.generate_response_with_tools(system_prompt, contents, tools)
+            latency = (time.time() - t0) * 1000.0
+
+            # Normalización: una plantilla de vacío no es texto del modelo.
+            if res.get("type") == "text" and (res.get("text") or "").strip().lower() in _EMPTY_TEXTS:
+                res = {
+                    "type": "provider_empty",
+                    "provider": res.get("provider", provider),
+                    "error": "La API respondió sin contenido aprovechable.",
+                }
+
+            # Reparación 1: herramienta desconocida — un reintento guiado en el mismo proveedor.
+            if res.get("type") == "function_call" and tools:
+                allowed = _allowed_tool_names(tools)
+                if allowed and res.get("name") not in allowed:
+                    _llog("WARNING", f"Tool desconocido '{res.get('name')}'; reintento guiado.", component="LLMProvider")
+                    res = adapter.generate_response_with_tools(
+                        system_prompt,
+                        _repair_contents(contents, allowed, bad_name=res.get("name") or "?"),
+                        tools,
+                    )
+                    if res.get("type") == "function_call" and res.get("name") not in allowed:
+                        res = {"type": "text", "text": res.get("text", ""), "provider": provider}
+
+            # Reparación 2: tool-call truncado / JSON inválido.
+            if res.get("type") == "provider_error" and _is_tool_parse_error(res.get("error", "")):
+                _llog("WARNING", "Tool-call malformado; reintento con reparación.", component="LLMProvider")
+                retry = adapter.generate_response_with_tools(
                     system_prompt,
-                    _repair_contents(contents, allowed, bad_name=res.get("name") or "?"),
-                    tools)
-                if res.get("type") == "function_call" and res.get("name") not in allowed:
-                    res = {"type": "text", "text": res.get("text", "")}
+                    _repair_contents(contents, _allowed_tool_names(tools), malformed=True),
+                    tools,
+                )
+                if retry.get("type") != "provider_error":
+                    usage.record(provider, outcome="success", latency_ms=latency)
+                    return retry
 
-        # Reparación 2: el tool-call llegó truncado o con JSON inválido (400 del
-        # proveedor). Un solo reintento pidiendo re-emisión completa.
-        if res.get("type") == "provider_error" and _is_tool_parse_error(res.get("error", "")):
-            print("[LLMProvider]: Tool-call malformado; reintento con reparación.")
-            retry = adapter.generate_response_with_tools(
-                system_prompt, _repair_contents(contents, _allowed_tool_names(tools),
-                                               malformed=True), tools)
-            if retry.get("type") != "provider_error":
-                return retry
+            if res.get("type") == "provider_error":
+                usage.record(
+                    provider,
+                    outcome="error",
+                    reason=str(res.get("reason") or res.get("error") or "")[:120],
+                    latency_ms=latency,
+                )
+                last_res = res
+                _llog(
+                    "WARNING",
+                    f"Proveedor '{provider}' falló; probando siguiente de la cascada…",
+                    component="LLMProvider",
+                )
+                continue
 
-        if res.get("type") == "provider_error" and provider != "gemini":
-            gemini_adapter = self.manager.get_adapter("gemini")
-            if gemini_adapter and gemini_adapter.get_api_key():
-                print(f"[LLMProvider]: Proveedor '{provider}' falló con error. Derivando automáticamente a Gemini...")
-                res_gemini = gemini_adapter.generate_response_with_tools(system_prompt, contents, tools)
-                if res_gemini.get("type") != "provider_error":
-                    return res_gemini
+            usage.record(provider, outcome="success", latency_ms=latency)
+            if provider != primary:
+                _llog("INFO", f"Derivado a proveedor sano '{provider}'.", component="LLMProvider")
+            return res
 
-        # Última red: modelos locales (sin costo, sin red). Solo con opt-in, solo si
-        # están sanos, y devolviendo el error original si también fallan.
-        if res.get("type") == "provider_error" and self._local_fallback_enabled():
-            for local_name in ("ollama", "lmstudio"):
-                if local_name == provider:
-                    continue
-                try:
-                    local_adapter = self.manager.get_adapter(local_name)
-                    if local_adapter is None:
-                        continue
-                    if local_adapter.check_health().status != "ACTIVE":
-                        continue
-                    print(f"[LLMProvider]: Cayendo al modelo local '{local_name}'...")
-                    res_local = local_adapter.generate_response_with_tools(
-                        system_prompt, contents, tools)
-                    if res_local.get("type") != "provider_error":
-                        return res_local
-                except Exception:
-                    continue
-        return res
+        return last_res

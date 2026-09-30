@@ -28,8 +28,9 @@ El parser de texto (`_parse_tool_action`) acepta los nombres de `ToolRegistry.li
 Propuesta de Mauro del 2026-09-30. No sustituye este estado ni el roadmap R0–R7.
 Texto íntegro: `docs/engineering/handover/MASTER_DIRECTIVE_002.md`.
 Dictamen: `docs/engineering/handover/MASTER_DIRECTIVE_002_COMPARISON.md`.
-Plan de unidades: `docs/engineering/handover/ENGINEERING_SPEC_003.md`.
-U0 archivó la directriz. El motor no cambia hasta que Mauro autorice la siguiente unidad.
+Plan de unidades: `docs/engineering/handover/ENGINEERING_SPEC_003.md` (v2, U0 a U17).
+Comparación de negocio y asistente: `docs/engineering/handover/SPEC_003_V2_GAP.md`.
+U0 archivó la directriz. U11 a U17 están registradas y sin iniciar. El motor no cambia hasta que Mauro autorice la parada de emergencia (U1 de la spec, distinta de la contención de canales ya hecha).
 
 ## Mañana en Telegram (prueba corta)
 

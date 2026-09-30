@@ -3,14 +3,18 @@
 ## Plan de ingeniería para cerrar las brechas de la Directriz 002
 
 **Propietario y autoridad:** Mauro
-**Estado de este archivo:** propuesta archivada en U0. Ninguna unidad de código está autorizada.
+**Estado de este archivo:** propuesta. La versión que manda es la 2.0 consolidada del 2026-09-30 (U0 a U17). Ninguna unidad de código está autorizada.
 **Directriz íntegra:** `MASTER_DIRECTIVE_002.md`
 **Dictamen:** `MASTER_DIRECTIVE_002_COMPARISON.md`
 **Relación:** complementa la Directriz 002. No sustituye el roadmap R0–R7.
 
-El mensaje de Mauro del 2026-09-30 es la especificación completa (secciones 0 a 16 y unidades U0 a U10). Este archivo guarda el resultado de U0 y el historial de revisión que pide la sección 16. No reescribe el diseño de U1 a U10.
+La versión 2.0 consolidada (U0 a U17, más U14.4, U15.5, U15.6 y U15.7) sustituye a la spec inicial y a las adendas. Este archivo guarda el resultado de U0, el orden registrado y el historial. La comparación de U11 a U17 está en `SPEC_003_V2_GAP.md`. No reescribe el diseño ni toca el motor.
 
 ## Historial de revisión
+
+### 2026-09-30 — v2 consolidada, solo registro
+
+Mauro entregó la spec 2.0 (seguridad, documentos, asistente, 24/7, marketing, marketplaces con dropshipping, mercados financieros y conocimiento experto). Se registró el orden de su sección 5. U11 a U17 se compararon contra el código en `SPEC_003_V2_GAP.md`. No hay adaptador de tienda. No hay código nuevo. U1 (parada de emergencia) sigue pendiente de autorización. No es la U1 histórica de contención de canales.
 
 ### 2026-09-30 — U0, comparación contra el código
 
@@ -45,19 +49,18 @@ Ahora la copia oficial es:
 
 Incluye los encabezados `# 0.` a `# 22.` y el cierre `FIN DE MASTER DIRECTIVE 002`. El índice corto permanece en el commit `f544a5f`.
 
-## Orden propuesto
+## Orden registrado (spec 2.0, sección 5)
 
-Se mantiene el orden de la especificación. No se adelanta ninguna unidad.
+No se adelanta ninguna unidad. La seguridad de ejecución va primero.
 
-1. U0 — integridad documental. Hecho en esta rama. Sin código de ejecución.
-2. U1 — parada de emergencia. Primera unidad de código, si Mauro la autoriza.
-3. U2 — protección de rutas en el ejecutor.
-4. U3 — primero el ADR de clasificación de comandos. Código solo después de ese ADR.
-5. U4 — contención. Depende de U1.
-6. U5, U6 y U7 — después de U1 a U3, y no a la vez en el mismo cambio.
-7. U8 — IDE externos. Depende de U2, U3 y U6, y de la lista de herramientas que Mauro autorice.
-8. U9 — canal remoto. Depende de U1 y U3.
-9. U10 — subagentes. Depende de U2, U3 y U6. No se crea otra flota.
+1. Fase 1: U0 hecho. U1 parada de emergencia, si Mauro la autoriza. U2 rutas. U3 ADR de clasificación y, solo después, código.
+2. Fase 2: U4 contención (depende de U1). U9 canal remoto (depende de U1 y U3). U6 informes. U5 investigación. U7 modelos y gasto.
+3. Fase 3: U12.4 respaldos. U13 operación 24/7. U12.2 tareas programadas.
+4. Fase 4: U11 documentos (depende de U2, U5 y U6). U12.1 correo y calendario. U12.3 OCR de documentos.
+5. Fase 5: U14 marketing, incluida U14.4. U16 análisis de mercados, sin ejecutar operaciones. U15 marketplaces: primero U15.7 y U15.5, y U15.6 con dropshipping como modelo principal.
+6. Fase 6: U8 IDE externos. U10 subagentes, conectando `core/subagents.py`. U12.5 voz. U17 conocimiento experto.
+
+U11 a U17 están sin iniciar. El detalle de qué ya existe está en `SPEC_003_V2_GAP.md`.
 
 La prueba de Telegram en el PC (captura con foto, «dale play» y «pausa» en la misma canción, minimizar sin luz verde) no necesita código nuevo.
 

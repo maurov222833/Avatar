@@ -57,13 +57,14 @@ dueño: probar ida y vuelta con el bot real (captura, play, minimizar).
 Proceso separado + IPC para Modelo-B. Es el único cambio arquitectónico mayor;
 no iniciar sin ADR y sin amenaza que lo justifique. Complejidad alta. Tokens: 100k+.
 
-## MD002 — Directriz propuesta (no iniciar)
+## MD002 — Directriz y spec 003 v2 (no iniciar código)
 
 Texto íntegro: `MASTER_DIRECTIVE_002.md` (U0, apartados 0 a 22).
 Dictamen: `MASTER_DIRECTIVE_002_COMPARISON.md`.
-Plan de unidades: `ENGINEERING_SPEC_003.md`.
-No reemplaza R0–R7. U0 (archivo) está hecho. U1 en adelante no empieza
-hasta que Mauro autorice esa unidad.
+Plan: `ENGINEERING_SPEC_003.md` (v2, unidades U0 a U17 en el orden de su sección 5).
+Comparación de U11–U17: `SPEC_003_V2_GAP.md`.
+No reemplaza R0–R7. U0 está hecho. La U1 de esta spec es la parada de emergencia;
+no es la U1 histórica de contención de canales. No empieza hasta que Mauro la autorice.
 
 ## Puerta de cada fase
 

@@ -57,6 +57,12 @@ dueño: probar ida y vuelta con el bot real (captura, play, minimizar).
 Proceso separado + IPC para Modelo-B. Es el único cambio arquitectónico mayor;
 no iniciar sin ADR y sin amenaza que lo justifique. Complejidad alta. Tokens: 100k+.
 
+## MD002 — Directriz propuesta (no iniciar)
+
+Texto: `MASTER_DIRECTIVE_002.md`. Dictamen: `MASTER_DIRECTIVE_002_COMPARISON.md`.
+No reemplaza R0–R7. Ninguna sección de esa directriz se implementa hasta que
+Mauro acepte una unidad concreta del dictamen.
+
 ## Puerta de cada fase
 
 Reproducir síntoma → implementar → test dedicado → suite verde → evidencia en

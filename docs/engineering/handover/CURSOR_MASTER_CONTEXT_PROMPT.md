@@ -36,6 +36,11 @@ ANTES DE IMPLEMENTAR NADA:
    Atajos permanentes no incluyen Alt+F4 ni Alt+Tab.
    Siguiente trabajo: un test rojo, o un ítem que el registro de riesgos siga
    marcando abierto y que el roadmap ya haya aceptado. No inventes fases.
+   Master Directive 002 (2026-09-30) es una propuesta complementaria, no una
+   orden de implementar todas sus secciones. Léela en
+   `MASTER_DIRECTIVE_002.md` y el dictamen en
+   `MASTER_DIRECTIVE_002_COMPARISON.md`. No arranques una unidad de esa
+   directriz hasta que Mauro acepte esa unidad.
 
 REGLAS:
 - Una sola tarea del roadmap (R1 primero) con sus criterios de aceptación.

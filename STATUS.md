@@ -23,6 +23,12 @@ Este archivo es el estado corto. Los `AVATAR_*.md` de la raíz son auditoría hi
 
 El parser de texto (`_parse_tool_action`) acepta los nombres de `ToolRegistry.list_tools()`, que une el registro cognitivo con `ACT_TYPES`. La ejecución sigue siendo el chokepoint.
 
+## Directriz 002
+
+Propuesta de Mauro del 2026-09-30. No sustituye este estado ni el roadmap R0–R7.
+Dictamen: `docs/engineering/handover/MASTER_DIRECTIVE_002_COMPARISON.md`.
+No se implementa por lotes.
+
 ## Mañana en Telegram (prueba corta)
 
 1. Pide una captura: debe llegar la foto.

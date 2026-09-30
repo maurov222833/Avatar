@@ -137,6 +137,54 @@ def xlsx_has_formula(path: str) -> bool:
     return "<f>" in xml
 
 
+def write_deliverable(
+    chokepoint,
+    workspace: str,
+    filename: str,
+    title: str,
+    sections: List[Tuple[str, str]],
+    accounts: Optional[Dict[str, float]] = None,
+) -> str:
+    """Escribe un borrador dentro de la carpeta de la misión. No pisa un original."""
+    from core.path_guard import ALLOW, authorize_path
+
+    name = os.path.basename(filename or "")
+    if not name or name != filename or name in (".", ".."):
+        return "PATH_OUTSIDE_MISSION_SCOPE"
+    path = os.path.join(workspace, name)
+    decision, why = authorize_path(path, "write", workspace)
+    if decision != ALLOW:
+        return why
+    if os.path.exists(path):
+        return "OVERWRITE_ORIGINAL"
+    body = list(sections)
+    mismatch = None
+    if accounts:
+        mismatch = accounting_equation(
+            float(accounts.get("assets") or 0),
+            float(accounts.get("liabilities") or 0),
+            float(accounts.get("equity") or 0),
+        )
+        if mismatch:
+            body.append(("Descuadre", mismatch))
+    body.append(("Aviso", FINANCIAL_WARNING))
+    lines = [title, ""]
+    for heading, text in body:
+        lines.append(heading)
+        lines.append(text)
+        lines.append("")
+    result = chokepoint.perform(
+        act_type="WRITE_FILE",
+        args={"file_path": path, "content": "\n".join(lines)},
+        mission_id="deliverable",
+        task_id="deliverable",
+        execution_id="deliverable",
+    )
+    if mismatch and mismatch not in result:
+        return f"{result}\n{mismatch}"
+    return result
+
+
 def verify_reference(reference: Dict[str, str], corpus: Iterable[Dict[str, str]]) -> bool:
     """Solo entra una referencia que coincide con una fuente consultada."""
     for item in corpus:

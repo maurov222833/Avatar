@@ -108,6 +108,9 @@ def backup_tree(source: str, dest_root: str) -> Dict[str, Any]:
     manifest = os.path.join(dest, ".manifest.sha256")
     with open(manifest, "w", encoding="utf-8") as handle:
         handle.write(digest.hexdigest() + "\n")
+    from core.path_guard import register_backup_root
+    register_backup_root(dest_root)
+    register_backup_root(dest)
     return {"path": dest, "files": count, "sha256": digest.hexdigest()}
 
 

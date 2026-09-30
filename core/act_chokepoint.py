@@ -237,6 +237,16 @@ def _is_within_root(target: str, root: str) -> bool:
         return False
 
 
+def _names_trade(args: Dict[str, Any]) -> bool:
+    """Una orden, un retiro o una transferencia nombrados no se ejecutan."""
+    from core.market_signals import TRADE_ENDPOINTS
+    blob = " ".join(
+        str(args.get(key) or "")
+        for key in ("url", "command", "params", "path", "endpoint")
+    ).lower()
+    return any(piece in blob for piece in TRADE_ENDPOINTS)
+
+
 # ---------------------------------------------------------------------------
 # Policy
 # ---------------------------------------------------------------------------
@@ -269,6 +279,8 @@ class ActPolicy:
     containment_enabled: bool = False
     #: Sesión de Windows bloqueada: no hay escritorio que mirar ni que tocar.
     session_locked: bool = False
+    #: Sobre de noche (U13). Apagado: de día la captura y el audio siguen igual.
+    night_mode: bool = False
 
     def is_trusted_personal_send(self, act_type: str, args: Dict[str, Any]) -> bool:
         """Telegram send/test to the owner skips external consent/dry-run."""
@@ -291,6 +303,18 @@ class ActPolicy:
             "DESKTOP_HOTKEY", "DESKTOP_OBSERVE",
         ):
             return False, "SESSION_LOCKED"
+        if _names_trade(args or {}):
+            return False, "TRADE_ENDPOINT_BLOCKED"
+        access_mode = str((args or {}).get("access_mode") or "")
+        if access_mode:
+            from core.marketplace import authorize_access_mode
+            allowed_mode, mode_reason = authorize_access_mode(access_mode)
+            if not allowed_mode:
+                return False, mode_reason
+        if (args or {}).get("invented") and "review" in (args or {}):
+            from core.marketing import reject_fake_review
+            if reject_fake_review(str(args.get("review") or ""), invented=True):
+                return False, "FAKE_REVIEW_REJECTED"
         if act_type in self.denied_act_types:
             return False, "ACT_TYPE_DENIED_BY_POLICY"
         if (
@@ -327,8 +351,16 @@ class ActPolicy:
                 )
                 if decision != ALLOW and why.startswith(hard_deny):
                     return False, why
+            if self.night_mode:
+                from core.night_mode import queued_at_night
+                if queued_at_night(act_type, level):
+                    return False, "NIGHT_QUEUED"
             if grant_allows(level, self.mission_grant):
                 return True, f"ALLOWED_MISSION_LEVEL_{level}"
+        if self.night_mode:
+            from core.night_mode import queued_at_night
+            if queued_at_night(act_type):
+                return False, "NIGHT_QUEUED"
         if risk == ActRisk.EXEC and self.exec_requires_approval:
             # Desktop GUI acts have no shell command line to allowlist — always ask.
             if act_type in ("DESKTOP_CLICK", "DESKTOP_TYPE"):

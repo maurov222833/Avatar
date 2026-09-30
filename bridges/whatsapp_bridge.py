@@ -104,18 +104,71 @@ class WhatsAppBridge:
         return "⚠️ No se encontró el script de sincronización whatsapp_native_sync.py."
 
     # -- procesar un mensaje -------------------------------------------
-    def process_incoming_whatsapp(self, sender: str, message_body: str) -> str:
+    def process_incoming_whatsapp(self, sender: str, message_body: str,
+                                  message_id: str = "", sent_at=None) -> str:
         """
         Recibe un mensaje de WhatsApp, lo procesa con el Agente Avatar y envía la respuesta.
 
         El envío pasa por el ActChokepoint, igual que cualquier otro efecto secundario. Antes
         llamaba a `WhatsAppAutoReply.send_reply` directamente, lo que significaba que un
         mensaje real podía salir a otra persona sin política, sin registro y sin dry-run.
+        `/pause` del dueño autorizado pausa y el segundo `/pause` quita la pausa.
         """
         _walog(f"\n💬 [Mensaje de WhatsApp de {sender}]: {message_body}")
+        handled = self._owner_control(
+            sender, message_body, message_id=message_id, sent_at=sent_at,
+        )
+        if handled is not None:
+            if handled:
+                self._deliver(sender=sender, message_body=message_body, response=handled)
+            return handled
         response = self.orchestrator.process_user_input(message_body, channel="remote")
         self._deliver(sender=sender, message_body=message_body, response=response)
         return response
+
+    def _control_allowed(self, sender: str, extra_allowed=None) -> bool:
+        allowed = self.authorized_senders
+        if allowed is None:
+            allowed = extra_allowed
+        if not allowed:
+            return False
+        return sender in list(allowed)
+
+    def _owner_control(self, sender: str, text: str, message_id: str = "",
+                       sent_at=None, extra_allowed=None):
+        """None si no es una parada. Texto de respuesta si el dueño la ordenó."""
+        from core.halt import apply_control_command, interpret_control_command, toggle_pause
+        if not interpret_control_command(text):
+            return None
+        actor = sender or "unknown"
+        if not self._control_allowed(sender, extra_allowed):
+            apply_control_command(text, authorized=False, actor=actor, source="whatsapp")
+            return ""
+        inbox = getattr(self, "_remote_inbox", None)
+        if inbox is None:
+            from core.remote_guard import RemoteInbox
+            inbox = RemoteInbox()
+            self._remote_inbox = inbox
+        accepted, _why = inbox.accept(
+            sender=sender,
+            message_id=str(message_id or ""),
+            text=text,
+            authorized=True,
+            sent_at=sent_at,
+        )
+        if not accepted:
+            return ""
+        if interpret_control_command(text) == "PAUSE":
+            result = toggle_pause(actor=actor, source="whatsapp")
+            if result == "RESUMED":
+                return "Pausa quitada."
+            if result == "PAUSE":
+                return "Pausa activa. Otro /pause la quita."
+            return "Sigue la parada fuerte. /pause no la quita."
+        level = apply_control_command(
+            text, authorized=True, actor=actor, source="whatsapp",
+        )
+        return f"Parada {level} activa."
 
     def _deliver(self, sender: str, message_body: str, response: str) -> str:
         """Envía una respuesta ya generada vía chokepoint (política + ledger)."""
@@ -261,7 +314,16 @@ class WhatsAppBridge:
                     break
                 processed += 1
                 try:
-                    response = self.orchestrator.process_user_input(msg.text, channel="remote")
+                    handled = self._owner_control(
+                        msg.sender, msg.text, message_id=msg.msg_id,
+                        extra_allowed=allowed_senders,
+                    )
+                    if handled is not None:
+                        response = handled
+                    else:
+                        response = self.orchestrator.process_user_input(
+                            msg.text, channel="remote",
+                        )
                     send, shaped = self.format_whatsapp_reply(response)
                     if not send:
                         _walog(f"[WhatsAppBridge] respuesta suprimida por política "

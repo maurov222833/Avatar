@@ -33,3 +33,32 @@ class NightEnvelope:
 
 def heartbeat_ok(last_beat: float, now: float, interval: float) -> bool:
     return (now - last_beat) <= interval
+
+
+VISUAL_ACTS = frozenset({
+    "SCREEN_CAPTURE",
+    "DESKTOP_CLICK",
+    "DESKTOP_TYPE",
+    "DESKTOP_HOTKEY",
+    "DESKTOP_OBSERVE",
+})
+
+#: Llegan a otra persona o cambian una sesión. De noche no se ejecutan.
+_NIGHT_HEAVY = frozenset({
+    "SEND_WHATSAPP",
+    "WHATSAPP_SEND",
+    "TELEGRAM_SEND",
+    "BROWSER_NAVIGATE",
+    "BROWSER_CLICK",
+    "BROWSER_FILL",
+    "UPDATE_CONFIG",
+})
+
+
+def queued_at_night(act_type: str, command_level: str = "") -> bool:
+    """C, D y lo visual quedan en cola. A y B siguen el resto de la política."""
+    if act_type in VISUAL_ACTS or act_type in _NIGHT_HEAVY:
+        return True
+    if act_type == "COMMAND" and command_level in ("C", "D"):
+        return True
+    return False

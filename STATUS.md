@@ -16,7 +16,7 @@ Este archivo es el estado corto. Los `AVATAR_*.md` de la raíz son auditoría hi
 | Módulo | Estado |
 |---|---|
 | `core/autoloop.py` | Retirado (0 importadores). El bucle real es el orquestador. |
-| `core/subagents.py` | No lo llama el server ni Telegram. Lo cubre `tests/test_acceptance_surfaces.py`. |
+| `core/subagents.py` | El orquestador llama `run_scoped_act` cuando una escritura trae carpeta. No hay una segunda flota. |
 | `core/cognitive/closed_loop.py`, `self_development_probe.py` | Solo tests. Producción usa `continuous_loop.py`. |
 
 ## Dispatch
@@ -30,7 +30,7 @@ Texto íntegro: `docs/engineering/handover/MASTER_DIRECTIVE_002.md`.
 Dictamen: `docs/engineering/handover/MASTER_DIRECTIVE_002_COMPARISON.md`.
 Plan de unidades: `docs/engineering/handover/ENGINEERING_SPEC_003.md` (v2, U0 a U17).
 Comparación de negocio y asistente: `docs/engineering/handover/SPEC_003_V2_GAP.md`.
-U0 archivó la directriz. U1 a U17 tienen código en `cursor/spec-003-u1-u17-5763`, con el cierre en `docs/engineering/handover/SPEC_003_CIERRE.md`. La parada de emergencia consulta el chokepoint. `exec_requires_approval` sigue activo. No hay tiendas ni brokers conectados.
+U0 archivó la directriz. U1 a U17 tienen código en `cursor/spec-003-u1-u17-5763`, con el cierre en `docs/engineering/handover/SPEC_003_CIERRE.md`. La parada de emergencia consulta el chokepoint. `exec_requires_approval` sigue activo. El modo noche y la contención siguen apagados. Un respaldo registrado no se borra desde una misión. WhatsApp usa el mismo `/pause` que Telegram para el remitente autorizado. No hay tiendas ni brokers conectados.
 
 ## Prueba en el PC (2026-09-30)
 

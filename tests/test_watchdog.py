@@ -88,6 +88,35 @@ class TestWatchdog(unittest.TestCase):
             self.assertEqual(len(report.skipped_uncertain), 1)
             self.assertEqual(len(report.skipped_failed), 1)
 
+    def test_night_does_not_resume_and_a_backup_is_kept(self):
+        source = tempfile.mkdtemp()
+        with open(os.path.join(source, "a.txt"), "w", encoding="utf-8") as handle:
+            handle.write("dato")
+        dest = tempfile.mkdtemp()
+        halt_path = os.path.join(tempfile.mkdtemp(), "halt.json")
+        orch = mock.Mock()
+        orch.config = {}
+        orch.chokepoint = None
+        orch.resume_engine.inspect_active_missions.return_value = [{"mission_id": "safe-1"}]
+        orch.resume_engine.evaluate_mission_for_resume.return_value = (
+            MissionResumeStatus.ACTIVE_MISSION_SAFE_TO_RESUME, {"task_id": "t"}, "ok",
+        )
+        wd = Watchdog(orch, WatchdogConfig(
+            night_mode=True, backup_source=source, backup_dest=dest,
+        ))
+        with mock.patch.dict(os.environ, {"AVATAR_HALT_PATH": halt_path}):
+            report = wd.tick()
+        orch.resume_mission.assert_not_called()
+        self.assertIn("night_no_resume", report.notes)
+        self.assertTrue(any(note.startswith("backup:") for note in report.notes))
+        from core.path_guard import authorize_path
+        stamp = next(name for name in os.listdir(dest) if not name.startswith("."))
+        decision, reason = authorize_path(
+            os.path.join(dest, stamp, "a.txt"), "delete", source,
+        )
+        self.assertEqual(decision, "DENY")
+        self.assertEqual(reason, "PATH_BACKUP_IMMUTABLE")
+
     def test_disabled_watchdog_is_noop(self):
         orch = AvatarOrchestrator()
         wd = Watchdog(orch, WatchdogConfig(enabled=False))

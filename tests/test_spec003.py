@@ -99,6 +99,33 @@ class HaltTests(unittest.TestCase):
         halt.engage("STOP", source="hotkey", actor="mauro")
         self.assertIn("act_write", halt.snapshot()["in_flight_critical"])
 
+    def test_whatsapp_pause_matches_the_owner_toggle(self):
+        from bridges.whatsapp_bridge import WhatsAppBridge
+
+        class _Orch:
+            def __init__(self):
+                self.chokepoint = ActChokepoint(
+                    policy=ActPolicy(dry_run=True, allow_external_messages=False),
+                    executors={"SEND_WHATSAPP": lambda a: "sent"},
+                )
+
+            def process_user_input(self, *args, **kwargs):
+                raise AssertionError("el modelo no corre durante /pause")
+
+        bridge = WhatsAppBridge(orchestrator=_Orch(), authorized_senders=["111"])
+        first = bridge.process_incoming_whatsapp("111", "/pause", message_id="m1")
+        self.assertIn("Pausa activa", first)
+        self.assertEqual(halt.snapshot().get("level"), "PAUSE")
+        replay = bridge.process_incoming_whatsapp("111", "/pause", message_id="m1")
+        self.assertEqual(replay, "")
+        self.assertEqual(halt.snapshot().get("level"), "PAUSE")
+        stranger = bridge.process_incoming_whatsapp("999", "/pause", message_id="m9")
+        self.assertEqual(stranger, "")
+        self.assertEqual(halt.snapshot().get("level"), "PAUSE")
+        second = bridge.process_incoming_whatsapp("111", "/pause", message_id="m2")
+        self.assertIn("Pausa quitada", second)
+        self.assertIsNone(halt.snapshot().get("level"))
+
     def test_trigger_file_reaches_the_same_state(self):
         trigger = os.path.join(self.tmp, "go")
         with open(trigger, "w", encoding="utf-8") as handle:
@@ -505,6 +532,112 @@ class BusinessTests(unittest.TestCase):
             lambda case: case["n"] + 1,
         )
         self.assertEqual(score["score"], 1.0)
+
+    def test_backup_night_trade_and_deliverable(self):
+        source = tempfile.mkdtemp()
+        with open(os.path.join(source, "a.txt"), "w", encoding="utf-8") as handle:
+            handle.write("dato")
+        saved = backup_tree(source, tempfile.mkdtemp())
+        decision, reason = authorize_path(
+            os.path.join(saved["path"], "a.txt"), "delete", source,
+        )
+        self.assertEqual(decision, "DENY")
+        self.assertEqual(reason, "PATH_BACKUP_IMMUTABLE")
+
+        ran = []
+        night = ActChokepoint(
+            policy=ActPolicy(dry_run=False, night_mode=True, exec_requires_approval=True),
+            executors={
+                "SCREEN_CAPTURE": lambda a: ran.append("shot") or "foto",
+                "COMMAND": lambda a: ran.append("cmd") or "ok",
+                "READ_FILE": lambda a: ran.append("read") or "texto",
+                "FETCH_URL": lambda a: ran.append("net") or "ok",
+            },
+        )
+        self.assertIn("NIGHT_QUEUED", night.perform("SCREEN_CAPTURE", {}))
+        self.assertIn("NIGHT_QUEUED", night.perform("COMMAND", {"command": "git push"}))
+        self.assertIn("COMMAND_PROHIBITED", night.perform("COMMAND", {"command": "format C:"}))
+        read = night.perform("READ_FILE", {"file_path": __file__})
+        self.assertNotIn("NIGHT_QUEUED", read)
+        self.assertEqual(ran, ["read"])
+        day = ActChokepoint(
+            policy=ActPolicy(dry_run=False, night_mode=False),
+            executors={"SCREEN_CAPTURE": lambda a: ran.append("day") or "foto"},
+        )
+        day.perform("SCREEN_CAPTURE", {})
+        self.assertIn("day", ran)
+
+        trade = ActChokepoint(
+            policy=ActPolicy(dry_run=False, exec_requires_approval=False),
+            executors={
+                "FETCH_URL": lambda a: ran.append("trade") or "ok",
+                "WRITE_FILE": lambda a: ran.append("review") or "ok",
+            },
+        )
+        self.assertIn(
+            "TRADE_ENDPOINT_BLOCKED",
+            trade.perform("FETCH_URL", {"url": "https://broker.test/withdraw"}),
+        )
+        self.assertIn(
+            "FAKE_REVIEW_REJECTED",
+            trade.perform("WRITE_FILE", {
+                "file_path": os.path.join(source, "nota.txt"),
+                "review": "genial",
+                "invented": True,
+            }),
+        )
+        self.assertIn(
+            "ACCESS_MODE_PROHIBITED",
+            trade.perform("FETCH_URL", {
+                "url": "https://example.test/ticker",
+                "access_mode": "fingerprint_spoof",
+            }),
+        )
+        self.assertNotIn("trade", ran)
+        self.assertNotIn("review", ran)
+
+        workspace = tempfile.mkdtemp()
+        original = os.path.join(workspace, "original.txt")
+        with open(original, "w", encoding="utf-8") as handle:
+            handle.write("no tocar")
+
+        def _write(args):
+            with open(args["file_path"], "w", encoding="utf-8") as handle:
+                handle.write(args["content"])
+            return "escrito"
+
+        writer = ActChokepoint(
+            policy=ActPolicy(dry_run=False, allowed_workspace_root=workspace),
+            executors={"WRITE_FILE": _write},
+        )
+        from core.documents import write_deliverable
+        from core.orchestrator import AvatarOrchestrator
+        result = AvatarOrchestrator.write_mission_deliverable(
+            type("Host", (), {"chokepoint": writer})(),
+            workspace, "borrador.txt", "Balance", [("Caja", "1")],
+            accounts={"assets": 10, "liabilities": 4, "equity": 5},
+        )
+        self.assertIn("DESCUADRE", result)
+        draft = os.path.join(workspace, "borrador.txt")
+        with open(draft, encoding="utf-8") as handle:
+            text = handle.read()
+        self.assertIn(FINANCIAL_WARNING, text)
+        again = write_deliverable(
+            writer, workspace, "borrador.txt", "Balance", [("Caja", "1")],
+        )
+        self.assertEqual(again, "OVERWRITE_ORIGINAL")
+        with open(original, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "no tocar")
+        self.assertEqual(
+            write_deliverable(writer, workspace, "../fuera.txt", "X", [("A", "b")]),
+            "PATH_OUTSIDE_MISSION_SCOPE",
+        )
+        outside = tempfile.mkdtemp()
+        denied = AvatarOrchestrator.run_scoped_act(
+            type("Host", (), {"chokepoint": writer})(),
+            workspace, "WRITE_FILE", {"file_path": os.path.join(outside, "x.txt")}, "m",
+        )
+        self.assertNotEqual(denied, "escrito")
 
 
 if __name__ == "__main__":

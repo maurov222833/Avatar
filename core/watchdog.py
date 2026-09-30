@@ -18,6 +18,7 @@ What one tick does
 """
 from __future__ import annotations
 
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -38,6 +39,9 @@ class WatchdogConfig:
     auto_resume_safe: bool = True
     interval_seconds: float = 60.0
     max_resumes_per_tick: int = 3
+    night_mode: bool = False
+    backup_source: str = ""
+    backup_dest: str = ""
 
     @classmethod
     def from_dict(cls, raw: Optional[Dict[str, Any]]) -> "WatchdogConfig":
@@ -47,6 +51,9 @@ class WatchdogConfig:
             auto_resume_safe=bool(raw.get("auto_resume_safe", True)),
             interval_seconds=float(raw.get("interval_seconds", 60) or 60),
             max_resumes_per_tick=max(0, int(raw.get("max_resumes_per_tick", 3) or 0)),
+            night_mode=bool(raw.get("night_mode", False)),
+            backup_source=str(raw.get("backup_source") or ""),
+            backup_dest=str(raw.get("backup_dest") or ""),
         )
 
 
@@ -97,6 +104,9 @@ class Watchdog:
         if not self.config.enabled:
             report.notes.append("watchdog.disabled")
             return report
+        night = self._night_active()
+        if night:
+            report.notes.append("night_no_resume")
 
         cp = getattr(self.orchestrator, "chokepoint", None)
         if cp is not None:
@@ -114,12 +124,14 @@ class Watchdog:
         resume_engine = getattr(self.orchestrator, "resume_engine", None)
         if resume_engine is None:
             report.notes.append("no_resume_engine")
+            self._maybe_backup(report)
             return report
 
         try:
             missions = resume_engine.inspect_active_missions()
         except Exception as exc:
             report.notes.append(f"inspect_error:{type(exc).__name__}")
+            self._maybe_backup(report)
             return report
 
         resumes_left = self.config.max_resumes_per_tick
@@ -143,7 +155,7 @@ class Watchdog:
                 continue
             if status != MissionResumeStatus.ACTIVE_MISSION_SAFE_TO_RESUME:
                 continue
-            if not self.config.auto_resume_safe or resumes_left <= 0:
+            if night or not self.config.auto_resume_safe or resumes_left <= 0:
                 continue
             try:
                 result = self.orchestrator.resume_mission(mission_id)
@@ -157,7 +169,32 @@ class Watchdog:
                 "message": result.get("message"),
             })
 
+        self._maybe_backup(report)
         return report
+
+    def _night_active(self) -> bool:
+        if self.config.night_mode:
+            return True
+        try:
+            security = (self.orchestrator.config or {}).get("security", {}) or {}
+        except Exception:
+            return False
+        return bool(security.get("night_mode"))
+
+    def _maybe_backup(self, report: WatchdogTickReport) -> None:
+        source = self.config.backup_source
+        dest = self.config.backup_dest
+        if not source or not dest:
+            return
+        if not os.path.isdir(source):
+            report.notes.append("backup_source_missing")
+            return
+        try:
+            from core.assistant import backup_tree
+            saved = backup_tree(source, dest)
+            report.notes.append(f"backup:{str(saved.get('sha256') or '')[:12]}")
+        except Exception as exc:
+            report.notes.append(f"backup_error:{type(exc).__name__}")
 
     def run_forever(self) -> None:
         """Blocking loop until stop(). Intended for a dedicated supervisor process."""

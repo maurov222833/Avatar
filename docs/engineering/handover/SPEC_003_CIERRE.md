@@ -17,14 +17,14 @@ Pruebas: `tests/test_spec003.py` en Linux (`TESTED_LINUX`). El 2026-09-30 Mauro 
 | U6 Informes | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Si el turno ejecutó actos, la respuesta cierra con `Estado de la misión:` calculado desde la evidencia. | Una charla sin actos no lleva esa línea. |
 | U7 Modelos | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Un proveedor listado en `providers.paid_upgrade` no entra como reemplazo. | El precio real sigue `UNKNOWN` si no se comprobó. |
 | U8 IDE | `IMPLEMENTED + TESTED_LINUX` | `core/external_dev.py`, adaptador simulado | Ningún IDE real. Falta la lista que autorice Mauro. |
-| U9 Canal | `IMPLEMENTED + INTEGRATED + TESTED_LINUX + VERIFIED_PC` en tres pasos | `core/remote_guard.py` dentro de `handle_message`. En el PC: captura, play/pausa de la misma canción y `/pause`. | WhatsApp no usa todavía el mismo anti-repetición. Falta el resto del protocolo (remitente ajeno, reinicio a mitad, pantalla bloqueada). |
-| U10 Subagentes | `PARTIAL + TESTED_LINUX` | `run_scoped` en `core/subagents.py` | El servidor y Telegram siguen sin lanzar la flota. |
-| U11 Documentos | `IMPLEMENTED + TESTED_LINUX` | `core/documents.py` (OOXML mínimo) | No hay Word ni Excel recalculando. No es un dictamen contable. |
-| U12 Asistente | `IMPLEMENTED + TESTED_LINUX` | `core/assistant.py` | Sin OAuth, sin correo real, sin micrófono. |
-| U13 Noche | `IMPLEMENTED + TESTED_LINUX` | `core/night_mode.py`. El watchdog ya no reanuda si hay parada | El modo noche no envuelve solo el bucle 24/7. |
-| U14 Marketing | `IMPLEMENTED + TESTED_LINUX` | `core/marketing.py` | No publica ni gasta en anuncios. |
-| U15 Marketplaces | `IMPLEMENTED + TESTED_LINUX` | `core/marketplace.py`, simulador | Sin API real. Dropshipping de cada país sigue sin leerse del sitio oficial. |
-| U16 Mercados | `IMPLEMENTED + TESTED_LINUX` | `core/market_signals.py` | No hay cliente de broker. Operar y retirar se rechazan por nombre de ruta. |
+| U9 Canal | `IMPLEMENTED + INTEGRATED + TESTED_LINUX + VERIFIED_PC` en tres pasos de Telegram | `core/remote_guard.py` en Telegram y en WhatsApp. El `/pause` autorizado pausa y el segundo lo quita. Un ajeno no cambia el estado. | En el PC solo están comprobados captura, play/pausa y `/pause` por Telegram. Falta comprobar WhatsApp en el teléfono, el reinicio a mitad y la pantalla bloqueada. |
+| U10 Subagentes | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | `AvatarOrchestrator.run_scoped_act`. Una escritura con `scope` pasa por ahí. | El servidor no arranca una flota de subagentes. |
+| U11 Documentos | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | `write_mission_deliverable` escribe por el chokepoint, avisa el descuadre y no pisa un original. | No hay Word ni Excel recalculando. No es un dictamen contable. |
+| U12 Asistente | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` en el respaldo | `backup_tree` registra la carpeta. Una misión no la borra. El watchdog la copia solo si `backup_source` y `backup_dest` están puestos. | Sin OAuth, sin correo real, sin micrófono. El correo sigue en borrador. |
+| U13 Noche | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | `security.night_mode` apagado por defecto. Si se enciende, C, D y lo visual quedan en `NIGHT_QUEUED` y el watchdog no reanuda. | No está encendido en el PC. No detecta solo que Windows está bloqueado. |
+| U14 Marketing | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Una reseña marcada como inventada se niega en el chokepoint. | No publica ni gasta en anuncios. |
+| U15 Marketplaces | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Un `access_mode` prohibido se niega en el chokepoint. El resto sigue en el simulador. | Sin API real. Dropshipping de cada país sigue sin leerse del sitio oficial. |
+| U16 Mercados | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Una URL o un comando que nombra `/order`, `/withdraw`, `/transfer` o `/trade` se niega. | No hay cliente de broker. |
 | U17 Conocimiento | `IMPLEMENTED + TESTED_LINUX` | `core/expertise.py` | No está unido a la memoria RAG del servidor. |
 
 ## Riesgo que queda
@@ -33,4 +33,4 @@ La parada vive en el proceso. Otro código que llame a una herramienta saltándo
 
 ## Siguiente paso
 
-La contención automática sigue apagada hasta que Mauro pida encenderla. Lo que sigue en el orden, cuando se programe, son los respaldos que una misión no pueda borrar y el modo noche dentro de un sobre. WhatsApp aún no comparte el anti-repetición de Telegram.
+La contención automática sigue apagada. El modo noche sigue apagado. La tecla global no se instala. No hay cuentas de tienda ni de broker. Lo que queda fuera de este equipo es la prueba en el PC de Windows (junctions, nombres 8.3, UNC) y que Mauro confirme en el teléfono el `/pause` de WhatsApp con esta versión del programa.

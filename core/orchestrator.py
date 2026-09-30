@@ -651,10 +651,15 @@ class AvatarOrchestrator:
                     except Exception as upd_err:
                         _olog(f"[AvatarOrchestrator]: No se pudo actualizar {t_id}: {upd_err}")
 
-            if self.state_db and current_mission_id:
-                self._reconcile_mission(current_mission_id)
-
             final_user_response = "\n".join(lines)
+            if self.state_db and current_mission_id:
+                raw_status = self._reconcile_mission(current_mission_id)
+                if raw_status:
+                    from core.mission_report import from_transition
+                    final_user_response = (
+                        f"{final_user_response}\n\nEstado de la misión: "
+                        f"{from_transition(raw_status)}."
+                    )
             self.history.append({"role": "user", "content": user_input})
             self.history.append({"role": "assistant", "content": final_user_response})
             self.memory.save_history(self.history)
@@ -1412,6 +1417,7 @@ class AvatarOrchestrator:
             exec_allowlist=tuple(security.get("exec_allowlist", ()) or ()),
             trusted_telegram_chat_ids=tuple(trusted_tg),
             containment_enabled=bool(security.get("containment_enabled", False)),
+            night_mode=bool(security.get("night_mode", False)),
         )
 
         def _take_screenshot(a):
@@ -1944,12 +1950,38 @@ class AvatarOrchestrator:
         """
         if self.chokepoint is None:
             self.chokepoint = self._build_chokepoint()
+        scope = str((args or {}).get("scope") or "")
+        if scope and tool_name == "WRITE_FILE":
+            return self.run_scoped_act(scope, tool_name, args or {}, mission_id)
         return self.chokepoint.perform(
             act_type=tool_name,
             args=args or {},
             mission_id=mission_id,
             task_id=task_id,
             execution_id=execution_id,
+        )
+
+    def run_scoped_act(self, scope: str, act_type: str, args: Dict[str, Any], mission_id: str) -> str:
+        """Un subagente pide un acto dentro de una carpeta. No arranca otra flota."""
+        if self.chokepoint is None:
+            self.chokepoint = self._build_chokepoint()
+        from core.subagents import run_scoped
+        return run_scoped(self.chokepoint, scope, act_type, args or {}, mission_id)
+
+    def write_mission_deliverable(
+        self,
+        workspace: str,
+        filename: str,
+        title: str,
+        sections: List[tuple],
+        accounts: Optional[Dict[str, float]] = None,
+    ) -> str:
+        """Borrador dentro de la carpeta de la misión, por el chokepoint."""
+        if self.chokepoint is None:
+            self.chokepoint = self._build_chokepoint()
+        from core.documents import write_deliverable
+        return write_deliverable(
+            self.chokepoint, workspace, filename, title, sections, accounts=accounts,
         )
 
     @staticmethod

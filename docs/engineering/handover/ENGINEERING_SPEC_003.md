@@ -53,14 +53,14 @@ Incluye los encabezados `# 0.` a `# 22.` y el cierre `FIN DE MASTER DIRECTIVE 00
 
 No se adelanta ninguna unidad. La seguridad de ejecución va primero.
 
-1. Fase 1: U0 hecho. U1 parada de emergencia, si Mauro la autoriza. U2 rutas. U3 ADR de clasificación y, solo después, código.
+1. Fase 1: U0 hecho. U1 parada de emergencia, autorizada e implementada. U2 rutas. U3 ADR de clasificación y código, con la aprobación de EXEC todavía activa.
 2. Fase 2: U4 contención (depende de U1). U9 canal remoto (depende de U1 y U3). U6 informes. U5 investigación. U7 modelos y gasto.
 3. Fase 3: U12.4 respaldos. U13 operación 24/7. U12.2 tareas programadas.
 4. Fase 4: U11 documentos (depende de U2, U5 y U6). U12.1 correo y calendario. U12.3 OCR de documentos.
 5. Fase 5: U14 marketing, incluida U14.4. U16 análisis de mercados, sin ejecutar operaciones. U15 marketplaces: primero U15.7 y U15.5, y U15.6 con dropshipping como modelo principal.
 6. Fase 6: U8 IDE externos. U10 subagentes, conectando `core/subagents.py`. U12.5 voz. U17 conocimiento experto.
 
-U11 a U17 están sin iniciar. El detalle de qué ya existe está en `SPEC_003_V2_GAP.md`.
+U1 a U17 tienen código. El alcance real de cada una está en `SPEC_003_CIERRE.md`. La comparación previa sigue en `SPEC_003_V2_GAP.md`.
 
 ## Prueba en el PC
 

@@ -1,27 +1,58 @@
-"""In-process Telegram getUpdates listener (singleton per process)."""
+"""Durable Telegram getUpdates listener: supervisor + queue + single-poller lock."""
 from __future__ import annotations
 
+import queue
 import threading
+import time
 from typing import Any, Dict, Optional
 
+from core.telegram_poll_lock import TelegramPollLock
+
 _lock = threading.Lock()
-_thread: Optional[threading.Thread] = None
+_poll_thread: Optional[threading.Thread] = None
+_worker_thread: Optional[threading.Thread] = None
+_supervisor_thread: Optional[threading.Thread] = None
 _bridge = None
+_msg_queue: "queue.Queue[dict]" = queue.Queue()
+_stop = threading.Event()
+_poll_lock = TelegramPollLock()
+_restart_count = 0
+_standby_other_instance = False
+_last_supervisor_at: Optional[float] = None
+_stale_poll_seconds = 90.0
+_poll_gen = 0
+
+
+def _alive(t: Optional[threading.Thread]) -> bool:
+    return bool(t is not None and t.is_alive())
 
 
 def ensure_telegram_daemon(orchestrator=None) -> Dict[str, Any]:
     """
-    Start the Telegram polling thread once for this process.
+    Start (or keep) the durable Telegram stack:
 
-    Safe to call from FastAPI startup and from main_gui (idempotent).
+    - poll thread: getUpdates only (never blocked by LLM)
+    - worker thread: handle_message from a queue
+    - supervisor: restarts dead/stale threads; waits for poll lock if another
+      Avatar instance already owns getUpdates
     """
-    global _thread, _bridge
+    global _bridge, _supervisor_thread
     with _lock:
-        if _thread is not None and _thread.is_alive():
-            return status()
+        if orchestrator is not None or _bridge is None:
+            from bridges.telegram_bridge import TelegramBridge
 
-        from bridges.telegram_bridge import TelegramBridge
-        _bridge = TelegramBridge(orchestrator=orchestrator)
+            if _bridge is None:
+                _bridge = TelegramBridge(orchestrator=orchestrator)
+            elif orchestrator is not None and getattr(_bridge, "orchestrator", None) is None:
+                _bridge.orchestrator = orchestrator
+
+        if not _bridge.bot_token:
+            try:
+                _bridge.bot_token = _bridge._load_token_from_config()
+                if _bridge.bot_token:
+                    _bridge.base_url = f"https://api.telegram.org/bot{_bridge.bot_token}"
+            except Exception:
+                pass
         if not _bridge.bot_token:
             return {
                 "status": "NO_TOKEN",
@@ -29,23 +60,168 @@ def ensure_telegram_daemon(orchestrator=None) -> Dict[str, Any]:
                 "message": "telegram.bot_token no configurado en config.json",
             }
 
-        def _run():
-            try:
-                print("[AVATAR Telegram]: Bot daemon activo y escuchando en segundo plano.")
-                _bridge.start_polling()
-            except Exception as e:
-                print(f"[AVATAR Telegram Daemon Error]: {e}")
-
-        _thread = threading.Thread(target=_run, name="avatar-telegram-daemon", daemon=True)
-        _thread.start()
+        _stop.clear()
+        _ensure_workers_locked()
+        if not _alive(_supervisor_thread):
+            _supervisor_thread = threading.Thread(
+                target=_supervisor_loop,
+                name="avatar-telegram-supervisor",
+                daemon=True,
+            )
+            _supervisor_thread.start()
         return status()
 
 
+def _ensure_workers_locked() -> None:
+    """Start poll+worker if missing. Caller must hold _lock."""
+    global _poll_thread, _worker_thread, _restart_count, _standby_other_instance, _poll_gen
+
+    if not _alive(_worker_thread):
+        _worker_thread = threading.Thread(
+            target=_worker_loop, name="avatar-telegram-worker", daemon=True
+        )
+        _worker_thread.start()
+
+    if _alive(_poll_thread):
+        return
+
+    if not _poll_lock.held and not _poll_lock.acquire(blocking=False):
+        _standby_other_instance = True
+        return
+
+    _standby_other_instance = False
+    _restart_count += 1
+    my_gen = _poll_gen
+
+    def _should_stop() -> bool:
+        return _stop.is_set() or my_gen != _poll_gen
+
+    def _run() -> None:
+        print("[AVATAR Telegram]: Poll loop activo (getUpdates desacoplado del LLM).")
+        try:
+            assert _bridge is not None
+            _bridge.start_polling(on_update=_enqueue_update, should_stop=_should_stop)
+        except Exception as e:
+            print(f"[AVATAR Telegram Poll Error]: {e}")
+            if _bridge is not None:
+                _bridge.last_error = f"poll_loop: {e}"[:240]
+        finally:
+            try:
+                _poll_lock.release()
+            except Exception:
+                pass
+
+    _poll_thread = threading.Thread(target=_run, name="avatar-telegram-poll", daemon=True)
+    _poll_thread.start()
+
+
+def _enqueue_update(msg: dict) -> None:
+    if not msg:
+        return
+    try:
+        chat_id = str((msg.get("chat") or {}).get("id") or "")
+        if chat_id and _bridge is not None:
+            try:
+                _bridge.send_chat_action(chat_id, "typing")
+            except Exception:
+                pass
+        _msg_queue.put(msg)
+    except Exception as e:
+        print(f"[AVATAR Telegram]: enqueue failed: {e}")
+
+
+def _worker_loop() -> None:
+    print("[AVATAR Telegram]: Worker de mensajes activo.")
+    while not _stop.is_set():
+        try:
+            msg = _msg_queue.get(timeout=1.0)
+        except queue.Empty:
+            continue
+        try:
+            if _bridge is not None:
+                _bridge.handle_message(msg)
+        except Exception as e:
+            print(f"[AVATAR Telegram Worker Error]: {e}")
+            if _bridge is not None:
+                _bridge.last_error = f"worker: {e}"[:240]
+
+
+def _supervisor_loop() -> None:
+    global _last_supervisor_at, _standby_other_instance, _poll_gen
+    print("[AVATAR Telegram]: Supervisor de conexión activo.")
+    while not _stop.is_set():
+        _last_supervisor_at = time.time()
+        try:
+            with _lock:
+                if _bridge is not None and not _bridge.bot_token:
+                    try:
+                        tok = _bridge._load_token_from_config()
+                        if tok:
+                            _bridge.bot_token = tok
+                            _bridge.base_url = f"https://api.telegram.org/bot{tok}"
+                    except Exception:
+                        pass
+
+                if _bridge is not None and _bridge.bot_token:
+                    last = getattr(_bridge, "last_poll_at", None)
+                    if _alive(_poll_thread) and last is not None:
+                        age = time.time() - float(last)
+                        if age > _stale_poll_seconds:
+                            print(
+                                "[AVATAR Telegram]: Poll stale "
+                                f"({age:.0f}s sin getUpdates). Señal de reinicio."
+                            )
+                            # Cooperative stop — no second poller until this one exits.
+                            _poll_gen += 1
+
+                    if not _alive(_poll_thread):
+                        if not _poll_lock.held:
+                            if _poll_lock.acquire(blocking=False):
+                                _standby_other_instance = False
+                            else:
+                                _standby_other_instance = True
+                        if _poll_lock.held:
+                            _standby_other_instance = False
+                            _ensure_workers_locked()
+                    else:
+                        _standby_other_instance = False
+
+                    if not _alive(_worker_thread):
+                        _ensure_workers_locked()
+        except Exception as e:
+            print(f"[AVATAR Telegram Supervisor Error]: {e}")
+        _stop.wait(10.0)
+
+
+def stop_telegram_daemon() -> None:
+    """Test helper / clean shutdown."""
+    global _poll_gen
+    _stop.set()
+    _poll_gen += 1
+    try:
+        _poll_lock.release()
+    except Exception:
+        pass
+
+
 def status() -> Dict[str, Any]:
-    running = bool(_thread is not None and _thread.is_alive())
+    running = _alive(_poll_thread)
+    worker_ok = _alive(_worker_thread)
     info: Dict[str, Any] = {
-        "status": "RUNNING" if running else "STOPPED",
+        "status": (
+            "STANDBY_OTHER_INSTANCE"
+            if _standby_other_instance and not running
+            else ("RUNNING" if running else "STOPPED")
+        ),
         "running": running,
+        "worker_running": worker_ok,
+        "supervisor_running": _alive(_supervisor_thread),
+        "queue_size": _msg_queue.qsize(),
+        "restart_count": _restart_count,
+        "standby_other_instance": _standby_other_instance,
+        "poll_lock_held": _poll_lock.held,
+        "last_supervisor_at": _last_supervisor_at,
+        "poll_generation": _poll_gen,
     }
     if _bridge is None:
         info["token_configured"] = False
@@ -71,18 +247,28 @@ def status() -> Dict[str, Any]:
     try:
         wh = _bridge.api_webhook_info()
         info["webhook"] = wh
-        if info["poll_conflicts_409"] > 0:
+        if _standby_other_instance:
             info["hint"] = (
-                f"Hubo {info['poll_conflicts_409']} conflicto(s) 409: cierra TODAS las "
-                "ventanas/procesos de Avatar y deja solo uno."
+                "Otra instancia de Avatar ya hace polling (candado telegram_poll.lock). "
+                "Cierra la otra ventana/proceso y deja solo una."
+            )
+        elif info["poll_conflicts_409"] > 0 and not running:
+            info["hint"] = (
+                f"Hubo {info['poll_conflicts_409']} conflicto(s) 409. "
+                "Cierra TODAS las ventanas de Avatar; el supervisor reintentará solo."
             )
         elif wh.get("ok") and wh.get("url"):
             info["hint"] = (
                 "Hay un webhook activo: getUpdates no recibe chats. "
-                "Reinicia Avatar (borra el webhook al arrancar) o dile TELEGRAM_STATUS."
+                "Reinicia Avatar (borra el webhook al arrancar)."
             )
         elif not running:
-            info["hint"] = "Token OK pero el listener no corre. POST /api/telegram/start o reinicia."
+            info["hint"] = (
+                "Listener detenido; el supervisor debería reiniciarlo en ~10s. "
+                "Si no, POST /api/telegram/start."
+            )
+        elif not worker_ok:
+            info["hint"] = "Poll OK pero worker caído — supervisor reiniciando worker."
         elif not info["allowed_chat_ids"]:
             info["hint"] = (
                 "Listener activo, allowlist vacía: escribe /start al bot en privado "
@@ -91,7 +277,10 @@ def status() -> Dict[str, Any]:
         elif info["last_error"]:
             info["hint"] = f"Listener activo pero último error: {info['last_error']}"
         else:
-            info["hint"] = "Listener activo. Escribe al bot en privado."
+            info["hint"] = (
+                "Listener durable activo (poll + worker + supervisor). "
+                "Escribe al bot en privado."
+            )
     except Exception as e:
         info["webhook"] = {"ok": False, "error": str(e)[:120]}
     return info

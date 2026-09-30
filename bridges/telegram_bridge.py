@@ -387,81 +387,191 @@ class TelegramBridge:
                 pass
         return ""
 
-    def start_polling(self):
-        if not self.bot_token:
-            print("[TelegramBridge]: Para activar Telegram, agrega tu 'bot_token' en config.json.")
-            return
+    def _reload_token(self) -> bool:
+        tok = self._load_token_from_config()
+        if tok:
+            self.bot_token = tok
+            self.base_url = f"https://api.telegram.org/bot{tok}"
+            return True
+        return False
 
-        # If a webhook is set, getUpdates is empty forever — silent "bot ignores me".
-        wh = self.api_webhook_info()
-        if wh.get("ok") and wh.get("url"):
-            print(f"[Telegram Bridge]: Webhook activo ({wh.get('url')[:80]}). "
-                  f"Lo borro para poder usar getUpdates.")
-        deleted = self.api_delete_webhook(drop_pending=False)
-        if not deleted.get("ok"):
-            print(f"[Telegram Bridge]: deleteWebhook falló: {deleted}")
+    def start_polling(self, on_update=None, should_stop=None):
+        """
+        Long-poll forever.
 
-        if not self.allowed_chat_ids:
-            if self.auto_enroll_first_private:
-                print("[Telegram Bridge]: Allowlist vacía — el primer chat privado humano se auto-enrolará.")
-            else:
-                print("[Telegram Bridge]: Sin allowlist (telegram.allowed_chat_ids): se rechazarán todas las órdenes.")
-        me = self.api_get_me()
-        bot_label = f"@{me.get('username')}" if me.get("ok") and me.get("username") else "(token ok o pendiente)"
-        if me.get("ok"):
-            print(f"[Telegram Bridge]: getMe OK → {bot_label}. Escuchando getUpdates...")
-        else:
-            print(f"[Telegram Bridge]: getMe falló ({me.get('error')}); igual intento getUpdates.")
-        print(f"[Telegram Bridge]: Escuchando ordenes remotas via Telegram {bot_label}...")
-        idle_loops = 0
-        while True:
-            try:
-                self.last_poll_at = time.time()
-                url = f"{self.base_url}/getUpdates?offset={self.last_update_id + 1}&timeout=30"
-                response = requests.get(url, timeout=35)
-                if response.status_code == 200:
-                    data = response.json()
-                    results = data.get("result", []) if data.get("ok") else []
-                    if not results:
-                        idle_loops += 1
-                        if idle_loops in (1, 10, 30):
-                            print(f"[Telegram Bridge]: sin updates nuevos (loop vacío #{idle_loops}). "
-                                  f"Escribe a {bot_label} en privado.")
-                    else:
-                        idle_loops = 0
-                        print(f"[Telegram Bridge]: {len(results)} update(s) recibidos.")
-                    for result in results:
-                        self.last_update_id = result["update_id"]
-                        # message o edited_message — si no hay texto, handle_message sale limpio.
-                        msg = result.get("message") or result.get("edited_message") or {}
-                        try:
-                            self.handle_message(msg)
-                        except Exception as msg_err:
-                            self.last_error = f"handle_message: {self._redact(msg_err)}"[:240]
-                            print(f"[Telegram Bridge]: error procesando update: {self.last_error}")
-                            chat_id = str((msg.get("chat") or {}).get("id") or "")
-                            if chat_id:
-                                self.send_message(
-                                    chat_id,
-                                    "Recibí tu mensaje pero falló el procesamiento en la PC. "
-                                    "Revisa la consola de Avatar o reinténtalo.",
-                                )
-                elif response.status_code == 409:
-                    # Another getUpdates consumer (second Avatar process) holds the poll.
-                    self.poll_conflicts_409 += 1
-                    self.last_error = "getUpdates 409 Conflict — otra instancia hace polling"
-                    print("[Telegram Bridge]: 409 Conflict — otra instancia ya está haciendo polling. "
-                          "Cierra el otro Avatar (Task Manager / otra ventana) y deja solo uno.")
-                    time.sleep(10)
+        on_update: optional callback(msg_dict) — if set, messages are handed off
+        (daemon queue) so LLM work never blocks getUpdates.
+        should_stop: optional callable() -> bool for cooperative shutdown/restart.
+        """
+        stop = should_stop or (lambda: False)
+
+        while not stop():
+            if not self.bot_token and not self._reload_token():
+                print("[TelegramBridge]: Sin bot_token — reintento en 15s (config.json / .env).")
+                self.last_error = "TOKEN_NOT_CONFIGURED"
+                for _ in range(15):
+                    if stop():
+                        return
+                    time.sleep(1)
+                continue
+
+            # If a webhook is set, getUpdates is empty forever — silent "bot ignores me".
+            wh = self.api_webhook_info()
+            if wh.get("ok") and wh.get("url"):
+                print(
+                    f"[Telegram Bridge]: Webhook activo ({wh.get('url')[:80]}). "
+                    "Lo borro para poder usar getUpdates."
+                )
+            deleted = self.api_delete_webhook(drop_pending=False)
+            if not deleted.get("ok"):
+                print(f"[Telegram Bridge]: deleteWebhook falló: {deleted}")
+
+            if not self.allowed_chat_ids:
+                # Refresh allowlist from disk (auto-enroll may have written it).
+                try:
+                    self.allowed_chat_ids = {
+                        str(e).strip()
+                        for e in self._load_allowlist()
+                        if str(e).strip().isdigit()
+                    }
+                except Exception:
+                    pass
+            if not self.allowed_chat_ids:
+                if self.auto_enroll_first_private:
+                    print(
+                        "[Telegram Bridge]: Allowlist vacía — el primer chat privado "
+                        "humano se auto-enrolará."
+                    )
                 else:
-                    print(f"[Telegram Bridge]: getUpdates HTTP {response.status_code}: "
-                          f"{self._redact((response.text or '')[:200])}")
-                    self.last_error = f"getUpdates HTTP {response.status_code}"[:240]
+                    print(
+                        "[Telegram Bridge]: Sin allowlist (telegram.allowed_chat_ids): "
+                        "se rechazarán todas las órdenes."
+                    )
+
+            me = self.api_get_me()
+            bot_label = (
+                f"@{me.get('username')}"
+                if me.get("ok") and me.get("username")
+                else "(token ok o pendiente)"
+            )
+            if me.get("ok"):
+                print(f"[Telegram Bridge]: getMe OK → {bot_label}. Escuchando getUpdates...")
+            else:
+                print(
+                    f"[Telegram Bridge]: getMe falló ({me.get('error')}); "
+                    "igual intento getUpdates."
+                )
+                # Bad token: back off and reload config.
+                if me.get("error") in ("HTTP_401", "HTTP_Unauthorized") or "unauthorized" in str(
+                    me.get("detail", "")
+                ).lower():
+                    self.last_error = f"getMe failed: {me.get('error')}"
+                    time.sleep(20)
+                    self._reload_token()
+                    continue
+
+            print(f"[Telegram Bridge]: Escuchando ordenes remotas via Telegram {bot_label}...")
+            idle_loops = 0
+            conflicts_streak = 0
+
+            while not stop():
+                try:
+                    self.last_poll_at = time.time()
+                    url = (
+                        f"{self.base_url}/getUpdates"
+                        f"?offset={self.last_update_id + 1}&timeout=25"
+                    )
+                    response = requests.get(url, timeout=35)
+                    if response.status_code == 200:
+                        conflicts_streak = 0
+                        data = response.json()
+                        results = data.get("result", []) if data.get("ok") else []
+                        if not results:
+                            idle_loops += 1
+                            if idle_loops in (1, 10, 30):
+                                print(
+                                    f"[Telegram Bridge]: sin updates nuevos "
+                                    f"(loop vacío #{idle_loops}). "
+                                    f"Escribe a {bot_label} en privado."
+                                )
+                        else:
+                            idle_loops = 0
+                            print(f"[Telegram Bridge]: {len(results)} update(s) recibidos.")
+                        for result in results:
+                            self.last_update_id = result["update_id"]
+                            msg = (
+                                result.get("message")
+                                or result.get("edited_message")
+                                or {}
+                            )
+                            if on_update is not None:
+                                try:
+                                    on_update(msg)
+                                except Exception as cb_err:
+                                    self.last_error = f"on_update: {self._redact(cb_err)}"[:240]
+                                    print(f"[Telegram Bridge]: {self.last_error}")
+                            else:
+                                try:
+                                    self.handle_message(msg)
+                                except Exception as msg_err:
+                                    self.last_error = (
+                                        f"handle_message: {self._redact(msg_err)}"[:240]
+                                    )
+                                    print(
+                                        f"[Telegram Bridge]: error procesando update: "
+                                        f"{self.last_error}"
+                                    )
+                                    chat_id = str((msg.get("chat") or {}).get("id") or "")
+                                    if chat_id:
+                                        self.send_message(
+                                            chat_id,
+                                            "Recibí tu mensaje pero falló el procesamiento "
+                                            "en la PC. Revisa la consola de Avatar o reinténtalo.",
+                                        )
+                    elif response.status_code == 409:
+                        conflicts_streak += 1
+                        self.poll_conflicts_409 += 1
+                        self.last_error = (
+                            "getUpdates 409 Conflict — otra instancia hace polling"
+                        )
+                        print(
+                            "[Telegram Bridge]: 409 Conflict — otra instancia ya está "
+                            "haciendo polling. Cierra el otro Avatar; reintento…"
+                        )
+                        # Re-clear webhook; sometimes leftover webhook+poll fights.
+                        if conflicts_streak in (1, 3, 6):
+                            self.api_delete_webhook(drop_pending=False)
+                        # Backoff so the other process can exit; supervisor may take lock.
+                        time.sleep(min(30, 5 * conflicts_streak))
+                        if conflicts_streak >= 8:
+                            # Yield outer loop so daemon can release lock / standby.
+                            print(
+                                "[Telegram Bridge]: Demasiados 409 — salgo del poll para "
+                                "que el supervisor reintente con candado."
+                            )
+                            return
+                    elif response.status_code in (401, 404):
+                        self.last_error = f"getUpdates HTTP {response.status_code} (token?)"
+                        print(f"[Telegram Bridge]: {self.last_error}")
+                        time.sleep(20)
+                        self._reload_token()
+                        break  # re-prepare
+                    else:
+                        print(
+                            f"[Telegram Bridge]: getUpdates HTTP {response.status_code}: "
+                            f"{self._redact((response.text or '')[:200])}"
+                        )
+                        self.last_error = f"getUpdates HTTP {response.status_code}"[:240]
+                        time.sleep(5)
+                except requests.exceptions.Timeout:
+                    # Normal for long-poll edge; keep going.
+                    self.last_poll_at = time.time()
+                    continue
+                except Exception as e:
+                    print(f"[Error en loop de Telegram]: {self._redact(e)}")
+                    self.last_error = f"poll loop: {self._redact(e)}"[:240]
                     time.sleep(5)
-            except Exception as e:
-                print(f"[Error en loop de Telegram]: {self._redact(e)}")
-                self.last_error = f"poll loop: {self._redact(e)}"[:240]
-                time.sleep(5)
+
 
     def handle_message(self, message: dict):
         if not message:

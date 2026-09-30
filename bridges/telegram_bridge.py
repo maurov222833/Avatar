@@ -508,22 +508,39 @@ class TelegramBridge:
                     self.send_message(chat_id, "No se pudo obtener la captura de pantalla.")
                 return
 
-            # Cerrar pestaña YouTube del navegador DEL SISTEMA (misma que PLAY_AUDIO).
-            # No usar BROWSER_*: Playwright es otra instancia.
-            close_yt = (
-                any(k in text_lower for k in ["cierra", "cerrar", "close"])
-                and any(
-                    k in text_lower
-                    for k in [
-                        "youtube", "pestaña", "pestana", "pestanya",
-                        "canción", "cancion", "musica", "música", "video", "vídeo",
-                    ]
-                )
-            )
-            if not is_instruction and close_yt:
-                self.send_message(chat_id, "Cerrando la pestaña de YouTube en tu navegador…")
+            # Cerrar SOLO la pestaña pedida (YouTube u otra) en el navegador del sistema.
+            from tools.audio_tool import AudioTool
+            close_target = AudioTool.extract_close_target(text)
+            if not is_instruction and close_target is not None:
+                label = close_target or "activa"
+                self.send_message(chat_id, f"Cerrando la pestaña «{label}» en tu navegador…")
                 res_msg = self._perform(
-                    "AUDIO_CONTROL", {"action": "close"}, chat_id, "close-youtube", text
+                    "AUDIO_CONTROL",
+                    {"action": "close", "target": close_target or "youtube"},
+                    chat_id,
+                    "close-tab",
+                    text,
+                )
+                self.send_message(chat_id, self._redact(res_msg))
+                return
+
+            # Siguiente / anterior pista
+            if not is_instruction and any(
+                kw in text_lower for kw in ["siguiente canción", "siguiente cancion", "siguiente pista", "next track", "siguiente tema"]
+            ) or (not is_instruction and text_lower.strip() in ("siguiente", "next", "skip")):
+                self.send_message(chat_id, "Pasando a la siguiente pista…")
+                res_msg = self._perform(
+                    "AUDIO_CONTROL", {"action": "next"}, chat_id, "next-track", text
+                )
+                self.send_message(chat_id, self._redact(res_msg))
+                return
+
+            if not is_instruction and any(
+                kw in text_lower for kw in ["anterior canción", "anterior cancion", "anterior pista", "previous"]
+            ) or (not is_instruction and text_lower.strip() in ("anterior", "prev")):
+                self.send_message(chat_id, "Volviendo a la pista anterior…")
+                res_msg = self._perform(
+                    "AUDIO_CONTROL", {"action": "previous"}, chat_id, "prev-track", text
                 )
                 self.send_message(chat_id, self._redact(res_msg))
                 return
@@ -551,17 +568,20 @@ class TelegramBridge:
                 self.send_message(chat_id, self._redact(res_msg))
                 return
 
-            # Detección directa de solicitud de música / reproducción
-            if not is_instruction and any(
-                kw in text_lower
-                for kw in [
-                    "reproduce", "reproduzca", "reproduscas", "reproduzcas",
-                    "cancion", "canción", "musica", "música",
-                ]
-            ):
-                from tools.audio_tool import AudioTool
-                song_query = AudioTool.sanitize_query(text)
-                self.send_message(chat_id, f"Abriendo YouTube para reproducir «{song_query}» en tu PC…")
+            # Abrir o CAMBIAR canción (misma pestaña del sistema)
+            song_query = None
+            if not is_instruction:
+                if any(
+                    kw in text_lower
+                    for kw in [
+                        "cambia", "cambiar", "reproduce", "reproduzca", "reproduscas",
+                        "reproduzcas", "cancion", "canción", "musica", "música",
+                        "ponme", "pon ",
+                    ]
+                ):
+                    song_query = AudioTool.extract_song_request(text)
+            if song_query:
+                self.send_message(chat_id, f"Reproduciendo «{song_query}» en YouTube (tu PC)…")
                 res_msg = self._perform(
                     "PLAY_AUDIO", {"audio_source": song_query}, chat_id, "play-music", text
                 )

@@ -304,9 +304,20 @@ class ActPolicy:
             return False, "WRITE_TO_PROTECTED_PATH_DENIED"
         if risk == ActRisk.LOCAL_WRITE and self.allowed_workspace_root:
             root = os.path.abspath(self.allowed_workspace_root)
-            target = args.get("file_path") or args.get("audio_source") or ""
-            if target and not _is_within_root(target, root):
-                return False, f"WRITE_OUTSIDE_ALLOWED_ROOT:{root}"
+            # Solo rutas reales de archivo: el audio_source de PLAY_AUDIO suele ser
+            # un título de canción ("bonito bonito"), no un path.
+            path_candidates = []
+            fp = args.get("file_path") or ""
+            if fp:
+                path_candidates.append(fp)
+            audio = args.get("audio_source") or ""
+            if audio and (os.path.isabs(audio) or os.path.exists(audio) or "\\" in audio or "/" in audio):
+                # Heurística: parece ruta, no título de canción.
+                if any(sep in audio for sep in ("/", "\\")) or os.path.exists(audio):
+                    path_candidates.append(audio)
+            for target in path_candidates:
+                if target and not _is_within_root(target, root):
+                    return False, f"WRITE_OUTSIDE_ALLOWED_ROOT:{root}"
         if trusted_personal:
             return True, "ALLOWED_PERSONAL_TELEGRAM"
         return True, "ALLOWED"

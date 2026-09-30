@@ -155,16 +155,26 @@ AVATAR_TOOLS_SCHEMA = [
             {
                 "name": "AUDIO_CONTROL",
                 "description": (
-                    "Controla la música/YouTube abierta por PLAY_AUDIO en el navegador del sistema. "
-                    "action=pause|resume|close. IMPORTANTE: BROWSER_CLOSE NO cierra esa pestaña "
-                    "(Playwright es otro navegador). Para 'cierra YouTube / cierra la pestaña' usa action=close."
+                    "Controla música/pestañas del navegador DEL SISTEMA (la de PLAY_AUDIO). "
+                    "actions: pause|resume|next|previous|close|change. "
+                    "close+target cierra SOLO esa pestaña (ej target=youtube). "
+                    "change+query cambia la canción en la misma pestaña. "
+                    "NUNCA uses BROWSER_CLOSE para esto (Playwright es otro navegador)."
                 ),
                 "parameters": {
                     "type": "OBJECT",
                     "properties": {
                         "action": {
                             "type": "STRING",
-                            "description": "pause, resume o close (cerrar pestaña YouTube del sistema)."
+                            "description": "pause, resume, next, previous, close o change."
+                        },
+                        "target": {
+                            "type": "STRING",
+                            "description": "Para close: pestaña a cerrar (youtube, gmail, …)."
+                        },
+                        "query": {
+                            "type": "STRING",
+                            "description": "Para change: título de la nueva canción."
                         }
                     },
                     "required": ["action"]
@@ -450,14 +460,24 @@ class AvatarOrchestrator:
             "- ENVIAR WHATSAPP: usa SEND_WHATSAPP / WHATSAPP_SEND cuando lo pida; no improvises.\n"
             "- RUTAS CON ESPACIOS EN WINDOWS: en COMMAND, comillas dobles en rutas con espacios.\n"
             "- Precisión y anti-alucinación: afirma solo lo que observaste o sabes del sistema.\n"
+            "- ASISTENTE FÍSICO EN LA PC DE MAURO (prioridad):\n"
+            "  • Cuando Mauro pide una acción concreta en su PC, EJECUTA con herramientas. "
+            "No pidas 'luz verde', Ctrl+W ni rodeos para música, pausa, cambio de canción, "
+            "cerrar pestaña o captura de pantalla.\n"
+            "  • Música: PLAY_AUDIO (abrir o cambiar canción en la misma pestaña del sistema). "
+            "AUDIO_CONTROL action=pause|resume|next|previous|close|change.\n"
+            "  • Cerrar SOLO la pestaña pedida: AUDIO_CONTROL action=close target=<youtube|nombre>. "
+            "No cierres todo el navegador.\n"
+            "  • Ver el escritorio: SCREEN_CAPTURE. Clics/teclado: DESKTOP_* "
+            "(pueden pedir una aprobación real del chokepoint; si la piden, dilo en una frase).\n"
+            "  • COMMAND / escribir archivos: actúa; si la política bloquea, explica el bloqueo "
+            "una vez — no inventes barreras extras ni digas que 'no puedes' cuando sí hay tool.\n"
             "- YOUTUBE / MÚSICA (navegador del sistema ≠ Playwright):\n"
             "  • PLAY_AUDIO abre/reutiliza Chrome/Edge real de Mauro.\n"
-            "  • Para pausar: AUDIO_CONTROL action=pause (no inventes approval).\n"
-            "  • Para cerrar SOLO la pestaña de YouTube: AUDIO_CONTROL action=close.\n"
-            "  • BROWSER_* es un Chromium de Playwright aparte: BROWSER_CLOSE / navigate "
-            "NO cierra ni afecta la pestaña de YouTube que abrió PLAY_AUDIO. "
-            "Si Mauro pide cerrar YouTube, NUNCA uses BROWSER_*; usa AUDIO_CONTROL close "
-            "de inmediato sin rodeos ni pedir Ctrl+W.\n"
+            "  • Para pausar: AUDIO_CONTROL action=pause.\n"
+            "  • Para cambiar canción: PLAY_AUDIO con el nuevo título (o AUDIO_CONTROL change).\n"
+            "  • Para cerrar SOLO la pestaña de YouTube: AUDIO_CONTROL action=close target=youtube.\n"
+            "  • BROWSER_* es Chromium de Playwright: NO afecta la pestaña de PLAY_AUDIO.\n"
         )
 
     def _load_config(self):

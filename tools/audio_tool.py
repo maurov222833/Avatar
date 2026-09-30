@@ -49,6 +49,7 @@ class AudioTool:
 
         # Prefijos conversacionales / órdenes (incluye typos: reproduscas, reproduzcas).
         fillers = [
+            r"\bcambia(?:r)?(?:\s+la\s+canci[oó]n)?(?:\s+(?:a|por))?\b",
             r"^\s*(?:si|sí)\s*[,.]?\s*",
             r"\bquiero\s+que\s+",
             r"\b(?:me\s+)?(?:puedes|podes|podr[ií]as)\s+",
@@ -137,8 +138,63 @@ class AudioTool:
         AudioTool._last_url = target_url
 
     @staticmethod
-    def _focus_youtube_or_browser() -> bool:
-        """Intenta enfocear la ventana del sistema cuya título menciona YouTube."""
+    def extract_song_request(text: str) -> Optional[str]:
+        """
+        Detecta pedidos de poner/cambiar canción y devuelve el título limpio.
+        Ej: 'cambia a Despacito', 'ponme Bonito bonito', 'ahora reproduce X'.
+        """
+        if not text:
+            return None
+        raw = text.strip()
+        low = raw.lower()
+        change_hints = (
+            "cambia", "cambiar", "pon ", "ponme", "ponme ", "toca ", "tocame",
+            "reproduce", "reproduscas", "reproduzcas", "reproduzca", "cancion",
+            "canción", "musica", "música",
+        )
+        if not any(h in low for h in change_hints):
+            return None
+        # «cambia (la canción) a/por TITLE»
+        m = re.search(
+            r"(?is)\bcambia(?:r)?(?:\s+la\s+canci[oó]n)?\s+(?:a|por|por\s+la)?\s*(.+)$",
+            raw,
+        )
+        if m:
+            return AudioTool.sanitize_query(m.group(1))
+        return AudioTool.sanitize_query(raw)
+
+    @staticmethod
+    def extract_close_target(text: str) -> Optional[str]:
+        """Extrae el objetivo de 'cierra la pestaña de YouTube' → 'youtube'."""
+        if not text:
+            return None
+        low = text.lower()
+        if not any(k in low for k in ("cierra", "cerrar", "close")):
+            return None
+        m = re.search(
+            r"(?is)\b(?:cierra|cerrar|close)\s+(?:en\s+concreto\s+)?(?:solo\s+)?"
+            r"(?:la\s+)?(?:pesta[ñn]a\s+)?(?:de\s+)?(.+)$",
+            text.strip(),
+        )
+        if m:
+            target = AudioTool.sanitize_query(m.group(1))
+            # sanitize may over-strip; fallback tokens
+            if not target or target == "bonito bonito":
+                for tok in ("youtube", "youtu", "chrome", "edge", "spotify", "gmail"):
+                    if tok in low:
+                        return tok
+                return "youtube"
+            return target
+        if "youtube" in low or "youtu" in low:
+            return "youtube"
+        if "pestaña" in low or "pestana" in low:
+            return "youtube" if AudioTool._browser_opened else ""
+        return None
+
+    @staticmethod
+    def _focus_browser_matching(hint: str = "youtube") -> bool:
+        """Enfoca ventana del sistema cuyo título/proceso encaje con hint."""
+        hint_l = (hint or "youtube").strip().lower() or "youtube"
         try:
             from core.ui_inspector import UIInspector
 
@@ -146,11 +202,14 @@ class AudioTool:
             ranked = []
             for w in wins:
                 title = str(w.get("title") or "")
-                low = title.lower()
+                proc = str(w.get("process_name") or "")
+                low = f"{title} {proc}".lower()
                 score = 0
-                if "youtube" in low:
+                if hint_l in low:
+                    score += 20
+                if "youtube" in low and hint_l in ("youtube", "youtu", "musica", "música", "video"):
                     score += 10
-                if "chrome" in low or "edge" in low or "msedge" in str(w.get("process_name", "")).lower():
+                if any(b in low for b in ("chrome", "msedge", "edge", "brave", "firefox")):
                     score += 2
                 if score:
                     ranked.append((score, w))
@@ -164,17 +223,24 @@ class AudioTool:
         return False
 
     @staticmethod
-    def _send_media_play_pause():
-        """Tecla multimedia global Play/Pause (toggle del SO)."""
+    def _focus_youtube_or_browser() -> bool:
+        return AudioTool._focus_browser_matching("youtube")
+
+    @staticmethod
+    def _send_media_key(vk_code: int, pyauto_name: Optional[str] = None):
         if sys.platform == "win32":
-            # VK_MEDIA_PLAY_PAUSE = 0xB3 (179). Nota: 0xAF es volume down.
-            ctypes.windll.user32.keybd_event(0xB3, 0, 0, 0)
-            ctypes.windll.user32.keybd_event(0xB3, 0, 2, 0)
-        if HAS_PYAUTOGUI:
+            ctypes.windll.user32.keybd_event(vk_code, 0, 0, 0)
+            ctypes.windll.user32.keybd_event(vk_code, 0, 2, 0)
+        if HAS_PYAUTOGUI and pyauto_name:
             try:
-                pyautogui.press("playpause")
+                pyautogui.press(pyauto_name)
             except Exception:
                 pass
+
+    @staticmethod
+    def _send_media_play_pause():
+        # VK_MEDIA_PLAY_PAUSE = 0xB3
+        AudioTool._send_media_key(0xB3, "playpause")
 
     @staticmethod
     def _youtube_press_k():
@@ -197,7 +263,6 @@ class AudioTool:
     def play_local_audio(file_path: str) -> str:
         if not os.path.exists(file_path):
             return f"[Error Audio]: El archivo de audio '{file_path}' no existe en disco."
-
         try:
             if sys.platform == "win32":
                 os.startfile(file_path)
@@ -239,9 +304,8 @@ class AudioTool:
     def pause_audio(force: Optional[str] = "pause") -> str:
         """
         Pausa o reanuda en el navegador del sistema.
-
         force: 'pause' | 'resume' | 'toggle'
-        Evita el doble-toggle: si ya está pausado y piden pausa otra vez, no pulsa.
+        Evita el doble-toggle si ya estaba en el estado pedido.
         """
         want = (force or "pause").lower().strip()
         try:
@@ -270,69 +334,108 @@ class AudioTool:
             return f"[Error al pausar multimedia]: {str(e)}"
 
     @staticmethod
-    def close_youtube_tab() -> str:
-        """
-        Cierra la pestaña de YouTube en el navegador DEL SISTEMA (la misma que
-        abrió PLAY_AUDIO). No usa Playwright: BROWSER_CLOSE no sirve aquí.
-        """
+    def next_track() -> str:
+        """Siguiente pista (tecla multimedia del sistema)."""
         try:
-            focused = AudioTool._focus_youtube_or_browser()
+            AudioTool._send_media_key(0xB0, "nexttrack")  # VK_MEDIA_NEXT_TRACK
+            AudioTool._is_playing = True
+            return "[Audio]: Siguiente pista (media next) enviada al sistema."
+        except Exception as e:
+            return f"[Error siguiente pista]: {e}"
+
+    @staticmethod
+    def previous_track() -> str:
+        """Pista anterior (tecla multimedia del sistema)."""
+        try:
+            AudioTool._send_media_key(0xB1, "prevtrack")  # VK_MEDIA_PREV_TRACK
+            AudioTool._is_playing = True
+            return "[Audio]: Pista anterior (media prev) enviada al sistema."
+        except Exception as e:
+            return f"[Error pista anterior]: {e}"
+
+    @staticmethod
+    def close_tab(target: str = "youtube") -> str:
+        """
+        Cierra SOLO la pestaña del navegador del sistema que coincida con
+        `target` (p. ej. youtube, gmail). No usa Playwright.
+        """
+        hint = (target or "youtube").strip().lower() or "youtube"
+        try:
             if not HAS_PYAUTOGUI:
                 return (
-                    "[Audio]: Sin pyautogui no puedo cerrar la pestaña. "
-                    "Enfoca YouTube y pulsa Ctrl+W."
+                    f"[Audio]: Sin pyautogui no puedo cerrar la pestaña «{hint}». "
+                    "Enfócala y pulsa Ctrl+W."
                 )
 
+            focused = AudioTool._focus_browser_matching(hint)
             if not focused and not AudioTool._browser_opened:
                 return (
-                    "[Audio]: No encontré una ventana de YouTube abierta. "
+                    f"[Audio]: No encontré una ventana/pestaña para «{hint}». "
                     "Si la ves, enfócala y usa Ctrl+W."
                 )
 
             time.sleep(0.25)
-            # Confirmar que la pestaña activa parece YouTube (barra de direcciones).
+            url = ""
+            title_ok = focused
             try:
                 pyautogui.hotkey("ctrl", "l")
                 time.sleep(0.15)
                 pyautogui.hotkey("ctrl", "c")
                 time.sleep(0.1)
-                url = ""
                 try:
                     url = (pyperclip.paste() or "").lower()
                 except Exception:
                     url = ""
-                # Escape address bar then close tab
                 pyautogui.press("escape")
                 time.sleep(0.05)
-                if url and ("youtube.com" not in url and "youtu.be" not in url):
-                    # Aún intentamos Ctrl+W solo si habíamos abierto nosotros la sesión.
-                    if not AudioTool._browser_opened:
-                        return (
-                            "[Audio]: La ventana enfocada no parece YouTube "
-                            f"(URL: {url[:80] or 'desconocida'}). No cerré otras pestañas."
-                        )
             except Exception:
                 pass
 
+            hint_tokens = {hint, hint.replace(" ", "")}
+            if hint in ("youtube", "youtu", "musica", "música", "video", "vídeo"):
+                hint_tokens.update({"youtube.com", "youtu.be", "youtube"})
+            url_ok = bool(url) and any(tok in url for tok in hint_tokens if len(tok) >= 3)
+
+            if url and not url_ok and not AudioTool._browser_opened and not title_ok:
+                return (
+                    f"[Audio]: La pestaña activa no parece «{hint}» "
+                    f"(URL: {url[:80]}). No cerré otras pestañas."
+                )
+
             pyautogui.hotkey("ctrl", "w")
-            AudioTool._browser_opened = False
-            AudioTool._is_playing = False
-            AudioTool._last_url = ""
+            if hint in ("youtube", "youtu") or "youtube" in hint:
+                AudioTool._browser_opened = False
+                AudioTool._is_playing = False
+                AudioTool._last_url = ""
             return (
-                "[Audio]: Cerrada la pestaña de YouTube en tu navegador del sistema "
-                "(Chrome/Edge). Nota: BROWSER_* / Playwright es otro navegador y no "
-                "afecta esta pestaña."
+                f"[Audio]: Cerrada la pestaña «{hint}» en tu navegador del sistema. "
+                "Solo esa pestaña (Ctrl+W); el resto del navegador sigue abierto."
             )
         except Exception as e:
-            return f"[Error al cerrar YouTube]: {str(e)}"
+            return f"[Error al cerrar pestaña]: {str(e)}"
+
+    @staticmethod
+    def close_youtube_tab() -> str:
+        return AudioTool.close_tab("youtube")
 
     @staticmethod
     def control_audio(args: Optional[dict] = None) -> str:
-        """Dispatcher para AUDIO_CONTROL: pause | resume | toggle | close."""
+        """Dispatcher: pause | resume | toggle | close | next | previous | change."""
         args = args or {}
         action = str(args.get("action") or args.get("params") or "pause").lower().strip()
+        target = str(args.get("target") or args.get("tab") or "youtube").strip()
+        query = str(args.get("query") or args.get("audio_source") or args.get("song") or "").strip()
+
         if action in ("close", "cerrar", "close_tab", "close_youtube", "cerrar_pestana", "cerrar_pestaña"):
-            return AudioTool.close_youtube_tab()
+            return AudioTool.close_tab(target or "youtube")
+        if action in ("next", "siguiente", "skip"):
+            return AudioTool.next_track()
+        if action in ("previous", "prev", "anterior"):
+            return AudioTool.previous_track()
+        if action in ("change", "cambiar", "play_song", "song"):
+            if not query:
+                return "[Audio]: Para cambiar de canción indica el título (query)."
+            return AudioTool.play_online_music(query)
         if action in ("resume", "play", "reanudar", "continua", "continuar"):
             return AudioTool.pause_audio(force="resume")
         if action in ("toggle", "playpause", "play_pause"):
@@ -341,7 +444,7 @@ class AudioTool:
 
     @staticmethod
     def play_online_music(song_name: str) -> str:
-        """Busca, abre/reutiliza pestaña del sistema y reproduce."""
+        """Busca, abre/reutiliza pestaña del sistema y reproduce (también sirve para cambiar)."""
         try:
             clean_name = AudioTool.sanitize_query(song_name)
             AudioTool._last_query = clean_name
@@ -350,7 +453,7 @@ class AudioTool:
             AudioTool.force_video_play()
             return (
                 f"[Audio]: Reproduciendo «{clean_name}» en YouTube "
-                f"(navegador del sistema, pestaña reutilizada)."
+                f"(navegador del sistema, misma pestaña si ya había una)."
             )
         except Exception as e:
             return f"[Error al buscar/reproducir música]: {str(e)}"

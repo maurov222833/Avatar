@@ -9,7 +9,7 @@ Pruebas: `tests/test_spec003.py` en Linux (`TESTED_LINUX`). El 2026-09-30 Mauro 
 
 | Unidad | Estado | Dónde | Qué no quedó |
 |---|---|---|---|
-| U1 Parada | `IMPLEMENTED + INTEGRATED + TESTED_LINUX + VERIFIED_PC` (`/pause` en un acto inocuo) | `core/halt.py`, consultado al inicio de `ActChokepoint.perform` y al resolver una aprobación. `/pause`, `/stop` y `/kill` en Telegram. | El gancho global `Ctrl+Alt+Shift+X` no formó parte de la prueba en el PC. |
+| U1 Parada | `IMPLEMENTED + INTEGRATED + TESTED_LINUX + VERIFIED_PC` (`/pause` en un acto inocuo) | `core/halt.py`. En Telegram, `/pause` pausa la primera vez y quita la pausa la segunda. `/stop` y `/kill` siguen siendo paradas que `/pause` no apaga. | Mauro descartó la tecla `Ctrl+Alt+Shift+X`. El segundo `/pause` queda por probar en el PC. |
 | U2 Rutas | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | `core/path_guard.py`, usado por el chokepoint y por `FileTool.write_file` | Junctions, nombres 8.3 y UNC no se crearon en Windows. La denylist se probó sobre el texto de la ruta. |
 | U3 Comandos | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | `core/command_risk.py`, `core/grants.py`, ADR en `U3_COMMAND_RISK_ADR.md` | Sin AST de PowerShell. Sin grant, nada rutinario se cuela: sigue la aprobación de EXEC. |
 | U4 Contención | `IMPLEMENTED + TESTED_LINUX` | `core/containment.py`. El orquestador la enciende solo si `security.containment_enabled` es verdadero | Apagada por defecto para no pausar el PC a los cinco actos iguales sin que Mauro lo active. |

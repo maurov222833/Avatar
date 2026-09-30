@@ -69,6 +69,15 @@ class HaltTests(unittest.TestCase):
         self.assertEqual(halt.configured_hotkey(), "ctrl+alt+shift+x")
         self.assertFalse(halt.os_hotkey_hook_available())
 
+    def test_pause_toggles_and_does_not_clear_a_stop(self):
+        self.assertEqual(halt.toggle_pause("111", source="telegram"), "PAUSE")
+        self.assertEqual(halt.snapshot()["level"], "PAUSE")
+        self.assertEqual(halt.toggle_pause("111", source="telegram"), "RESUMED")
+        self.assertIsNone(halt.snapshot()["level"])
+        halt.engage("STOP", source="telegram", actor="111")
+        self.assertEqual(halt.toggle_pause("111", source="telegram"), "HELD_STOP")
+        self.assertEqual(halt.snapshot()["level"], "STOP")
+
     def test_unauthorized_stop_is_ignored(self):
         applied = halt.apply_control_command(
             "/stop", authorized=False, actor="999", source="telegram",

@@ -603,16 +603,43 @@ class TelegramBridge:
         if not text:
             return
 
-        from core.halt import apply_control_command, interpret_control_command
+        from core.halt import apply_control_command, interpret_control_command, toggle_pause
         if interpret_control_command(text):
             user_id = str((message.get("from") or {}).get("id", ""))
             authorized = self.is_authorized(message)
-            level = apply_control_command(
-                text, authorized=authorized, actor=user_id, source="telegram",
-            )
             if not authorized:
+                apply_control_command(
+                    text, authorized=False, actor=user_id, source="telegram",
+                )
                 self._report_rejected(message)
                 return
+            inbox = getattr(self, "_remote_inbox", None)
+            if inbox is None:
+                from core.remote_guard import RemoteInbox
+                inbox = RemoteInbox()
+                self._remote_inbox = inbox
+            accepted, why = inbox.accept(
+                sender=chat_id,
+                message_id=str(message.get("message_id") or ""),
+                text=text,
+                authorized=True,
+                sent_at=message.get("date"),
+            )
+            if not accepted:
+                _plog(f"[Telegram Bridge]: orden de parada no aceptada ({why}).")
+                return
+            if interpret_control_command(text) == "PAUSE":
+                result = toggle_pause(actor=user_id, source="telegram")
+                if result == "RESUMED":
+                    self.send_message(chat_id, "Pausa quitada.")
+                elif result == "PAUSE":
+                    self.send_message(chat_id, "Pausa activa. Otro /pause la quita.")
+                else:
+                    self.send_message(chat_id, "Sigue la parada fuerte. /pause no la quita.")
+                return
+            level = apply_control_command(
+                text, authorized=True, actor=user_id, source="telegram",
+            )
             self.send_message(chat_id, f"Parada {level} activa.")
             return
 

@@ -40,4 +40,4 @@ Mauro la ejecutó y confirmó que funcionó:
 2. «Dale play» y «pausa»: la misma canción.
 3. `/pause` a mitad de un acto inocuo.
 
-Eso es `VERIFIED_PC` para esos tres pasos. La tecla global `Ctrl+Alt+Shift+X` no entra en este reporte.
+Eso es `VERIFIED_PC` para esos tres pasos. Mauro eligió `/pause` como único gesto: la primera vez pausa y la segunda quita la pausa. La tecla `Ctrl+Alt+Shift+X` no se instala.

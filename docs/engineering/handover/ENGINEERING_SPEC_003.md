@@ -68,4 +68,4 @@ El 2026-09-30 Mauro confirmó que funcionó: captura con foto, «dale play» y �
 
 ## Autorización
 
-Mauro autorizó el recorrido U1 a U17. El código está en la rama `cursor/spec-003-u1-u17-5763`. `exec_requires_approval` sigue activo. La tecla global `Ctrl+Alt+Shift+X` queda configurada y sin prueba en el PC.
+Mauro autorizó el recorrido U1 a U17. El código está en la rama `cursor/spec-003-u1-u17-5763`. `exec_requires_approval` sigue activo. El gesto de pausa es `/pause`: la primera vez pausa y la segunda quita la pausa. La tecla global no se instala.

@@ -164,6 +164,23 @@ def interpret_control_command(text: str) -> Optional[str]:
     return {"/pause": "PAUSE", "/stop": "STOP", "/kill": "KILL_SWITCH"}.get(word)
 
 
+def toggle_pause(actor: str, source: str = "telegram") -> str:
+    """Primera vez pausa. La segunda, del mismo dueño, quita solo una PAUSA.
+
+    STOP y KILL_SWITCH no se apagan con este gesto.
+    """
+    if not actor or actor == "model":
+        raise PermissionError("RESUME_REQUIRES_EXPLICIT_ACTOR")
+    current = snapshot().get("level")
+    if current == "PAUSE":
+        resume(actor)
+        return "RESUMED"
+    if current in ("STOP", "KILL_SWITCH"):
+        return f"HELD_{current}"
+    engage("PAUSE", source=source, actor=actor)
+    return "PAUSE"
+
+
 def apply_control_command(text: str, *, authorized: bool, actor: str, source: str) -> Optional[str]:
     """Devuelve el nivel aplicado, o None si el texto no es una parada.
 

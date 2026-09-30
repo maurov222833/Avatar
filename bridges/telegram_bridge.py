@@ -508,19 +508,63 @@ class TelegramBridge:
                     self.send_message(chat_id, "No se pudo obtener la captura de pantalla.")
                 return
 
+            # Cerrar pestaña YouTube del navegador DEL SISTEMA (misma que PLAY_AUDIO).
+            # No usar BROWSER_*: Playwright es otra instancia.
+            close_yt = (
+                any(k in text_lower for k in ["cierra", "cerrar", "close"])
+                and any(
+                    k in text_lower
+                    for k in [
+                        "youtube", "pestaña", "pestana", "pestanya",
+                        "canción", "cancion", "musica", "música", "video", "vídeo",
+                    ]
+                )
+            )
+            if not is_instruction and close_yt:
+                self.send_message(chat_id, "Cerrando la pestaña de YouTube en tu navegador…")
+                res_msg = self._perform(
+                    "AUDIO_CONTROL", {"action": "close"}, chat_id, "close-youtube", text
+                )
+                self.send_message(chat_id, self._redact(res_msg))
+                return
+
+            # Reanudar
+            if not is_instruction and any(
+                kw in text_lower for kw in ["reanuda", "reanudar", "continúa", "continua", "despausa"]
+            ):
+                self.send_message(chat_id, "Reanudando la música en tu PC…")
+                res_msg = self._perform(
+                    "AUDIO_CONTROL", {"action": "resume"}, chat_id, "resume-audio", text
+                )
+                self.send_message(chat_id, self._redact(res_msg))
+                return
+
             # Detección directa de solicitud de pausa / silenciar / detener música
-            if not is_instruction and any(kw in text_lower for kw in ["pausa", "pausar", "paúsala", "pausala", "detén", "deten", "silenciar", "parar", "stop"]):
+            if not is_instruction and any(
+                kw in text_lower
+                for kw in ["pausa", "pausar", "paúsala", "pausala", "detén", "deten", "silenciar", "parar", "stop"]
+            ):
                 self.send_message(chat_id, "Pausando la música en tu PC…")
-                res_msg = self._perform("AUDIO_CONTROL", {"action": "pause"}, chat_id, "pause-audio", text)
+                res_msg = self._perform(
+                    "AUDIO_CONTROL", {"action": "pause"}, chat_id, "pause-audio", text
+                )
                 self.send_message(chat_id, self._redact(res_msg))
                 return
 
             # Detección directa de solicitud de música / reproducción
-            if not is_instruction and any(kw in text_lower for kw in ["reproduce", "reproduzca", "cancion", "canción", "musica", "música"]):
+            if not is_instruction and any(
+                kw in text_lower
+                for kw in [
+                    "reproduce", "reproduzca", "reproduscas", "reproduzcas",
+                    "cancion", "canción", "musica", "música",
+                ]
+            ):
                 from tools.audio_tool import AudioTool
                 song_query = AudioTool.sanitize_query(text)
                 self.send_message(chat_id, f"Abriendo YouTube para reproducir «{song_query}» en tu PC…")
-                res_msg = self._perform("PLAY_AUDIO", {"audio_source": song_query}, chat_id, "play-music", text)
+                res_msg = self._perform(
+                    "PLAY_AUDIO", {"audio_source": song_query}, chat_id, "play-music", text
+                )
                 self.send_message(chat_id, self._redact(res_msg))
                 return
 

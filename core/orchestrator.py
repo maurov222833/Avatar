@@ -140,13 +140,34 @@ AVATAR_TOOLS_SCHEMA = [
             },
             {
                 "name": "PLAY_AUDIO",
-                "description": "Reproduce música o audio local o en línea.",
+                "description": (
+                    "Reproduce música en el navegador DEL SISTEMA de Mauro (Chrome/Edge), "
+                    "no en Playwright. Para pausar/cerrar esa misma pestaña usa AUDIO_CONTROL."
+                ),
                 "parameters": {
                     "type": "OBJECT",
                     "properties": {
-                        "audio_source": {"type": "STRING", "description": "Nombre de canción o archivo local."}
+                        "audio_source": {"type": "STRING", "description": "Nombre de canción o archivo local (solo el título, sin 'si quiero que...')."}
                     },
                     "required": ["audio_source"]
+                }
+            },
+            {
+                "name": "AUDIO_CONTROL",
+                "description": (
+                    "Controla la música/YouTube abierta por PLAY_AUDIO en el navegador del sistema. "
+                    "action=pause|resume|close. IMPORTANTE: BROWSER_CLOSE NO cierra esa pestaña "
+                    "(Playwright es otro navegador). Para 'cierra YouTube / cierra la pestaña' usa action=close."
+                ),
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "action": {
+                            "type": "STRING",
+                            "description": "pause, resume o close (cerrar pestaña YouTube del sistema)."
+                        }
+                    },
+                    "required": ["action"]
                 }
             },
             {
@@ -429,6 +450,14 @@ class AvatarOrchestrator:
             "- ENVIAR WHATSAPP: usa SEND_WHATSAPP / WHATSAPP_SEND cuando lo pida; no improvises.\n"
             "- RUTAS CON ESPACIOS EN WINDOWS: en COMMAND, comillas dobles en rutas con espacios.\n"
             "- Precisión y anti-alucinación: afirma solo lo que observaste o sabes del sistema.\n"
+            "- YOUTUBE / MÚSICA (navegador del sistema ≠ Playwright):\n"
+            "  • PLAY_AUDIO abre/reutiliza Chrome/Edge real de Mauro.\n"
+            "  • Para pausar: AUDIO_CONTROL action=pause (no inventes approval).\n"
+            "  • Para cerrar SOLO la pestaña de YouTube: AUDIO_CONTROL action=close.\n"
+            "  • BROWSER_* es un Chromium de Playwright aparte: BROWSER_CLOSE / navigate "
+            "NO cierra ni afecta la pestaña de YouTube que abrió PLAY_AUDIO. "
+            "Si Mauro pide cerrar YouTube, NUNCA uses BROWSER_*; usa AUDIO_CONTROL close "
+            "de inmediato sin rodeos ni pedir Ctrl+W.\n"
         )
 
     def _load_config(self):
@@ -1328,7 +1357,7 @@ class AvatarOrchestrator:
                 AudioTool.play_local_audio(a.get("audio_source") or a.get("params") or "")
                 if os.path.exists(a.get("audio_source") or a.get("params") or "")
                 else AudioTool.play_online_music(a.get("audio_source") or a.get("params") or "")),
-            "AUDIO_CONTROL": lambda a: AudioTool.pause_audio(),
+            "AUDIO_CONTROL": lambda a: AudioTool.control_audio(a or {}),
             "SCREEN_CAPTURE": _take_screenshot,
             "SEND_WHATSAPP": lambda a: WhatsAppAutoReply.send_reply(
                 a.get("message") or a.get("params") or ""),
@@ -1951,7 +1980,7 @@ class AvatarOrchestrator:
 
         valid_tools = [
             "COMMAND", "READ_FILE", "WRITE_FILE", "LIST_DIR", "WEB_SEARCH", "FETCH_URL",
-            "PLAY_AUDIO", "SEND_WHATSAPP", "SCREEN_CAPTURE", "UPDATE_CONFIG",
+            "PLAY_AUDIO", "AUDIO_CONTROL", "SEND_WHATSAPP", "SCREEN_CAPTURE", "UPDATE_CONFIG",
             "TELEGRAM_STATUS", "TELEGRAM_SEND", "TELEGRAM_TEST",
             "BROWSER_NAVIGATE", "BROWSER_OBSERVE", "BROWSER_CLICK", "BROWSER_FILL", "BROWSER_CLOSE",
             "DESKTOP_CLICK", "DESKTOP_TYPE", "DESKTOP_OBSERVE",
@@ -2037,6 +2066,8 @@ class AvatarOrchestrator:
             args = {"url": params}
         elif tool_name in ("PLAY_AUDIO",):
             args = {"audio_source": params}
+        elif tool_name == "AUDIO_CONTROL":
+            args = {"action": (params or "pause").strip() or "pause"}
         elif tool_name == "SEND_WHATSAPP":
             args = {"message": params}
         elif tool_name == "WRITE_FILE":

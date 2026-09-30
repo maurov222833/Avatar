@@ -168,7 +168,10 @@ def authorize_path(
         return DENY, "PATH_CANNOT_RESOLVE"
 
     protected = _protected_files()
-    if os.path.normcase(resolved) in protected or os.path.normcase(os.path.abspath(raw)) in protected:
+    if operation in ("write", "delete") and (
+        os.path.normcase(resolved) in protected
+        or os.path.normcase(os.path.abspath(raw)) in protected
+    ):
         return DENY, "PATH_SECURITY_COMPONENT"
 
     for root in _BACKUP_ROOTS:
@@ -188,6 +191,20 @@ def authorize_path(
         return NEEDS_APPROVAL, "PATH_MASS_OPERATION"
 
     return ALLOW, "PATH_ALLOWED"
+
+
+def paths_in_command(command: str) -> list:
+    """Rutas que un comando nombra. Una URL no cuenta como ruta de disco."""
+    found = []
+    pattern = re.compile(
+        r"(?i)(?:[a-z]:\\[^\s\"']+|\\\\[^\s\"']+|(?:\.\.[/\\])+[^\s\"']+)"
+    )
+    for match in pattern.finditer(command or ""):
+        token = match.group(0).strip("'\"")
+        if "://" in token:
+            continue
+        found.append(token)
+    return found
 
 
 def safe_delete(path: str, mission_id: str, mission_scope: str) -> Tuple[str, str]:

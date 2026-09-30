@@ -29,7 +29,7 @@ from core.marketing import ab_conclusion, cac, ltv, reject_fake_review, roas, ro
 from core.marketplace import (
     DropshipMachine, PlatformRegistry, authorize_access_mode, unit_economics,
 )
-from core.mission_report import compute_status, render_report
+from core.mission_report import compute_status, from_transition, render_report
 from core.model_inventory import ModelRouter
 from core.night_mode import NightEnvelope, heartbeat_ok
 from core.path_guard import authorize_path, register_backup_root, safe_delete
@@ -140,6 +140,28 @@ class PathTests(unittest.TestCase):
         mass, why = authorize_path(os.path.join(scope, "a.txt"), "write", scope, affected_count=10001)
         self.assertEqual(mass, "NEEDS_APPROVAL")
         self.assertEqual(why, "PATH_MASS_OPERATION")
+
+    def test_command_cannot_name_a_windows_path(self):
+        ran = []
+        cp = ActChokepoint(
+            policy=ActPolicy(dry_run=False, exec_requires_approval=False),
+            executors={"COMMAND": lambda a: ran.append(a["command"]) or "ok"},
+        )
+        denied = cp.perform("COMMAND", {"command": r"echo C:\Windows\System32\cmd.exe"})
+        self.assertIn("PATH_DENYLIST", denied)
+        self.assertEqual(ran, [])
+        allowed = cp.perform("COMMAND", {"command": "echo hola"})
+        self.assertEqual(allowed, "ok")
+
+    def test_locked_session_refuses_a_capture(self):
+        ran = []
+        cp = ActChokepoint(
+            policy=ActPolicy(dry_run=False, session_locked=True),
+            executors={"SCREEN_CAPTURE": lambda a: ran.append("shot") or "foto"},
+        )
+        denied = cp.perform("SCREEN_CAPTURE", {})
+        self.assertIn("SESSION_LOCKED", denied)
+        self.assertEqual(ran, [])
 
     def test_security_file_and_backup_are_immutable(self):
         from core.path_guard import package_root
@@ -267,6 +289,8 @@ class ProvenanceAndReportTests(unittest.TestCase):
     def test_report_does_not_trust_the_model(self):
         evidence = {"criteria": {}, "model_claims_success": True}
         report = render_report("hacer X", evidence, actions=[], pending=["X"])
+        self.assertEqual(from_transition("REPORTED"), "UNVERIFIED")
+        self.assertEqual(from_transition("COMPLETED"), "COMPLETED_VERIFIED")
         self.assertEqual(report["status"], "UNVERIFIED")
         self.assertTrue(report["model_claim_ignored"])
         self.assertEqual(

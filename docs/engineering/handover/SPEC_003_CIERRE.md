@@ -10,7 +10,7 @@ Pruebas: `tests/test_spec003.py` en Linux (`TESTED_LINUX`). El 2026-09-30 Mauro 
 | Unidad | Estado | Dónde | Qué no quedó |
 |---|---|---|---|
 | U1 Parada | `IMPLEMENTED + INTEGRATED + TESTED_LINUX + VERIFIED_PC` (`/pause` en un acto inocuo) | `core/halt.py`. En Telegram, `/pause` pausa la primera vez y quita la pausa la segunda. `/stop` y `/kill` siguen siendo paradas que `/pause` no apaga. | Mauro descartó la tecla `Ctrl+Alt+Shift+X`. El segundo `/pause` queda por probar en el PC. |
-| U2 Rutas | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | `core/path_guard.py`, usado por el chokepoint y por `FileTool.write_file` | Junctions, nombres 8.3 y UNC no se crearon en Windows. La denylist se probó sobre el texto de la ruta. |
+| U2 Rutas | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | `core/path_guard.py` en escrituras y en comandos que nombran una ruta prohibida | Junctions, nombres 8.3 y UNC no se crearon en Windows. La denylist se probó sobre el texto de la ruta. |
 | U3 Comandos | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | `core/command_risk.py`, `core/grants.py`, ADR en `U3_COMMAND_RISK_ADR.md` | Sin AST de PowerShell. Sin grant, nada rutinario se cuela: sigue la aprobación de EXEC. |
 | U4 Contención | `IMPLEMENTED + TESTED_LINUX` | `core/containment.py`. El orquestador la enciende solo si `security.containment_enabled` es verdadero | Apagada por defecto para no pausar el PC a los cinco actos iguales sin que Mauro lo active. |
 | U5 Procedencia | `IMPLEMENTED + TESTED_LINUX` | `core/provenance_store.py` | `FETCH_URL` todavía no guarda solo en este almacén. |
@@ -33,4 +33,4 @@ La parada vive en el proceso. Otro código que llame a una herramienta saltándo
 
 ## Siguiente paso
 
-Encender `security.containment_enabled` solo cuando Mauro quiera la pausa automática por actos repetidos.
+En el PC, el segundo `/pause` debe responder «Pausa quitada». La contención automática sigue apagada hasta que Mauro pida encenderla. Con la sesión bloqueada, captura y actos de escritorio se niegan si `session_locked` está activo; Avatar todavía no detecta solo el bloqueo de Windows.

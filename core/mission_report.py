@@ -18,6 +18,17 @@ STATUSES = (
 )
 
 
+def from_transition(status: str) -> str:
+    """Traduce el estado ya guardado de la misión al vocabulario de la spec."""
+    return {
+        "COMPLETED": "COMPLETED_VERIFIED",
+        "REPORTED": "UNVERIFIED",
+        "BLOCKED": "BLOCKED",
+        "FAILED": "FAILED",
+        "ABORTED": "ABORTED",
+    }.get(status or "", "UNVERIFIED")
+
+
 def compute_status(evidence: Dict[str, Any]) -> str:
     """evidence: criteria -> bool, más claves de control opcionales."""
     if evidence.get("aborted"):

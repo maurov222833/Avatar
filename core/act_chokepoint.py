@@ -267,6 +267,8 @@ class ActPolicy:
     mission_grant: Optional[Dict[str, Any]] = None
     #: Contadores de contención (U4). Apagado por defecto para no frenar la suite.
     containment_enabled: bool = False
+    #: Sesión de Windows bloqueada: no hay escritorio que mirar ni que tocar.
+    session_locked: bool = False
 
     def is_trusted_personal_send(self, act_type: str, args: Dict[str, Any]) -> bool:
         """Telegram send/test to the owner skips external consent/dry-run."""
@@ -284,6 +286,11 @@ class ActPolicy:
         risk = ACT_TYPES.get(act_type)
         if risk is None:
             return False, f"UNKNOWN_ACT_TYPE:{act_type}"
+        if self.session_locked and act_type in (
+            "SCREEN_CAPTURE", "DESKTOP_CLICK", "DESKTOP_TYPE",
+            "DESKTOP_HOTKEY", "DESKTOP_OBSERVE",
+        ):
+            return False, "SESSION_LOCKED"
         if act_type in self.denied_act_types:
             return False, "ACT_TYPE_DENIED_BY_POLICY"
         if (
@@ -308,6 +315,18 @@ class ActPolicy:
             level, why = classify_command(str(command_text))
             if level == PROHIBITED:
                 return False, f"COMMAND_PROHIBITED:{why}"
+            from core.path_guard import ALLOW, authorize_path, paths_in_command
+            hard_deny = (
+                "PATH_DENYLIST", "PATH_SECRET", "PATH_RESERVED",
+                "PATH_ALTERNATE", "PATH_SHORT", "PATH_DRIVE_ROOT",
+                "PATH_SECURITY", "PATH_BACKUP",
+            )
+            for candidate in paths_in_command(str(command_text)):
+                decision, why = authorize_path(
+                    candidate, "write", self.allowed_workspace_root,
+                )
+                if decision != ALLOW and why.startswith(hard_deny):
+                    return False, why
             if grant_allows(level, self.mission_grant):
                 return True, f"ALLOWED_MISSION_LEVEL_{level}"
         if risk == ActRisk.EXEC and self.exec_requires_approval:

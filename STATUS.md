@@ -26,8 +26,10 @@ El parser de texto (`_parse_tool_action`) acepta los nombres de `ToolRegistry.li
 ## Directriz 002
 
 Propuesta de Mauro del 2026-09-30. No sustituye este estado ni el roadmap R0–R7.
+Texto íntegro: `docs/engineering/handover/MASTER_DIRECTIVE_002.md`.
 Dictamen: `docs/engineering/handover/MASTER_DIRECTIVE_002_COMPARISON.md`.
-No se implementa por lotes.
+Plan de unidades: `docs/engineering/handover/ENGINEERING_SPEC_003.md`.
+U0 archivó la directriz. El motor no cambia hasta que Mauro autorice la siguiente unidad.
 
 ## Mañana en Telegram (prueba corta)
 

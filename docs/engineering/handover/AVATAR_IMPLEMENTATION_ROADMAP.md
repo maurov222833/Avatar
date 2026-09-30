@@ -59,9 +59,11 @@ no iniciar sin ADR y sin amenaza que lo justifique. Complejidad alta. Tokens: 10
 
 ## MD002 — Directriz propuesta (no iniciar)
 
-Texto: `MASTER_DIRECTIVE_002.md`. Dictamen: `MASTER_DIRECTIVE_002_COMPARISON.md`.
-No reemplaza R0–R7. Ninguna sección de esa directriz se implementa hasta que
-Mauro acepte una unidad concreta del dictamen.
+Texto íntegro: `MASTER_DIRECTIVE_002.md` (U0, apartados 0 a 22).
+Dictamen: `MASTER_DIRECTIVE_002_COMPARISON.md`.
+Plan de unidades: `ENGINEERING_SPEC_003.md`.
+No reemplaza R0–R7. U0 (archivo) está hecho. U1 en adelante no empieza
+hasta que Mauro autorice esa unidad.
 
 ## Puerta de cada fase
 

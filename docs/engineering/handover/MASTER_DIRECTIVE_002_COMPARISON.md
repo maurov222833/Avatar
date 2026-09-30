@@ -1,9 +1,9 @@
 # Master Directive 002 — dictamen de comparación
 
 Fecha: 2026-09-30. Rama: `cursor/u1-contencion-5763`.  
-Texto comparado: Master Directive 002, versión 2.0, entregada por Mauro el 2026-09-30
-(apartados 0 a 22). El archivo `MASTER_DIRECTIVE_002.md` fija el estado de
-propuesta y el mapa de apartados. No se modificó código de ejecución.
+Texto comparado: `docs/engineering/handover/MASTER_DIRECTIVE_002.md`
+(copia íntegra de los apartados 0 a 22, archivada en U0).
+No se modificó código de ejecución.
 
 Documentos vigentes que siguen mandando hasta que Mauro acepte una unidad:
 

@@ -22,3 +22,9 @@ Se buscaron en el repo, en el historial de git, en esta sesión, en las carpetas
 ## Cuando falte una frase
 
 Si una tarea necesita una regla que solo estaba en el texto perdido, se para esa tarea y se le pregunta a Mauro esa decisión. No se rellena el documento entero de memoria. El resto del trabajo sigue con los cinco archivos de arriba.
+
+## Efecto en el funcionamiento
+
+Ningún módulo de `core/`, `bin/` ni `tests/` lee esos dos nombres. Lo ya programado —parada, chokepoint, plantillas, margen en el simulador, director en el simulador— sigue igual.
+
+Lo que puede fallar es un trabajo nuevo. `ENGINEERING_SPEC_003.md` registró el orden y no copió la v2 entera. Si una cifra, un criterio de aceptación o una prohibición quedó solo en el archivo perdido, el código nuevo puede omitirla. En ese caso se pregunta esa frase. La instalación en el PC, la verificación en Windows y las cuentas siguen dependiendo de Mauro, no de esos dos archivos.

@@ -65,7 +65,11 @@ U1 a U17 tienen código. El alcance real de cada una está en `SPEC_003_CIERRE.m
 
 ### 2026-10-01 — Adenda 3, U18, solo registro y U18.0
 
-Mauro entregó la adenda «Director de desarrollo». Quedó como U18 en la fase 6, después de U8 y U10. U18.0 es documentación: `U18_0_PREPARACION.md` y `U18_COMPARACION.md`. No hay `DevMission`, no hay adaptador real de Cursor y no cambió ninguna política de aprobación. El código de U18.1 a U18.9 espera autorización de cada sub-unidad.
+Mauro entregó la adenda «Director de desarrollo». Quedó como U18 en la fase 6, después de U8 y U10. U18.0 es documentación: `U18_0_PREPARACION.md` y `U18_COMPARACION.md`. Este párrafo registra ese momento. El estado posterior está abajo.
+
+### 2026-10-01 — estado vigente
+
+El simulador de U18 ya tiene código y pruebas en Linux: `core/dev_director.py` y `FakeDevAgent`. El detalle está en `SPEC_003_CIERRE.md` y `U18_COMPARACION.md`. No hay IDE real, no hay carta aprobada, la tecla global no está instalada, WhatsApp sigue aparcado y no se fusiona a `main`. Esas puertas están en `GATES_CERRADAS.md`. `exec_requires_approval` sigue activo. Las dos specs pedidas por nombre siguen `PERDIDO` (`SPEC_PERDIDAS_DECISION.md`).
 
 ## Prueba en el PC
 

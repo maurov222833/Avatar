@@ -6,6 +6,7 @@
 **Estado de este archivo:** propuesta. La versión que manda es la 2.0 consolidada del 2026-09-30 (U0 a U17). Ninguna unidad de código está autorizada.
 **Directriz íntegra:** `MASTER_DIRECTIVE_002.md`
 **Dictamen:** `MASTER_DIRECTIVE_002_COMPARISON.md`
+**Índice de los nombres que pidió Mauro el 2026-10-01:** `docs/engineering/INDEX.md`
 **Relación:** complementa la Directriz 002. No sustituye el roadmap R0–R7.
 
 La versión 2.0 consolidada (U0 a U17, más U14.4, U15.5, U15.6 y U15.7) sustituye a la spec inicial y a las adendas. Este archivo guarda el resultado de U0, el orden registrado y el historial. La comparación de U11 a U17 está en `SPEC_003_V2_GAP.md`. No reescribe el diseño ni toca el motor.

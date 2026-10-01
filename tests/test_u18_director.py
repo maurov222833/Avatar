@@ -15,6 +15,7 @@ from core.dev_director import (
     consider_untrusted,
     detect_stall,
     handover,
+    calibration_stage,
     plan_packages,
     propose_lesson,
     recover_crash,
@@ -312,6 +313,24 @@ class DirectorTests(unittest.TestCase):
         self.assertEqual(closed, "COMPLETED_WITH_LIMITATIONS")
         self.assertEqual(len(ready.agent.instructions), 2)
         self.assertIn("Estado de la misión: COMPLETED_WITH_LIMITATIONS", ready.mission["report"])
+
+    def test_calibration_stays_at_e0_without_an_approved_charter(self):
+        full = {
+            "decisions": 20,
+            "accuracy": 0.85,
+            "packages": 10,
+            "stalls_recovered": 3,
+            "absences": 5,
+        }
+        blocked = calibration_stage(full, charter_approved=False)
+        self.assertEqual(blocked["stage"], "E0")
+        self.assertEqual(blocked["reason"], "carta_sin_aprobar")
+        met = calibration_stage(full, charter_approved=True)
+        self.assertEqual(met["stage"], "E0")
+        self.assertEqual(met["reason"], "umbral_sugerido_sin_escala")
+        short = calibration_stage({"decisions": 1}, charter_approved=True)
+        self.assertEqual(short["stage"], "E0")
+        self.assertIn("packages", short["missing"])
 
 
 if __name__ == "__main__":

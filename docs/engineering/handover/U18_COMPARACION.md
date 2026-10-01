@@ -39,7 +39,7 @@ Nada de esta tabla es `VERIFIED_PC`. No se probó contra un repositorio real de 
 | Escalera de intervención | `IMPLEMENTED + TESTED_LINUX`. No repite la orden fallida. |
 | `DevEnvelope`, parada automática de desarrollo, informe Anexo E | `IMPLEMENTED + TESTED_LINUX` en el simulador. No está encendido en el PC. |
 | Cerebro del proyecto aprobado, carta de Mauro, biblioteca de 15–25 casos | `NOT_IMPLEMENTED`. La estructura propuesta está en `U18_0_PREPARACION.md`. |
-| Métricas de calibración E1–E4 | `NOT_IMPLEMENTED` |
+| Métricas de calibración E1–E4 | `PARTIAL`. `calibration_stage` cuenta el umbral sugerido y se queda en `E0`. No sube de etapa: la carta no está aprobada y la escala E1–E4 no está en el repo. |
 
 ## Conflictos
 

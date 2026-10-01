@@ -411,6 +411,31 @@ def recover_crash(done_non_idempotent: List[str], pending: List[str]) -> List[st
     return [item for item in pending if item not in done]
 
 
+def calibration_stage(stats: Dict[str, Any], *, charter_approved: bool) -> Dict[str, Any]:
+    """La carta no está aprobada: la etapa se queda en E0.
+
+    Los números sugeridos están en U18_0. No definen E1, E2 ni E3, así que
+    cumplirlos no sube de etapa.
+    """
+    if not charter_approved:
+        return {"stage": "E0", "reason": "carta_sin_aprobar", "missing": []}
+    missing: List[str] = []
+    if int(stats.get("decisions") or 0) < 20:
+        missing.append("decisions")
+    accuracy = stats.get("accuracy")
+    if not isinstance(accuracy, (int, float)) or float(accuracy) < 0.85:
+        missing.append("accuracy")
+    if int(stats.get("packages") or 0) < 10:
+        missing.append("packages")
+    if int(stats.get("stalls_recovered") or 0) < 3:
+        missing.append("stalls_recovered")
+    if int(stats.get("absences") or 0) < 5:
+        missing.append("absences")
+    if missing:
+        return {"stage": "E0", "reason": "umbral_sugerido_incompleto", "missing": missing}
+    return {"stage": "E0", "reason": "umbral_sugerido_sin_escala", "missing": []}
+
+
 def second_opinion(*, per_session: int, currency: str) -> Dict[str, Any]:
     """PB-08. No llama a un modelo. Sin tope numérico no hay dictamen."""
     if not isinstance(per_session, int) or per_session <= 0 or currency in ("", "TODO_MAURO"):

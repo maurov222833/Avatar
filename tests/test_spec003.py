@@ -11,7 +11,7 @@ from core.act_chokepoint import ActChokepoint, ActPolicy
 from core.assistant import (
     JobScheduler, Mailbox, backup_tree, ocr_fields, verify_backup, voice_order,
 )
-from core.command_risk import classify_command
+from core.command_risk import classify_command, grant_allows
 from core.containment import ContainmentMonitor
 from core.documents import (
     FINANCIAL_WARNING, accounting_equation, atomic_write, build_docx, build_xlsx,
@@ -146,6 +146,10 @@ class PathTests(unittest.TestCase):
             r"C:\Users\mauro\NUL",
             r"C:\Users\mauro\Documents\secreto.txt",
             "C:\\",
+            r"C:Windows\System32\cmd.exe",
+            r"\\server\share\Windows\System32\cmd.exe",
+            r"\\?\UNC\server\share\Windows\System32\cmd.exe",
+            r"DOCUME~1\archivo.txt",
         ]
         for sample in samples:
             decision, reason = authorize_path(sample, "write", scope)
@@ -165,6 +169,18 @@ class PathTests(unittest.TestCase):
         self.assertEqual(kind, "ALLOW")
         self.assertTrue(os.path.isfile(dest))
         self.assertFalse(os.path.exists(inside))
+        other_dir = os.path.join(scope, "otra")
+        os.makedirs(other_dir)
+        twin = os.path.join(other_dir, "nota.txt")
+        with open(twin, "w", encoding="utf-8") as handle:
+            handle.write("otra")
+        kind2, dest2 = safe_delete(twin, "m1", scope)
+        self.assertEqual(kind2, "ALLOW")
+        self.assertNotEqual(dest, dest2)
+        with open(dest, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "hola")
+        with open(dest2, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "otra")
         mass, why = authorize_path(os.path.join(scope, "a.txt"), "write", scope, affected_count=10001)
         self.assertEqual(mass, "NEEDS_APPROVAL")
         self.assertEqual(why, "PATH_MASS_OPERATION")
@@ -177,6 +193,12 @@ class PathTests(unittest.TestCase):
         )
         denied = cp.perform("COMMAND", {"command": r"echo C:\Windows\System32\cmd.exe"})
         self.assertIn("PATH_DENYLIST", denied)
+        self.assertEqual(ran, [])
+        relative = cp.perform("COMMAND", {"command": r"type C:Windows\System32\cmd.exe"})
+        self.assertIn("PATH_DRIVE_RELATIVE", relative)
+        self.assertEqual(ran, [])
+        slashed = cp.perform("COMMAND", {"command": "type C:/Windows/System32/cmd.exe"})
+        self.assertIn("PATH_DENYLIST", slashed)
         self.assertEqual(ran, [])
         allowed = cp.perform("COMMAND", {"command": "echo hola"})
         self.assertEqual(allowed, "ok")
@@ -238,6 +260,18 @@ class CommandTests(unittest.TestCase):
                 total += 1
         self.assertGreaterEqual(total, 100)
         self.assertNotEqual(classify_command("powershell -EncodedCommand AAA")[0], "A")
+        self.assertEqual(classify_command("git push --force")[0], "D")
+        self.assertEqual(classify_command("git push --force-with-lease")[0], "D")
+        self.assertEqual(classify_command("git clean -f -d")[0], "D")
+        self.assertEqual(classify_command("git clean -n")[0], "C")
+        self.assertEqual(classify_command('powershell -Command "Remove-Item foo"')[0], "D")
+        self.assertEqual(classify_command("sudo git status")[0], "C")
+        self.assertEqual(classify_command("cmd /c git status")[0], "C")
+        self.assertEqual(classify_command("bash -c \"rm -rf /tmp/x\"")[0], "D")
+        self.assertEqual(classify_command("git checkout -- nota.txt")[0], "D")
+        self.assertEqual(classify_command("git restore nota.txt")[0], "D")
+        self.assertEqual(classify_command("git checkout main")[0], "B")
+        self.assertFalse(grant_allows("D", {"levels": ["A", "B", "C", "D"], "allow_level_c": True}))
 
     def test_grant_allows_routine_and_blocks_prohibited(self):
         ran = []

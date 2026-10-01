@@ -29,7 +29,7 @@ LOW (histórico).
 | E-13 | Relectura ciega a emojis/espacios | CONFIRMED_FIXED | `_text_key` + prueba física |
 | E-14 | Tests atados al config real | CONFIRMED_FIXED | Policies y `local_fallback` fijados por test |
 | E-15 | `main_gui`/`autoloop`/subagentes muertos o sombra | HISTORICAL_ONLY (MEDIUM) | `core/autoloop.py` retirado. `core/subagents.py` solo lo usa la suite de superficies. |
-| E-16 | RAG por palabras, no vectorial | CONFIRMED_OPEN (HIGH) | `rag_memory.py:141`; además el tópico debe igualar la palabra (`whatsapp` ≠ `whatsapp-24-7`) |
+| E-16 | RAG por palabras, no vectorial | CONFIRMED_PARTIALLY_FIXED (HIGH) | Sigue sin vectores. Una palabra partida por guion ya coincide (`canal` encuentra `canal-24-7`). |
 | E-17 | Sin logger estructurado | CONFIRMED_FIXED (HIGH) | `core/logging_util.py` y `requirements.lock`. Consola solo si el logger no arranca. |
 | E-18 | Sin scheduler/watchdog de proceso | CONFIRMED_PARTIALLY_FIXED (HIGH) | `core/watchdog.py` reanuda misiones seguras. El Programador de tareas de Windows no se instaló. |
 | E-19 | Capacidades proveedor estáticas + fallback ciego | CONFIRMED_PARTIALLY_FIXED (MEDIUM) | Cascada por salud, ledger de uso y techo por hora. Las capacidades de cada adaptador siguen declaradas en código. |

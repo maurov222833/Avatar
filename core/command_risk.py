@@ -35,8 +35,47 @@ def _tokens(command: str) -> Optional[List[str]]:
         return None
 
 
-def classify_command(command: str) -> Tuple[str, str]:
+_RANK = {"A": 0, "B": 1, "C": 2, "D": 3, PROHIBITED: 4}
+_WRAPPERS = {
+    "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe",
+    "bash", "sh", "sudo", "doas",
+}
+_WRAPPER_FLAGS = {"-c", "/c", "-command", "/command"}
+
+
+def _stricter(left: Tuple[str, str], right: Tuple[str, str]) -> Tuple[str, str]:
+    if _RANK[right[0]] > _RANK[left[0]]:
+        return right
+    return left
+
+
+def _inner_command(tokens: Optional[List[str]]) -> Optional[str]:
+    """Texto que un envoltorio va a ejecutar. No baja el nivel del envoltorio."""
+    if not tokens or len(tokens) < 2:
+        return None
+    head = tokens[0].lower()
+    if head not in _WRAPPERS:
+        return None
+    tail = tokens[1:]
+    if head in ("sudo", "doas"):
+        return " ".join(tail)
+    for index, token in enumerate(tail):
+        if token.lower() in _WRAPPER_FLAGS and index + 1 < len(tail):
+            return " ".join(tail[index + 1:])
+    return None
+
+
+def classify_command(command: str, _depth: int = 0) -> Tuple[str, str]:
     """Devuelve (nivel, motivo). Ante duda, C o PROHIBITED."""
+    level, why = _classify_surface(command)
+    if _depth < 2:
+        inner = _inner_command(_tokens(command or ""))
+        if inner and inner.strip() and inner.strip() != (command or "").strip():
+            level, why = _stricter((level, why), classify_command(inner, _depth + 1))
+    return level, why
+
+
+def _classify_surface(command: str) -> Tuple[str, str]:
     raw = command or ""
     if not raw.strip():
         return "C", "EMPTY_COMMAND"
@@ -63,14 +102,24 @@ def classify_command(command: str) -> Tuple[str, str]:
             return "C", "GIT_DIFF_OUTPUT"
         if sub in ("status", "diff", "log", "show"):
             return "A", "GIT_READ"
-        if sub in ("add", "commit", "checkout", "switch"):
+        if sub in ("checkout", "switch", "restore"):
+            discards = "--" in tail or "-f" in tail or "--force" in tail or sub == "restore"
+            if discards:
+                return "D", "GIT_DISCARD"
+            return "B", "GIT_LOCAL"
+        if sub in ("add", "commit"):
             return "B", "GIT_LOCAL"
         if sub == "push":
+            if "--force" in tail or "--force-with-lease" in tail or "-f" in tail:
+                return "D", "GIT_FORCE_PUSH"
             return "C", "GIT_PUSH"
         if sub == "reset" and "--hard" in tail:
             return "D", "GIT_RESET_HARD"
-        if sub == "clean" and ("-fd" in tail or "-df" in tail or "-xfd" in tail):
-            return "D", "GIT_CLEAN"
+        if sub == "clean":
+            blob = "".join(token.lstrip("-") for token in tail[1:] if token.startswith("-"))
+            if "f" in blob and "d" in blob:
+                return "D", "GIT_CLEAN"
+            return "C", "GIT_CLEAN_PARTIAL"
         if sub == "branch" and "-d" in tail:
             return "D", "GIT_BRANCH_DELETE"
         if sub == "reset":

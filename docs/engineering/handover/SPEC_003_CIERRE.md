@@ -10,8 +10,8 @@ Pruebas: `tests/test_spec003.py` en Linux (`TESTED_LINUX`). El 2026-09-30 Mauro 
 | Unidad | Estado | Dónde | Qué no quedó |
 |---|---|---|---|
 | U1 Parada | `IMPLEMENTED + INTEGRATED + TESTED_LINUX + VERIFIED_PC` | `core/halt.py`. `/pause` pausa y el segundo `/pause` quita la pausa. Mauro lo confirmó en el PC. | `/stop` y `/kill` no se apagan con `/pause`. La tecla global no se instala. |
-| U2 Rutas | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | `core/path_guard.py` en escrituras y en comandos que nombran una ruta prohibida | Junctions, nombres 8.3 y UNC no se crearon en Windows. La denylist se probó sobre el texto de la ruta. |
-| U3 Comandos | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | `core/command_risk.py`, `core/grants.py`, ADR en `U3_COMMAND_RISK_ADR.md` | Sin AST de PowerShell. Sin grant, nada rutinario se cuela: sigue la aprobación de EXEC. |
+| U2 Rutas | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | `core/path_guard.py` en escrituras y en comandos que nombran una ruta prohibida. También niega `C:Windows` sin barra y `C:/Windows/...` con barras normales. | Un junction real de Windows no se creó en este equipo. El nombre 8.3 y el UNC se niegan por el texto de la ruta, no por un volumen NTFS. |
+| U3 Comandos | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | `core/command_risk.py`, `core/grants.py`, ADR en `U3_COMMAND_RISK_ADR.md`. Un envoltorio no baja el nivel. Force push, clean destructivo y checkout que descarta quedan en D. | Sin AST completo de PowerShell. Sin grant, nada rutinario se cuela: sigue la aprobación de EXEC. |
 | U4 Contención | `IMPLEMENTED + TESTED_LINUX` | `core/containment.py`. El orquestador la enciende solo si `security.containment_enabled` es verdadero | Apagada por defecto para no pausar el PC a los cinco actos iguales sin que Mauro lo active. |
 | U5 Procedencia | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Cada página o búsqueda deja una línea en `memory/provenance.jsonl`. Una orden dentro del texto contamina el turno. | No promociona sola nada a memoria permanente. |
 | U6 Informes | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Si el turno ejecutó actos, la respuesta cierra con `Estado de la misión:` calculado desde la evidencia. | Una charla sin actos no lleva esa línea. |
@@ -25,7 +25,7 @@ Pruebas: `tests/test_spec003.py` en Linux (`TESTED_LINUX`). El 2026-09-30 Mauro 
 | U14 Marketing | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Una reseña marcada como inventada se niega en el chokepoint. | No publica ni gasta en anuncios. |
 | U15 Marketplaces | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Un `access_mode` prohibido se niega en el chokepoint. El resto sigue en el simulador. | Sin API real. Dropshipping de cada país sigue sin leerse del sitio oficial. |
 | U16 Mercados | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Una URL o un comando que nombra `/order`, `/withdraw`, `/transfer` o `/trade` se niega. | No hay cliente de broker. |
-| U17 Conocimiento | `IMPLEMENTED + TESTED_LINUX` | `core/expertise.py` | No está unido a la memoria RAG del servidor. |
+| U17 Conocimiento | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` en la búsqueda | `core/expertise.py` y `expertise.json` leído por `RAGMemory.search_knowledge`. Una ficha vencida no sale. | El modelo no escribe fichas solo. No es búsqueda vectorial. |
 | U18 Director | `NOT_IMPLEMENTED` en código. U18.0 es documento | `U18_0_PREPARACION.md`, `U18_COMPARACION.md` | No hay `DevMission`, detector de detenciones ni adaptador real de Cursor. El motor no se tocó. |
 
 ## Riesgo que queda

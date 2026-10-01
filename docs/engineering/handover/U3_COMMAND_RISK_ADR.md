@@ -8,7 +8,8 @@ Fecha: 2026-09-30. Mauro autorizó seguir con todas las unidades, así que este 
 - Sin un grant de misión, un comando sigue pidiendo aprobación, igual que antes.
 - Con grant, solo A y B dentro de ese grant se ejecutan sin preguntar otra vez. C y D siguen en la puerta de aprobación. PROHIBITED no se puede aprobar.
 - Si el texto no se analiza (comillas rotas, ofuscación, tuberías, `Invoke-Expression`), no es nivel A.
-- No hay parser AST de PowerShell en este entorno. Ante duda, el nivel es C.
+- No hay un AST completo de PowerShell. Un envoltorio (`powershell -Command`, `cmd /c`, `bash -c`, `sudo`) no baja el nivel: el comando interior solo puede subirlo. Ante duda, el nivel es C.
+- `git push --force`, `git clean` con borrado, `git checkout --` y `git restore` son D. Un grant no los deja pasar.
 
 ## Marcha atrás
 

@@ -91,6 +91,16 @@ def _has_ads(raw: str) -> bool:
     return ":" in text
 
 
+def _drive_relative(raw: str) -> bool:
+    """C:Windows sin barra es relativo a la carpeta actual de esa unidad."""
+    text = raw.strip().replace("/", "\\")
+    for prefix in ("\\\\?\\UNC\\", "\\\\?\\", "\\\\.\\"):
+        if text.upper().startswith(prefix):
+            text = text[len(prefix):]
+            break
+    return len(text) >= 3 and text[0].isalpha() and text[1] == ":" and text[2] != "\\"
+
+
 def _looks_windows_absolute(raw: str) -> bool:
     text = raw.strip().replace("/", "\\")
     if text.startswith("\\\\?\\") or text.startswith("\\\\.\\") or text.startswith("\\\\"):
@@ -139,6 +149,8 @@ def authorize_path(
         return DENY, "PATH_RESERVED_DEVICE"
     if any(_SHORT.match(part) for part in parts if not part.endswith(":")):
         return DENY, "PATH_SHORT_NAME_8_3"
+    if _drive_relative(raw):
+        return DENY, "PATH_DRIVE_RELATIVE"
     critical = _contains_critical(parts)
     if critical:
         return DENY, f"PATH_DENYLIST:{critical}"
@@ -197,7 +209,7 @@ def paths_in_command(command: str) -> list:
     """Rutas que un comando nombra. Una URL no cuenta como ruta de disco."""
     found = []
     pattern = re.compile(
-        r"(?i)(?:[a-z]:\\[^\s\"']+|\\\\[^\s\"']+|(?:\.\.[/\\])+[^\s\"']+)"
+        r"(?i)(?:[a-z]:(?:[/\\][^\s\"']+|[^\\/\s\"']+)|\\\\[^\s\"']+|(?:\.\.[/\\])+[^\s\"']+)"
     )
     for match in pattern.finditer(command or ""):
         token = match.group(0).strip("'\"")
@@ -216,6 +228,13 @@ def safe_delete(path: str, mission_id: str, mission_scope: str) -> Tuple[str, st
     os.makedirs(trash, exist_ok=True)
     base = os.path.basename(os.path.realpath(path))
     dest = os.path.join(trash, base)
+    if os.path.exists(dest):
+        stem, ext = os.path.splitext(base)
+        stamp = 2
+        dest = os.path.join(trash, f"{stem}-{stamp}{ext}")
+        while os.path.exists(dest):
+            stamp += 1
+            dest = os.path.join(trash, f"{stem}-{stamp}{ext}")
     manifest = os.path.join(trash, "manifest.txt")
     os.replace(path, dest)
     with open(manifest, "a", encoding="utf-8") as handle:

@@ -1,6 +1,6 @@
 # Avatar — estado vivo (R6)
 
-Rama de trabajo: `cursor/u1-contencion-5763`.  
+Rama de trabajo: `cursor/spec-003-u1-u17-5763`.  
 Este archivo es el estado corto. Los `AVATAR_*.md` de la raíz son auditoría histórica; no se movieron en R6 para no romper enlaces.
 
 ## Qué está cableado
@@ -30,7 +30,7 @@ Texto íntegro: `docs/engineering/handover/MASTER_DIRECTIVE_002.md`.
 Dictamen: `docs/engineering/handover/MASTER_DIRECTIVE_002_COMPARISON.md`.
 Plan de unidades: `docs/engineering/handover/ENGINEERING_SPEC_003.md` (v2, U0 a U17).
 Comparación de negocio y asistente: `docs/engineering/handover/SPEC_003_V2_GAP.md`.
-U0 archivó la directriz. U1 a U17 tienen código en `cursor/spec-003-u1-u17-5763`, con el cierre en `docs/engineering/handover/SPEC_003_CIERRE.md`. La parada de emergencia consulta el chokepoint. `exec_requires_approval` sigue activo. El modo noche y la contención siguen apagados. Un respaldo registrado no se borra desde una misión. WhatsApp usa el mismo `/pause` que Telegram para el remitente autorizado. No hay tiendas ni brokers conectados.
+U0 archivó la directriz. U1 a U17 tienen código en `cursor/spec-003-u1-u17-5763`, con el cierre en `docs/engineering/handover/SPEC_003_CIERRE.md`. La parada de emergencia consulta el chokepoint. `exec_requires_approval` sigue activo. El modo noche y la contención siguen apagados. Un respaldo registrado no se borra desde una misión. WhatsApp queda aparcado: no se sigue con el QR ni con el teléfono. El plan de margen neto por pedido también queda en cola, sin código nuevo. No hay tiendas ni brokers conectados. Una ficha de `expertise.json` vigente entra en la búsqueda de memoria; una vencida no. Un comando envuelto no baja de nivel, y una ruta `C:Windows` o `C:/Windows/...` se niega.
 
 ## Prueba en el PC (2026-09-30)
 

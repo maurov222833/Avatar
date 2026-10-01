@@ -342,7 +342,7 @@ class ActPolicy:
             from core.path_guard import ALLOW, authorize_path, paths_in_command
             hard_deny = (
                 "PATH_DENYLIST", "PATH_SECRET", "PATH_RESERVED",
-                "PATH_ALTERNATE", "PATH_SHORT", "PATH_DRIVE_ROOT",
+                "PATH_ALTERNATE", "PATH_SHORT", "PATH_DRIVE_ROOT", "PATH_DRIVE_RELATIVE",
                 "PATH_SECURITY", "PATH_BACKUP",
             )
             for candidate in paths_in_command(str(command_text)):

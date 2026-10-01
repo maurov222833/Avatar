@@ -1,7 +1,10 @@
 import os
 import json
 import datetime
+import re
 from typing import List, Dict, Any, Optional
+
+_WORD = re.compile(r"[0-9A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+")
 from core.state_db import StateEngine
 from core.paths import memory_dir as default_memory_dir
 
@@ -36,6 +39,7 @@ class RAGMemory:
             db_path = os.path.join(self.memory_dir, "state_engine.db")
             self.state_db = StateEngine(db_path=db_path)
             
+        self.expertise_file = os.path.join(self.memory_dir, "expertise.json")
         self._migrate_legacy_json_if_needed()
 
     def _migrate_legacy_json_if_needed(self):
@@ -205,11 +209,10 @@ class RAGMemory:
         Prefer mission summaries when both match.
         """
         kb = self.load_knowledge()
-        if not kb:
-            return ""
-        
-        query_words = {w for w in (query or "").lower().split() if len(w) > 2}
+        query_words = _search_words(query)
         if not query_words:
+            return ""
+        if not kb and not os.path.exists(getattr(self, "expertise_file", "")):
             return ""
 
         scored = []
@@ -219,8 +222,8 @@ class RAGMemory:
                 content = str(data.get("content", "") or "")
             else:
                 content = str(data)
-            topic_words = set(topic.lower().split())
-            content_words = set(content.lower().split())
+            topic_words = _search_words(topic)
+            content_words = _search_words(content)
             hit_topic = query_words.intersection(topic_words)
             hit_content = query_words.intersection(content_words)
             score = len(hit_topic) * 2 + len(hit_content)
@@ -229,6 +232,13 @@ class RAGMemory:
             if topic.lower().startswith("mission"):
                 score += 1
             scored.append((score, topic, content))
+        for item in self._usable_expertise():
+            fact = str(item.get("fact") or "")
+            domain = str(item.get("domain") or "ficha")
+            hit = query_words.intersection(_search_words(domain + " " + fact))
+            if not hit:
+                continue
+            scored.append((len(hit), domain, fact))
 
         scored.sort(key=lambda x: (-x[0], x[1]))
         matched_entries = [
@@ -237,3 +247,37 @@ class RAGMemory:
         if matched_entries:
             return "\n".join(matched_entries)
         return ""
+
+    def _usable_expertise(self) -> List[Dict[str, Any]]:
+        """Fichas vigentes. Una vencida o descartada no entra en la búsqueda."""
+        if not os.path.exists(self.expertise_file):
+            return []
+        try:
+            with open(self.expertise_file, "r", encoding="utf-8") as handle:
+                raw = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            return []
+        if not isinstance(raw, list):
+            return []
+        from core.expertise import KnowledgeBase
+        base = KnowledgeBase()
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            fact = str(item.get("fact") or "").strip()
+            review_by = str(item.get("review_by") or "").strip()
+            if not fact or not review_by:
+                continue
+            base.add(
+                str(item.get("domain") or ""),
+                fact,
+                review_by=review_by,
+                state=str(item.get("state") or "VALIDATED"),
+            )
+        today = datetime.date.today().isoformat()
+        return base.usable(today)
+
+
+def _search_words(text: str) -> set:
+    """Parte por signos, no solo por espacios. `canal-24-7` también contiene `canal`."""
+    return {match.group(0).casefold() for match in _WORD.finditer(text or "") if len(match.group(0)) > 2}

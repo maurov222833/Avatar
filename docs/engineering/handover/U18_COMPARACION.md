@@ -30,7 +30,7 @@ Nada de esta tabla es `VERIFIED_PC`. No se probó contra un repositorio real de 
 | Requisito | Estado |
 |---|---|
 | `DevMission`, `WorkPackage`, cola de preguntas, registro DEC | `IMPLEMENTED + TESTED_LINUX` en `core/dev_director.py`. No está unido al servidor. |
-| `Planner`, `BriefingBuilder`, playbooks PB-01 a PB-12 versionados | `PARTIAL`. `begin` aplica PB-01 y no despacha. `run_next` deja en espera un paquete sin criterios y despacha solo el primero. No elige el piloto ni redacta el cerebro. El servidor no lo arranca. |
+| `Planner`, `BriefingBuilder`, playbooks PB-01 a PB-12 versionados | `PARTIAL`. `begin` aplica PB-01 y no despacha. `run_next` salta lo ya aceptado, despacha un paquete y, si no queda trabajo seguro, cierra con PB-12. No elige el piloto ni redacta el cerebro. El servidor no lo arranca. |
 | `Dispatcher` sobre un IDE real | `NOT_IMPLEMENTED`. El despacho prueba `FakeDevAgent`. |
 | `FakeDevAgent` con modos S1–S14 | `IMPLEMENTED + TESTED_LINUX` |
 | `Monitor` y `StallDetector` | `IMPLEMENTED + TESTED_LINUX` sobre la observación del simulador |

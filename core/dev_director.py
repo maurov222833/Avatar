@@ -547,23 +547,39 @@ class DevDirector:
         return "PLANNING"
 
     def run_next(self, items: Optional[List[Dict[str, Any]]], brief: Optional[Dict[str, str]] = None) -> str:
-        """PB-02 y un solo despacho. El servidor no llama esto solo."""
-        if self.mission.get("playbook") != "PB-01":
-            self.mission["state"] = "PLANNING"
-            self.keeper.write(self.mission)
-            return "PB01_PENDIENTE"
+        """Un paquete por llamada. El servidor no llama esto solo."""
         if not self.mission.get("digest_ok"):
+            if self.mission.get("playbook") != "PB-01":
+                self.mission["state"] = "PLANNING"
+                self.keeper.write(self.mission)
+                return "PB01_PENDIENTE"
             self.keeper.write(self.mission)
             return "DIGEST_NO_VERIFICADO"
         planned = plan_packages(items)
+        accepted = {str(item) for item in (self.mission.get("accepted") or [])}
+        packages = [
+            item for item in planned["packages"]
+            if str(item.get("id") or "") not in accepted
+        ]
         self.mission["held"] = planned["held"]
-        packages = planned["packages"]
         if not packages:
-            self.mission["state"] = "BLOCKED"
-            self.mission["summary"] = "NO_SAFE_WORK"
-            self.mission["next"] = "esperar"
+            self.mission["playbook"] = "PB-12"
+            self.mission["remaining"] = []
+            if self.mission.get("accepted") and planned["held"]:
+                self.mission["state"] = "COMPLETED_WITH_LIMITATIONS"
+                self.mission["summary"] = "paquetes sin criterios siguen en espera"
+            elif self.mission.get("accepted"):
+                self.mission["state"] = "COMPLETED_VERIFIED"
+                self.mission["summary"] = "no quedan paquetes"
+            else:
+                self.mission["state"] = "BLOCKED"
+                self.mission["summary"] = "NO_SAFE_WORK"
+                self.mission["next"] = "esperar"
+            self.mission["report"] = render_report(self.mission)
             self.keeper.write(self.mission)
-            return "NO_SAFE_WORK"
+            if self.mission["state"] == "BLOCKED":
+                return "NO_SAFE_WORK"
+            return self.mission["state"]
         self.mission["remaining"] = [str(item.get("id") or "") for item in packages[1:]]
         self.mission["playbook"] = "PB-04"
         return self.tick(packages[0], brief)

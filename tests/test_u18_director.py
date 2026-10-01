@@ -296,6 +296,22 @@ class DirectorTests(unittest.TestCase):
         self.assertEqual(len(ready.agent.instructions), 1)
         self.assertEqual(ready.mission["remaining"], ["WP-2"])
         self.assertEqual(ready.mission["held"], ["WP-sin"])
+        second = ready.run_next([
+            _wp(id="WP-1"),
+            {"id": "WP-sin", "title": "sin criterio"},
+            _wp(id="WP-2"),
+        ], {"mode": "advance"})
+        self.assertEqual(second, "ACCEPTED")
+        self.assertEqual(len(ready.agent.instructions), 2)
+        self.assertEqual(ready.mission["remaining"], [])
+        closed = ready.run_next([
+            _wp(id="WP-1"),
+            {"id": "WP-sin", "title": "sin criterio"},
+            _wp(id="WP-2"),
+        ], {"mode": "advance"})
+        self.assertEqual(closed, "COMPLETED_WITH_LIMITATIONS")
+        self.assertEqual(len(ready.agent.instructions), 2)
+        self.assertIn("Estado de la misión: COMPLETED_WITH_LIMITATIONS", ready.mission["report"])
 
 
 if __name__ == "__main__":

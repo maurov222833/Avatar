@@ -34,7 +34,7 @@ Nada de esta tabla es `VERIFIED_PC`. No se probó contra un repositorio real de 
 | `Dispatcher` sobre un IDE real | `NOT_IMPLEMENTED`. El despacho prueba `FakeDevAgent`. |
 | `FakeDevAgent` con modos S1–S14 | `IMPLEMENTED + TESTED_LINUX` |
 | `Monitor` y `StallDetector` | `IMPLEMENTED + TESTED_LINUX` sobre la observación del simulador. Cada detención guarda tipo, evidencia observada y el escalón. Una compilación en curso queda en el escalón 1. Un bucle empieza en el 5. La frase del IDE no entra en la evidencia. |
-| `Verifier` con puertas 1 a 10 y anti-trampa | `PARTIAL`. Alcance, pruebas observadas, anti-trampa, secretos, sintaxis de los `.py` escritos dentro del alcance, y licencia solo si el paquete nombra las que rechaza. La segunda opinión de otro modelo sigue `NOT_IMPLEMENTED`: gastaría y el tope del CLI sigue `UNKNOWN`. |
+| `Verifier` con puertas 1 a 10 y anti-trampa | `PARTIAL`. Alcance, pruebas observadas, anti-trampa, secretos, sintaxis de los `.py` escritos dentro del alcance, y licencia solo si el paquete nombra las que rechaza. PB-06 guarda `PASS` o `REJECT` solo de las puertas que corrieron: sin criterio de pruebas no hay fila `TESTS`, sin frase del IDE no hay `FALSE_DONE`, y sin licencias nombradas no hay `LICENSE`. La segunda opinión de otro modelo sigue `NOT_IMPLEMENTED`: gastaría y el tope del CLI sigue `UNKNOWN`. |
 | `DecisionEngine` D0–D3 | `IMPLEMENTED + TESTED_LINUX`. D2 queda en cola. D3 se bloquea. |
 | Escalera de intervención | `IMPLEMENTED + TESTED_LINUX`. No repite la orden fallida. |
 | `DevEnvelope`, parada automática de desarrollo, informe Anexo E | `IMPLEMENTED + TESTED_LINUX` en el simulador. No está encendido en el PC. |

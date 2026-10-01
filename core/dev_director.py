@@ -397,6 +397,25 @@ def verify_package(wp: Dict[str, Any], obs: Dict[str, Any], allowed_dir: str) ->
     return reasons
 
 
+_ALWAYS_GATES = ("SCOPE", "CHEAT", "SECRET", "LINT", "CRITICAL")
+
+
+def evaluated_gates(wp: Dict[str, Any], obs: Dict[str, Any], reasons: List[str]) -> List[Dict[str, str]]:
+    """PB-06. Solo las puertas que se evaluaron. Cada una queda PASS o REJECT."""
+    found = set(reasons)
+    rows = [
+        {"door": door, "result": "REJECT" if door in found else "PASS"}
+        for door in _ALWAYS_GATES
+    ]
+    if wp.get("verify"):
+        rows.append({"door": "TESTS", "result": "REJECT" if "TESTS" in found else "PASS"})
+    if obs.get("claim"):
+        rows.append({"door": "FALSE_DONE", "result": "REJECT" if "FALSE_DONE" in found else "PASS"})
+    if wp.get("rejected_licenses"):
+        rows.append({"door": "LICENSE", "result": "REJECT" if "LICENSE" in found else "PASS"})
+    return rows
+
+
 def decide(level: str, choice: str, *, reason: str, reversible: bool) -> Dict[str, Any]:
     kind = (level or "").upper()
     if kind == "D3" or choice in _D3:
@@ -631,6 +650,12 @@ def render_report(mission: Dict[str, Any]) -> str:
         ", ".join(mission.get("accepted") or []) or "(ninguno)",
         "3. Evidencia",
         "la frase del IDE no es evidencia",
+        "puertas: " + (
+            ", ".join(
+                f"{row.get('door')} {row.get('result')}"
+                for row in (mission.get("gates") or [])
+            ) or "(sin verificar)"
+        ),
         "revertidos: " + (", ".join((mission.get("revert") or {}).get("removed") or []) or "(ninguno)"),
         "4. Decisiones",
         "; ".join(f"{row.get('id')} {row.get('level')} {row.get('status')}" for row in mission.get("decisions") or []) or "(ninguna)",
@@ -778,6 +803,8 @@ class DevDirector:
         if stall:
             return self._on_stall(stall, obs, wp, payload["allowed_dir"])
         problems = verify_package(wp, obs, payload["allowed_dir"])
+        self.mission["gates"] = evaluated_gates(wp, obs, problems)
+        self.mission["playbook"] = "PB-06"
         if problems:
             self.envelope.consecutive_stalls += 1
             if "CHEAT" in problems or "FALSE_DONE" in problems:

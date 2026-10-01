@@ -26,6 +26,7 @@ from core.dev_director import (
     propose_lesson,
     recover_crash,
     render_report,
+    evaluated_gates,
     verify_package,
     request_merge,
     resolve_gap,
@@ -170,6 +171,32 @@ class DirectorTests(unittest.TestCase):
         self.assertEqual(false, "S9_REJECTED")
         cheat = DevDirector(FakeDevAgent(self.root), self.root).tick(_wp(), {"mode": "weaken"})
         self.assertIn("CHEAT", cheat)
+
+    def test_gate_record_lists_only_doors_that_ran(self):
+        verdict = self.director.tick(_wp(), {"mode": "advance"})
+        self.assertEqual(verdict, "ACCEPTED")
+        self.assertEqual(self.director.mission["playbook"], "PB-06")
+        doors = {row["door"]: row["result"] for row in self.director.mission["gates"]}
+        self.assertEqual(doors["SCOPE"], "PASS")
+        self.assertEqual(doors["CHEAT"], "PASS")
+        self.assertEqual(doors["TESTS"], "PASS")
+        self.assertEqual(doors["FALSE_DONE"], "PASS")
+        self.assertNotIn("LICENSE", doors)
+        self.assertIn("SCOPE PASS", render_report(self.director.mission))
+        bare = [row["door"] for row in evaluated_gates({}, {"claim": "", "tests_passed": True}, [])]
+        self.assertEqual(bare, ["SCOPE", "CHEAT", "SECRET", "LINT", "CRITICAL"])
+        failed = DevDirector(FakeDevAgent(self.root), self.root)
+        rejected = failed.tick(_wp(), {"mode": "sin_pruebas"})
+        self.assertIn("TESTS", rejected)
+        failed_doors = {row["door"]: row["result"] for row in failed.mission["gates"]}
+        self.assertEqual(failed_doors["TESTS"], "REJECT")
+        self.assertNotIn("FALSE_DONE", failed_doors)
+        self.assertNotIn("LICENSE", failed_doors)
+        weakened = DevDirector(FakeDevAgent(self.root), self.root)
+        self.assertIn("CHEAT", weakened.tick(_wp(), {"mode": "weaken"}))
+        cheat_doors = {row["door"]: row["result"] for row in weakened.mission["gates"]}
+        self.assertEqual(cheat_doors["CHEAT"], "REJECT")
+        self.assertEqual(cheat_doors["FALSE_DONE"], "PASS")
 
     def test_crash_does_not_repeat_a_payment(self):
         self.assertEqual(recover_crash(["pago-proveedor-1"], ["pago-proveedor-1", "lectura-2"]), ["lectura-2"])

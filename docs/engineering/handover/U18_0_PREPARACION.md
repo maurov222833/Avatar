@@ -152,4 +152,4 @@ La biblioteca de ejemplos tampoco se siembra aquí. Hacen falta de 15 a 25 casos
 10. IDE autorizados. Hoy el único adaptador es el simulado.
 11. Autorización de cada sub-unidad de código, empezando por U18.1 si quiere modelo de datos.
 
-U18.0 queda cerrado como documento. El motor sigue igual.
+U18.0 queda cerrado como documento de preparación. El simulador llegó después: el estado vigente está en `U18_COMPARACION.md` y `SPEC_003_CIERRE.md`. El IDE real, la carta y la fusión a `main` siguen apagados.

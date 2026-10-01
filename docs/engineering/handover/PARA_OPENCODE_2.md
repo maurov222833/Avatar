@@ -15,27 +15,22 @@ Si no aparecen con `where /r` sobre las carpetas de documentos y de proyectos, p
 
 ## Qué hacer si los encuentras
 
-1. Copia cada archivo tal cual a `docs/engineering\` del repo Avatar. Misma cantidad de bytes. No corrijas títulos, ni tildes, ni espacios.
+1. Copia cada archivo tal cual al Escritorio, con el mismo nombre. Esa copia es la que Mauro adjunta en Cursor. Misma cantidad de bytes. No corrijas títulos, ni tildes, ni espacios.
 2. Calcula el SHA-256 de cada uno (`Get-FileHash -Algorithm SHA256`).
-3. En `docs/engineering\SPEC_HASHES.txt`, sustituye la línea `ABSENT` de cada nombre por el hash y la ruta `docs/engineering/<nombre>`. No cambies el hash de `MASTER_DIRECTIVE_002.md`.
-4. En `docs/engineering\INDEX.md`, cambia el estado `ABSENT` de esas dos filas a `En el repo`.
-5. Commit en la rama `cursor/spec-003-u1-u17-5763`. No hagas merge a `main`. No hagas force-push.
-6. Push a `origin` con la credencial que ya tenga el PC. No pegues el token en el chat ni lo guardes en el repo.
+3. En el repo Avatar, commit solo si ya existe la rama `cursor/spec-003-u1-u17-5763`. Si no existe, no la crees desde `main`, no hagas merge y no hagas force-push. Deja las copias en el Escritorio y dilo en el informe.
+4. Si la rama existe: copia cada archivo tal cual a `docs/engineering\`, sustituye en `docs/engineering\SPEC_HASHES.txt` la línea `ABSENT` de cada nombre por el hash y la ruta `docs/engineering/<nombre>` (no cambies el hash de `MASTER_DIRECTIVE_002.md`), cambia en `docs/engineering\INDEX.md` el estado `ABSENT` de esas dos filas a `En el repo`, commit en esa rama y push a `origin` con la credencial que ya tenga el PC. No pegues el token en el chat ni lo guardes en el repo.
 
-## Segunda copia, para que Cursor los lea
-
-El push deja los archivos en GitHub. Esta sesión de Cursor no tiene credencial para hacer fetch, así que el push no los trae aquí.
-
-Después del commit, copia los dos archivos otra vez, sin cambiar un byte, al Escritorio de Mauro, con los mismos nombres. Mauro los adjunta en el siguiente mensaje de Cursor. El SHA-256 del Escritorio tiene que ser el mismo que el del commit.
-
-No pegues el contenido en el chat de OpenCode. No lo resumas.
+No pegues el contenido de los documentos en el chat. No lo resumas.
 
 ## Qué devolver
 
-- La ruta donde estaba cada archivo antes de copiarlo.
+La primera línea de tu respuesta tiene que ser exactamente `INFORME_OPENCODE_2`. Después:
+
+- La ruta donde estaba cada archivo antes de copiarlo, o `NO_ENCONTRADO`.
 - El SHA-256 de cada uno.
-- El hash del commit.
-- Si el push llegó a GitHub o con qué error se detuvo.
 - La ruta de las dos copias en el Escritorio.
+- La rama y el `HEAD` del repo Avatar.
+- El hash del commit, o `SIN_COMMIT` si la rama no existía.
+- Si el push llegó a GitHub o con qué error se detuvo.
 
 Cursor commiteará esos bytes solo cuando pueda leerlos. Un push a GitHub no entra solo en la sesión de Cursor.

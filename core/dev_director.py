@@ -283,6 +283,14 @@ def plan_packages(items: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
     }
 
 
+def package_record(items: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """PB-02. Identificador y si tenía criterios. No copia el texto ni inventa uno."""
+    return [
+        {"id": str(item.get("id") or ""), "ready": _has_acceptance(item)}
+        for item in (items or [])
+    ]
+
+
 def isolate_dispatch(root: str, wp_id: str) -> str:
     """PB-04. Carpeta aparte. No crea la rama main ni llama a git."""
     name = (wp_id or "wp").strip()
@@ -729,6 +737,7 @@ class DevDirector:
             self.keeper.write(self.mission)
             return "DIGEST_NO_VERIFICADO"
         planned = plan_packages(items)
+        self.mission["package_list"] = package_record(items)
         accepted = {str(item) for item in (self.mission.get("accepted") or [])}
         packages = [
             item for item in planned["packages"]

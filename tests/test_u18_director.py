@@ -22,6 +22,7 @@ from core.dev_director import (
     rule_from_case,
     calibration_stage,
     plan_packages,
+    package_record,
     revert_new_files,
     propose_lesson,
     recover_crash,
@@ -376,6 +377,15 @@ class DirectorTests(unittest.TestCase):
             isolate_dispatch(self.root, "main")
         self.assertEqual(ready.mission["remaining"], ["WP-2"])
         self.assertEqual(ready.mission["held"], ["WP-sin"])
+        self.assertEqual(ready.mission["package_list"], [
+            {"id": "WP-1", "ready": True},
+            {"id": "WP-sin", "ready": False},
+            {"id": "WP-2", "ready": True},
+        ])
+        self.assertEqual(
+            package_record([{"id": "WP-B", "acceptance": "   "}]),
+            [{"id": "WP-B", "ready": False}],
+        )
         second = ready.run_next([
             _wp(id="WP-1"),
             {"id": "WP-sin", "title": "sin criterio"},

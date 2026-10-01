@@ -14,7 +14,11 @@ from core.dev_director import (
     build_briefing,
     consider_untrusted,
     detect_stall,
+    accept_case,
     handover,
+    propose_case,
+    resume_from_handover,
+    rule_from_case,
     calibration_stage,
     plan_packages,
     revert_new_files,
@@ -124,6 +128,15 @@ class DirectorTests(unittest.TestCase):
     def test_quota_switches_or_waits(self):
         switched = self.director.tick(_wp(), {"mode": "quota"})
         self.assertEqual(switched, "S2_SWITCH")
+        self.assertIn("sin merge a main", self.director.mission["handover"]["restrictions"])
+        resumed = DevDirector(FakeDevAgent(self.root), self.root)
+        state = resume_from_handover(resumed, {
+            "state": "COMPLETED_VERIFIED",
+            "restrictions": [],
+            "next": "seguir",
+        })
+        self.assertEqual(state, "PLANNING")
+        self.assertIn("sin merge a main", resumed.mission["restrictions"])
         waiting = DevDirector(FakeDevAgent(self.root), self.root).tick(
             _wp(), {"mode": "quota", "extra_spend": "1"}
         )
@@ -332,6 +345,15 @@ class DirectorTests(unittest.TestCase):
         short = calibration_stage({"decisions": 1}, charter_approved=True)
         self.assertEqual(short["stage"], "E0")
         self.assertIn("packages", short["missing"])
+
+    def test_an_unapproved_case_is_not_a_rule(self):
+        case = propose_case("el director no fusiona a main", "no fusionar")
+        self.assertIsNone(rule_from_case(case))
+        self.assertIsNone(rule_from_case(accept_case(case, "modelo")))
+        empty = accept_case(propose_case("sin veredicto"), "Mauro")
+        self.assertFalse(empty["usable"])
+        approved = accept_case(case, "Mauro")
+        self.assertEqual(rule_from_case(approved), "no fusionar")
 
     def test_revert_removes_only_new_files_inside_the_scope(self):
         kept = os.path.join(self.root, "antes.txt")

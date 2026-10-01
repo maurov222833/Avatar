@@ -44,6 +44,21 @@ _CHEATS = (
 )
 _SECRET_WORDS = ("api_key", "api key", "password=", "begin private", "bearer ")
 _IRREVERSIBLE = ("api publica", "borrar", "seguridad", "merge", "deploy", "secreto", "force push")
+_HARD_RESTRICTIONS = (
+    "sin merge a main",
+    "sin secretos en el briefing",
+    "sin debilitar pruebas",
+    "PROHIBITED no se aprueba",
+)
+_RESUMABLE = {
+    "PLANNING",
+    "DISPATCHED",
+    "IN_PROGRESS",
+    "STALLED_RECOVERING",
+    "VERIFYING",
+    "WAITING_FOR_MAURO",
+    "BLOCKED",
+}
 # El director puede proponer un parche. No lo acepta si toca estos módulos.
 _CRITICAL_FILES = frozenset({
     "act_chokepoint.py",
@@ -495,13 +510,58 @@ def accept_lesson(lesson: Dict[str, Any], approved_by: str) -> Dict[str, Any]:
 
 
 def handover(mission: Dict[str, Any]) -> Dict[str, Any]:
+    restrictions = list(mission.get("restrictions") or [])
+    for item in _HARD_RESTRICTIONS:
+        if item not in restrictions:
+            restrictions.append(item)
     return {
         "state": mission.get("state"),
-        "restrictions": list(mission.get("restrictions") or []),
+        "restrictions": restrictions,
         "decisions": list(mission.get("decisions") or []),
         "assumptions": list(mission.get("assumptions") or []),
         "next": mission.get("next") or "",
     }
+
+
+def resume_from_handover(director: "DevDirector", packet: Dict[str, Any]) -> str:
+    """PB-09. Un paquete que dice terminado no se acepta como estado."""
+    restored = list(packet.get("restrictions") or [])
+    for item in _HARD_RESTRICTIONS:
+        if item not in restored:
+            restored.append(item)
+    director.mission["restrictions"] = restored
+    director.mission["decisions"] = list(packet.get("decisions") or [])
+    director.mission["assumptions"] = list(packet.get("assumptions") or [])
+    director.mission["next"] = str(packet.get("next") or "")
+    state = str(packet.get("state") or "")
+    director.mission["state"] = state if state in _RESUMABLE else "PLANNING"
+    director.mission["playbook"] = "PB-09"
+    director.keeper.write(director.mission)
+    return director.mission["state"]
+
+
+def propose_case(text: str, verdict: str = "") -> Dict[str, Any]:
+    """Un caso sin veredicto de Mauro no es una regla."""
+    return {"text": text, "verdict": verdict, "status": "PROPOSED", "approved_by": "", "usable": False}
+
+
+def accept_case(case: Dict[str, Any], approved_by: str) -> Dict[str, Any]:
+    row = dict(case)
+    if approved_by != "Mauro" or not str(row.get("verdict") or "").strip():
+        row["status"] = "PROPOSED"
+        row["approved_by"] = ""
+        row["usable"] = False
+        return row
+    row["status"] = "APPROVED"
+    row["approved_by"] = "Mauro"
+    row["usable"] = True
+    return row
+
+
+def rule_from_case(case: Dict[str, Any]) -> Optional[str]:
+    if case.get("usable") is True and case.get("approved_by") == "Mauro" and str(case.get("verdict") or "").strip():
+        return str(case["verdict"])
+    return None
 
 
 _STALL_PLAYBOOK = {
@@ -573,12 +633,7 @@ class DevDirector:
             "questions": [],
             "stalls": [],
             "accepted": [],
-            "restrictions": [
-                "sin merge a main",
-                "sin secretos en el briefing",
-                "sin debilitar pruebas",
-                "PROHIBITED no se aprueba",
-            ],
+            "restrictions": list(_HARD_RESTRICTIONS),
             "tried": [],
             "cost": 0,
             "summary": "",
@@ -729,15 +784,18 @@ class DevDirector:
             self.keeper.write(self.mission)
             return "S11_BLOCKED"
         if stall == "S2":
-            self.keeper.write(self.mission)
             if obs.get("extra_spend"):
                 self.mission["questions"].append({
                     "text": "la alternativa gasta de mas",
                     "default": "esperar",
                 })
                 self.mission["state"] = "WAITING_FOR_MAURO"
+                self.keeper.write(self.mission)
                 return "S2_WAIT"
             self.mission["summary"] = "estado guardado; alternativa autorizada"
+            self.mission["handover"] = handover(self.mission)
+            self.mission["playbook"] = "PB-09"
+            self.keeper.write(self.mission)
             return "S2_SWITCH"
         if stall == "S5":
             move = intervention("S5", self.mission["tried"])

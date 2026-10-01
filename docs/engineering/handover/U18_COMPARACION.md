@@ -29,15 +29,15 @@ Nada de esta tabla es `VERIFIED_PC`. No se probó contra un repositorio real de 
 
 | Requisito | Estado |
 |---|---|
-| `DevMission`, `WorkPackage`, cola de preguntas, registro DEC | `NOT_IMPLEMENTED` |
-| `Planner`, `BriefingBuilder`, playbooks PB-01 a PB-12 versionados | `NOT_IMPLEMENTED` |
-| `Dispatcher` sobre un IDE real | `NOT_IMPLEMENTED`. El protocolo `ExternalDevAgent` es el sitio, no un segundo adaptador. |
-| `FakeDevAgent` con modos S1–S14 | `NOT_IMPLEMENTED`. `SimulatedDevAgent` no basta. |
-| `Monitor` y `StallDetector` | `NOT_IMPLEMENTED` |
-| `Verifier` con puertas 1 a 10 y anti-trampa | `NOT_IMPLEMENTED`. `review_diff` es solo la puerta de rutas. |
-| `DecisionEngine` D0–D3 | `NOT_IMPLEMENTED` |
-| Escalera de intervención | `NOT_IMPLEMENTED` |
-| `DevEnvelope`, parada automática de desarrollo, informe Anexo E | `NOT_IMPLEMENTED` |
+| `DevMission`, `WorkPackage`, cola de preguntas, registro DEC | `IMPLEMENTED + TESTED_LINUX` en `core/dev_director.py`. No está unido al servidor. |
+| `Planner`, `BriefingBuilder`, playbooks PB-01 a PB-12 versionados | `PARTIAL`. Hay plantilla de briefing y rechazo sin criterios. No hay playbooks versionados. |
+| `Dispatcher` sobre un IDE real | `NOT_IMPLEMENTED`. El despacho prueba `FakeDevAgent`. |
+| `FakeDevAgent` con modos S1–S14 | `IMPLEMENTED + TESTED_LINUX` |
+| `Monitor` y `StallDetector` | `IMPLEMENTED + TESTED_LINUX` sobre la observación del simulador |
+| `Verifier` con puertas 1 a 10 y anti-trampa | `PARTIAL`. Alcance, pruebas observadas y anti-trampa. Faltan lint, licencias y revisión por otro modelo. |
+| `DecisionEngine` D0–D3 | `IMPLEMENTED + TESTED_LINUX`. D2 queda en cola. D3 se bloquea. |
+| Escalera de intervención | `IMPLEMENTED + TESTED_LINUX`. No repite la orden fallida. |
+| `DevEnvelope`, parada automática de desarrollo, informe Anexo E | `IMPLEMENTED + TESTED_LINUX` en el simulador. No está encendido en el PC. |
 | Cerebro del proyecto aprobado, carta de Mauro, biblioteca de 15–25 casos | `NOT_IMPLEMENTED`. La estructura propuesta está en `U18_0_PREPARACION.md`. |
 | Métricas de calibración E1–E4 | `NOT_IMPLEMENTED` |
 
@@ -56,4 +56,4 @@ Nada de esta tabla es `VERIFIED_PC`. No se probó contra un repositorio real de 
 - No hay carta de ingeniería. Sin ella, D0 y D1 no tienen contenido.
 - No hay IDE real autorizado. U8 sigue en el simulador.
 - No hay presupuesto para el CLI de Cursor.
-- U18.1 a U18.9 no están autorizadas.
+- El código del simulador ya no espera un permiso por sub-unidad. Siguen fuera: IDE real, fusión a `main`, gasto del CLI y la carta de Mauro.

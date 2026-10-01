@@ -26,7 +26,7 @@ Pruebas: `tests/test_spec003.py` en Linux (`TESTED_LINUX`). El 2026-09-30 Mauro 
 | U15 Marketplaces | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Un `access_mode` prohibido se niega en el chokepoint. El resto sigue en el simulador. | Sin API real. Dropshipping de cada país sigue sin leerse del sitio oficial. |
 | U16 Mercados | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Una URL o un comando que nombra `/order`, `/withdraw`, `/transfer` o `/trade` se niega. | No hay cliente de broker. |
 | U17 Conocimiento | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` en la búsqueda | `core/expertise.py` y `expertise.json` leído por `RAGMemory.search_knowledge`. Una ficha vencida no sale. | El modelo no escribe fichas solo. No es búsqueda vectorial. |
-| U18 Director | `NOT_IMPLEMENTED` en código. U18.0 es documento | `U18_0_PREPARACION.md`, `U18_COMPARACION.md` | No hay `DevMission`, detector de detenciones ni adaptador real de Cursor. El motor no se tocó. |
+| U18 Director | `IMPLEMENTED + TESTED_LINUX` en el simulador | `core/dev_director.py`, `FakeDevAgent` en `core/external_dev.py`. Detenciones S1–S14, verificador, decisiones D0–D3, sobre de ausencia y parada por `KILL_SWITCH`. | Ningún IDE real. No fusiona a `main`. La carta de Mauro sigue sin redactarse. |
 
 ## Riesgo que queda
 

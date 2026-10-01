@@ -13,4 +13,6 @@ Carpetas revisadas con `where.exe /r`, sin abrir `C:\Windows` ni `System32`: Doc
 
 Repo en el PC: rama `cursor/spec-003-u1-u17-5763`, `HEAD` `431c664`. Commit: `SIN_COMMIT`.
 
-Queda sin abrir `b:\PROYECTOS ANTIGRAVITY\Avatar_Project_Complete.zip`. `where /r` no mira dentro de un zip. La orden siguiente es listar los nombres y, solo si aparecen los dos nombres exactos, extraer esos dos archivos al Escritorio. Sin ejecutar nada del zip y sin commit en el PC: ese `HEAD` está detrás de esta sesión, y un commit ahí separaría la rama.
+`b:\PROYECTOS ANTIGRAVITY\Avatar_Project_Complete.zip` se listó en solo lectura (`INFORME_OPENCODE_2B`). Los dos nombres no están dentro. Los `.md` del zip son `Avatar/README.md`, `Avatar/memory/LECCION_APRENDIZAJE_AUTONOMIA.md` y `Avatar/memory/SUPER_GUIA_MAESTRA_AVATAR.md`. Nada se extrajo, no hay SHA-256, no hubo commit ni push.
+
+La búsqueda en el PC queda cerrada. Esos dos archivos tienen que llegar adjuntos desde el lugar donde se escribieron. No se reconstruyen a partir del zip ni de la guía maestra.

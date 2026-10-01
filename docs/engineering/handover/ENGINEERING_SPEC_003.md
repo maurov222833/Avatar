@@ -3,7 +3,7 @@
 ## Plan de ingeniería para cerrar las brechas de la Directriz 002
 
 **Propietario y autoridad:** Mauro
-**Estado de este archivo:** propuesta. La versión que manda es la 2.0 consolidada del 2026-09-30 (U0 a U17). Ninguna unidad de código está autorizada.
+**Estado de este archivo:** registro. Nació como propuesta el 2026-09-30. Hay código de U1 a U18 en esta rama. El tablero vigente es `SPEC_003_CIERRE.md`.
 **Directriz íntegra:** `MASTER_DIRECTIVE_002.md`
 **Dictamen:** `MASTER_DIRECTIVE_002_COMPARISON.md`
 **Índice de los nombres que pidió Mauro el 2026-10-01:** `docs/engineering/INDEX.md`

@@ -200,6 +200,25 @@ def configured_hotkey() -> str:
     return str(snapshot().get("hotkey") or DEFAULT_HOTKEY)
 
 
+def start_hotkey_listener(config: Optional[Dict[str, Any]] = None) -> str:
+    """No importa ni registra un gancho al cargar este módulo.
+
+    El interruptor por defecto es false. Aunque esté en true, esta versión
+    no instala la tecla: eso es el paso 2 y lo decide Mauro por escrito.
+    """
+    enabled = (config or {}).get("hotkey_listener") is True
+    if not enabled:
+        return "HOTKEY_LISTENER_OFF"
+    return "HOTKEY_LISTENER_NOT_INSTALLED"
+
+
+def accept_synthetic_halt(level: str, *, source: str = "synthetic") -> Dict[str, Any]:
+    """Señal de prueba. No es una tecla real."""
+    if level not in LEVELS:
+        raise ValueError("HALT_LEVEL_UNKNOWN")
+    return engage(level, source=source, actor="synthetic")
+
+
 def engage_from_hotkey() -> Dict[str, Any]:
     """Mismo estado que /pause. No depende del orquestador."""
     return engage("PAUSE", source="hotkey", actor="local")

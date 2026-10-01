@@ -17,7 +17,7 @@ _RESERVED = {
     "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
     "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
 }
-_SHORT = re.compile(r"^[a-z0-9]{1,6}~\d$", re.IGNORECASE)
+_SHORT = re.compile(r"^[a-z0-9]{1,6}~\d(\.[a-z0-9]{1,3})?$", re.IGNORECASE)
 _MASS_LIMIT = 10_000
 
 _CRITICAL_SEGMENTS = (

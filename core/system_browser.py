@@ -16,11 +16,50 @@ _QR_CUES = (
 )
 
 
-def wants_visible_whatsapp(text: str) -> bool:
+_FOLLOW_UP = (
+    "nuevamente", "otra vez", "de nuevo", "no vi", "no la vi",
+    "repite", "repit", "proceso",
+)
+
+_LIE_MARKERS = (
+    "navegador controlado",
+    "frente a ti",
+    "playwright",
+    "ventana del navegador abierta",
+    "esten listos",
+    "estén listos",
+)
+
+
+def wants_visible_whatsapp(text: str, history=None) -> bool:
     folded = (text or "").lower()
-    if "whatsapp" not in folded and "web.whatsapp" not in folded:
+    mentions = "whatsapp" in folded or "web.whatsapp" in folded
+    if mentions and any(cue in folded for cue in _QR_CUES):
+        return True
+    recent = ""
+    for turn in history or []:
+        recent += " " + str((turn or {}).get("content") or "")
+    recent = recent.lower()
+    if "whatsapp" in recent and any(word in folded for word in _FOLLOW_UP):
+        return True
+    return False
+
+
+def drop_model_status_lines(text: str) -> str:
+    """Quita el estado que escribe el modelo. El que vale lo calcula el programa."""
+    kept = []
+    for line in (text or "").splitlines():
+        if line.strip().lower().startswith("estado de la misión"):
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
+def claims_visible_whatsapp(text: str) -> bool:
+    folded = (text or "").lower()
+    if "whatsapp" not in folded and "qr" not in folded:
         return False
-    return any(cue in folded for cue in _QR_CUES)
+    return any(mark in folded for mark in _LIE_MARKERS)
 
 
 def open_system_browser(url: str) -> str:

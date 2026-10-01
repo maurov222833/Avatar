@@ -585,7 +585,7 @@ class AvatarOrchestrator:
             self._legacy_mission_id = current_mission_id
 
         from core.system_browser import open_whatsapp_web, wants_visible_whatsapp
-        if wants_visible_whatsapp(user_input):
+        if wants_visible_whatsapp(user_input, self.history):
             opened = open_whatsapp_web()
             if opened == "ABIERTO":
                 final_user_response = (
@@ -1093,6 +1093,19 @@ class AvatarOrchestrator:
 
         # Reconciliar antes de guardar la respuesta. Si hubo actos, el estado que ve
         # Mauro sale de la evidencia, no de la frase del modelo.
+        from core.system_browser import (
+            claims_visible_whatsapp, drop_model_status_lines, open_whatsapp_web,
+        )
+        final_user_response = drop_model_status_lines(final_user_response)
+        if claims_visible_whatsapp(final_user_response):
+            open_whatsapp_web()
+            final_user_response = (
+                "No hay una ventana de WhatsApp frente a ti. "
+                "El navegador de prueba no cuenta. "
+                "Pedí a Chrome o Edge que abran https://web.whatsapp.com. "
+                "Si no la ves en la barra de tareas, no quedó abierta. "
+                "La sesión no está vinculada."
+            )
         if self.state_db and current_mission_id:
             raw_status = self._reconcile_mission(current_mission_id)
             if executed_tools_summary and raw_status:
@@ -1829,7 +1842,20 @@ class AvatarOrchestrator:
 
         try:
             if action == "navigate":
-                result = browser.navigate(args.get("url") or args.get("params") or "")
+                target = str(args.get("url") or args.get("params") or "")
+                if "web.whatsapp.com" in target.lower() or "whatsapp.com" in target.lower():
+                    from core.system_browser import open_whatsapp_web
+                    opened = open_whatsapp_web()
+                    return json.dumps({
+                        "success": opened == "ABIERTO",
+                        "verified": False,
+                        "visible_to_user": False,
+                        "note": (
+                            "NO_VENTANA_PLAYWRIGHT. Se pidió el navegador del sistema. "
+                            "No afirmes que Mauro tiene el QR frente a él."
+                        ),
+                    }, ensure_ascii=False)
+                result = browser.navigate(target)
             elif action == "observe":
                 result = browser.observe()
             elif action == "click":

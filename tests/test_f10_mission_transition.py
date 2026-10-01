@@ -102,6 +102,22 @@ class TestF10MissionTransition(unittest.TestCase):
         self.assertIn("UNVERIFIED", text)
         self.assertNotIn("COMPLETED_VERIFIED", text)
 
+    def test_playwright_claim_is_not_a_visible_window(self):
+        from unittest import mock
+        from core.system_browser import claims_visible_whatsapp, drop_model_status_lines
+        lie = (
+            "acabo de abrir WhatsApp Web en el navegador controlado y "
+            "tienes la ventana del navegador abierta frente a ti.\n\n"
+            "Estado de la misión: COMPLETED_VERIFIED."
+        )
+        self.assertTrue(claims_visible_whatsapp(lie))
+        self.assertNotIn("COMPLETED_VERIFIED", drop_model_status_lines(lie))
+        orch = AvatarOrchestrator()
+        with mock.patch("core.system_browser.open_whatsapp_web", return_value="ABIERTO"):
+            raw = orch._exec_browser("navigate", {"url": "https://web.whatsapp.com"})
+        self.assertIn("NO_VENTANA_PLAYWRIGHT", raw)
+        self.assertIn('"verified": false', raw)
+
 
 if __name__ == "__main__":
     unittest.main()

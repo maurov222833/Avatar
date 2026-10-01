@@ -61,8 +61,10 @@ no iniciar sin ADR y sin amenaza que lo justifique. Complejidad alta. Tokens: 10
 
 Texto íntegro: `MASTER_DIRECTIVE_002.md` (U0, apartados 0 a 22).
 Dictamen: `MASTER_DIRECTIVE_002_COMPARISON.md`.
-Plan: `ENGINEERING_SPEC_003.md` (v2, unidades U0 a U17 en el orden de su sección 5).
+Plan: `ENGINEERING_SPEC_003.md` (v2, unidades U0 a U17, más U18 en la fase 6).
 Comparación de U11–U17: `SPEC_003_V2_GAP.md`.
+U18 (director de desarrollo, 2026-10-01): `U18_COMPARACION.md` y `U18_0_PREPARACION.md`.
+U18.0 no tiene código. U18.1 a U18.9 no están autorizadas.
 No reemplaza R0–R7. U0 está hecho. La U1 de esta spec es la parada de emergencia;
 no es la U1 histórica de contención de canales. Mauro autorizó el recorrido y
 confirmó en el PC la captura, play/pausa y `/pause`. El cierre está en `SPEC_003_CIERRE.md`.

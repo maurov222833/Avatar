@@ -58,9 +58,13 @@ No se adelanta ninguna unidad. La seguridad de ejecución va primero.
 3. Fase 3: U12.4 respaldos. U13 operación 24/7. U12.2 tareas programadas.
 4. Fase 4: U11 documentos (depende de U2, U5 y U6). U12.1 correo y calendario. U12.3 OCR de documentos.
 5. Fase 5: U14 marketing, incluida U14.4. U16 análisis de mercados, sin ejecutar operaciones. U15 marketplaces: primero U15.7 y U15.5, y U15.6 con dropshipping como modelo principal.
-6. Fase 6: U8 IDE externos. U10 subagentes, conectando `core/subagents.py`. U12.5 voz. U17 conocimiento experto.
+6. Fase 6: U8 IDE externos. U10 subagentes, conectando `core/subagents.py`. **U18 director de desarrollo** (adenda 3, 2026-10-01), después de U8 y U10. Depende de U1, U2, U3, U4, U6, U7, U8, U10, U13 y U17. Luego U12.5 voz y U17 conocimiento experto.
 
 U1 a U17 tienen código. El alcance real de cada una está en `SPEC_003_CIERRE.md`. La comparación previa sigue en `SPEC_003_V2_GAP.md`.
+
+### 2026-10-01 — Adenda 3, U18, solo registro y U18.0
+
+Mauro entregó la adenda «Director de desarrollo». Quedó como U18 en la fase 6, después de U8 y U10. U18.0 es documentación: `U18_0_PREPARACION.md` y `U18_COMPARACION.md`. No hay `DevMission`, no hay adaptador real de Cursor y no cambió ninguna política de aprobación. El código de U18.1 a U18.9 espera autorización de cada sub-unidad.
 
 ## Prueba en el PC
 

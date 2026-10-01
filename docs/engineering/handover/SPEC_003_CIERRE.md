@@ -26,6 +26,7 @@ Pruebas: `tests/test_spec003.py` en Linux (`TESTED_LINUX`). El 2026-09-30 Mauro 
 | U15 Marketplaces | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Un `access_mode` prohibido se niega en el chokepoint. El resto sigue en el simulador. | Sin API real. Dropshipping de cada país sigue sin leerse del sitio oficial. |
 | U16 Mercados | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Una URL o un comando que nombra `/order`, `/withdraw`, `/transfer` o `/trade` se niega. | No hay cliente de broker. |
 | U17 Conocimiento | `IMPLEMENTED + TESTED_LINUX` | `core/expertise.py` | No está unido a la memoria RAG del servidor. |
+| U18 Director | `NOT_IMPLEMENTED` en código. U18.0 es documento | `U18_0_PREPARACION.md`, `U18_COMPARACION.md` | No hay `DevMission`, detector de detenciones ni adaptador real de Cursor. El motor no se tocó. |
 
 ## Riesgo que queda
 
@@ -33,4 +34,4 @@ La parada vive en el proceso. Otro código que llame a una herramienta saltándo
 
 ## Siguiente paso
 
-La contención automática sigue apagada. El modo noche sigue apagado. La tecla global no se instala. No hay cuentas de tienda ni de broker. Lo que queda fuera de este equipo es la prueba en el PC de Windows (junctions, nombres 8.3, UNC) y que Mauro confirme en el teléfono el `/pause` de WhatsApp con esta versión del programa.
+U18 está registrada y U18.0 está escrito. El código de U18.1 en adelante no empieza hasta que Mauro autorice esa sub-unidad. La contención automática sigue apagada. El modo noche sigue apagado. La tecla global no se instala. No hay cuentas de tienda ni de broker. Lo que queda fuera de este equipo es la prueba en el PC de Windows (junctions, nombres 8.3, UNC) y que Mauro confirme en el teléfono el `/pause` de WhatsApp con esta versión del programa.

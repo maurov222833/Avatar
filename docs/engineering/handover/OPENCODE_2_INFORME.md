@@ -24,3 +24,7 @@ Informe posterior, mismo día. Los nombres no existen como archivos en `C:\Users
 `opencode.db` tiene 14 sesiones. Las de Avatar son «Ejecutor local Windows para Avatar AI», «Verificación Windows local Avatar AI» y «Colaboración en una tarea con el usuario». Los dos nombres aparecen en 27+2+2 fragmentos. El mayor mide 12.6 KB: conversación que habla de los archivos, no los documentos completos. No se volcó el cuerpo de los mensajes.
 
 Por los chats de OpenCode no se recuperan. No se pide ese volcado: puede contener secretos, y el tamaño no alcanza para ser la spec.
+
+## INFORME_OPENCODE_3
+
+El 2026-10-01 el repo del PC (`b:\PROYECTOS ANTIGRAVITY\Avatar`) avanzó en fast-forward de `431c664` a `92a015d` en `cursor/spec-003-u1-u17-5763`. No hubo merge, rebase, force-push ni cambio en `main`. Quedaron sin seguimiento, como ya estaban: `logs/`, `test_bot.py` y `tools/telegram_notifier.py`. No se commitean desde aquí.

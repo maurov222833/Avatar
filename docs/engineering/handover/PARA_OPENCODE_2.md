@@ -22,11 +22,20 @@ Si no aparecen con `where /r` sobre las carpetas de documentos y de proyectos, p
 5. Commit en la rama `cursor/spec-003-u1-u17-5763`. No hagas merge a `main`. No hagas force-push.
 6. Push a `origin` con la credencial que ya tenga el PC. No pegues el token en el chat ni lo guardes en el repo.
 
+## Segunda copia, para que Cursor los lea
+
+El push deja los archivos en GitHub. Esta sesión de Cursor no tiene credencial para hacer fetch, así que el push no los trae aquí.
+
+Después del commit, copia los dos archivos otra vez, sin cambiar un byte, al Escritorio de Mauro, con los mismos nombres. Mauro los adjunta en el siguiente mensaje de Cursor. El SHA-256 del Escritorio tiene que ser el mismo que el del commit.
+
+No pegues el contenido en el chat de OpenCode. No lo resumas.
+
 ## Qué devolver
 
 - La ruta donde estaba cada archivo antes de copiarlo.
-- El SHA-256.
+- El SHA-256 de cada uno.
 - El hash del commit.
 - Si el push llegó a GitHub o con qué error se detuvo.
+- La ruta de las dos copias en el Escritorio.
 
-Cursor commiteará esos bytes solo cuando pueda leerlos. Un push a GitHub no entra solo en la sesión de Cursor: hace falta que el fetch de esa sesión tenga credencial, o que Mauro vuelva a enviar los archivos y el texto sí viaje en el mensaje.
+Cursor commiteará esos bytes solo cuando pueda leerlos. Un push a GitHub no entra solo en la sesión de Cursor.

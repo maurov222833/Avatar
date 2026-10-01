@@ -15,9 +15,11 @@ from core.dev_director import (
     consider_untrusted,
     detect_stall,
     handover,
+    plan_packages,
     propose_lesson,
     recover_crash,
     render_report,
+    verify_package,
     request_merge,
     resolve_gap,
 )
@@ -211,6 +213,45 @@ class DirectorTests(unittest.TestCase):
         report = render_report({"state": "ABORTED", "cost": None, "decisions": [], "assumptions": [], "questions": [], "stalls": [], "accepted": []})
         self.assertIn("UNKNOWN", report)
         self.assertIn("Estado de la misión: ABORTED", report)
+
+
+    def test_planner_holds_packages_without_acceptance(self):
+        planned = plan_packages([
+            {"id": "WP-A", "title": "sin criterio"},
+            {"id": "WP-B", "acceptance": "   "},
+            {"id": "WP-C", "acceptance": ["la suma da 3"]},
+        ])
+        self.assertEqual(planned["status"], "PLANNED")
+        self.assertEqual([item["id"] for item in planned["packages"]], ["WP-C"])
+        self.assertEqual(planned["held"], ["WP-A", "WP-B"])
+        self.assertEqual(plan_packages([])["status"], "NO_SAFE_WORK")
+        self.assertEqual(plan_packages([{"id": "WP-D"}])["packages"], [])
+
+    def test_lint_and_named_license_reject_the_package(self):
+        broken = os.path.join(self.root, "roto.py")
+        with open(broken, "w", encoding="utf-8") as handle:
+            handle.write("def suma(\n")
+        reasons = verify_package(
+            _wp(rejected_licenses=["GPL-3.0"]),
+            {"written": [broken], "diff": "license: GPL-3.0", "tests_passed": True},
+            self.root,
+        )
+        self.assertIn("LINT", reasons)
+        self.assertIn("LICENSE", reasons)
+        sibling = tempfile.mkdtemp()
+        self.addCleanup(lambda: os.path.isdir(sibling) and os.rmdir(sibling))
+        outside = os.path.join(sibling, "fuera.py")
+        with open(outside, "w", encoding="utf-8") as handle:
+            handle.write("def (\n")
+        self.addCleanup(lambda: os.path.exists(outside) and os.remove(outside))
+        quiet = verify_package(
+            _wp(),
+            {"written": [outside], "diff": "usa GPL-3.0", "tests_passed": True, "claim": ""},
+            self.root,
+        )
+        self.assertNotIn("LINT", quiet)
+        self.assertNotIn("LICENSE", quiet)
+        self.assertIn("SCOPE", quiet)
 
 
 if __name__ == "__main__":

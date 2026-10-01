@@ -212,10 +212,68 @@ def find_cheats(diff: str) -> List[str]:
     return [mark for mark in _CHEATS if mark in folded]
 
 
+def _has_acceptance(item: Dict[str, Any]) -> bool:
+    raw = item.get("acceptance")
+    if isinstance(raw, str):
+        return bool(raw.strip())
+    if isinstance(raw, (list, tuple)):
+        return any(str(piece).strip() for piece in raw)
+    return False
+
+
+def plan_packages(items: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+    """PB-02. Un paquete sin criterios no sale. No se inventan criterios."""
+    ready: List[Dict[str, Any]] = []
+    held: List[str] = []
+    for item in items or []:
+        if _has_acceptance(item):
+            ready.append(item)
+        else:
+            held.append(str(item.get("id") or ""))
+    return {
+        "packages": ready,
+        "held": held,
+        "status": "PLANNED" if ready else "NO_SAFE_WORK",
+    }
+
+
+def lint_written_python(written: List[str], allowed_dir: str) -> Optional[str]:
+    """Sintaxis de los .py escritos dentro del alcance. No ejecuta el archivo."""
+    root = os.path.realpath(allowed_dir)
+    for path in written:
+        if not str(path).lower().endswith(".py"):
+            continue
+        real = os.path.realpath(path)
+        try:
+            inside = os.path.commonpath([real, root]) == root
+        except ValueError:
+            inside = False
+        if not inside:
+            continue
+        try:
+            with open(real, "r", encoding="utf-8") as handle:
+                source = handle.read()
+            compile(source, real, "exec")
+        except (OSError, SyntaxError, UnicodeError):
+            return "LINT"
+    return None
+
+
+def license_conflict(diff: str, rejected: List[str]) -> Optional[str]:
+    """Solo compara con las licencias que el paquete ya rechaza. No elige una política."""
+    folded = _fold(diff)
+    for name in rejected or []:
+        token = _fold(str(name)).strip()
+        if token and token in folded:
+            return "LICENSE"
+    return None
+
+
 def verify_package(wp: Dict[str, Any], obs: Dict[str, Any], allowed_dir: str) -> List[str]:
     """Puertas que no creen la frase del IDE. Lista vacía: aceptable."""
     reasons: List[str] = []
-    outside = review_diff([str(path) for path in (obs.get("written") or [])], allowed_dir)
+    written = [str(path) for path in (obs.get("written") or [])]
+    outside = review_diff(written, allowed_dir)
     if outside:
         reasons.append("SCOPE")
     cheats = find_cheats(str(obs.get("diff") or ""))
@@ -228,6 +286,10 @@ def verify_package(wp: Dict[str, Any], obs: Dict[str, Any], allowed_dir: str) ->
     folded = _fold(str(obs.get("diff") or ""))
     if "api_key=" in folded or "begin private" in folded:
         reasons.append("SECRET")
+    if lint_written_python(written, allowed_dir) == "LINT":
+        reasons.append("LINT")
+    if license_conflict(str(obs.get("diff") or ""), list(wp.get("rejected_licenses") or [])) == "LICENSE":
+        reasons.append("LICENSE")
     return reasons
 
 

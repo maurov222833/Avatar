@@ -276,6 +276,27 @@ class DirectorTests(unittest.TestCase):
         )
         self.assertNotIn("CRITICAL", clean)
 
+    def test_startup_does_not_dispatch_and_runs_one_package(self):
+        started = self.director.begin("cerrar el informe", digest_present=False)
+        self.assertEqual(started, "PLANNING")
+        self.assertEqual(self.agent.instructions, [])
+        self.assertEqual(self.director.run_next([_wp()]), "DIGEST_NO_VERIFICADO")
+        self.assertEqual(self.agent.instructions, [])
+        fresh = DevDirector(FakeDevAgent(self.root), self.root)
+        self.assertEqual(fresh.run_next([_wp()]), "PB01_PENDIENTE")
+        self.assertEqual(fresh.agent.instructions, [])
+        ready = DevDirector(FakeDevAgent(self.root), self.root)
+        ready.begin("cerrar el informe", digest_present=True)
+        verdict = ready.run_next([
+            _wp(id="WP-1"),
+            {"id": "WP-sin", "title": "sin criterio"},
+            _wp(id="WP-2"),
+        ], {"mode": "advance"})
+        self.assertEqual(verdict, "ACCEPTED")
+        self.assertEqual(len(ready.agent.instructions), 1)
+        self.assertEqual(ready.mission["remaining"], ["WP-2"])
+        self.assertEqual(ready.mission["held"], ["WP-sin"])
+
 
 if __name__ == "__main__":
     unittest.main()

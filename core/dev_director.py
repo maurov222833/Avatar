@@ -532,6 +532,42 @@ class DevDirector:
         self.mission["decisions"].append(row)
         return row
 
+    def begin(self, objective: str, *, digest_present: bool) -> str:
+        """PB-01. Anota el objetivo y no despacha."""
+        self.mission["state"] = "PLANNING"
+        self.mission["playbook"] = "PB-01"
+        self.mission["summary"] = objective
+        self.mission["digest_ok"] = bool(digest_present)
+        if not digest_present:
+            self.mission["questions"].append({
+                "text": "digest no verificado",
+                "default": "no despachar",
+            })
+        self.keeper.write(self.mission)
+        return "PLANNING"
+
+    def run_next(self, items: Optional[List[Dict[str, Any]]], brief: Optional[Dict[str, str]] = None) -> str:
+        """PB-02 y un solo despacho. El servidor no llama esto solo."""
+        if self.mission.get("playbook") != "PB-01":
+            self.mission["state"] = "PLANNING"
+            self.keeper.write(self.mission)
+            return "PB01_PENDIENTE"
+        if not self.mission.get("digest_ok"):
+            self.keeper.write(self.mission)
+            return "DIGEST_NO_VERIFICADO"
+        planned = plan_packages(items)
+        self.mission["held"] = planned["held"]
+        packages = planned["packages"]
+        if not packages:
+            self.mission["state"] = "BLOCKED"
+            self.mission["summary"] = "NO_SAFE_WORK"
+            self.mission["next"] = "esperar"
+            self.keeper.write(self.mission)
+            return "NO_SAFE_WORK"
+        self.mission["remaining"] = [str(item.get("id") or "") for item in packages[1:]]
+        self.mission["playbook"] = "PB-04"
+        return self.tick(packages[0], brief)
+
     def tick(self, wp: Optional[Dict[str, Any]], brief: Optional[Dict[str, str]] = None) -> str:
         from core.halt import current_block_reason
 

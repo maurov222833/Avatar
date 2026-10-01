@@ -172,6 +172,17 @@ class DirectorTests(unittest.TestCase):
         cheat = DevDirector(FakeDevAgent(self.root), self.root).tick(_wp(), {"mode": "weaken"})
         self.assertIn("CHEAT", cheat)
 
+    def test_sent_briefing_is_kept_and_a_secret_is_not_stored(self):
+        self.director.tick(_wp(), {"mode": "dialog", "pending_command": "git status"})
+        text = self.director.mission["briefing"]
+        self.assertIn("Criterios de aceptación", text)
+        self.assertIn("NO modifiques", text)
+        self.assertNotIn("api_key", text.lower())
+        secret = DevDirector(FakeDevAgent(self.root), self.root)
+        with self.assertRaises(ValueError):
+            secret.tick(_wp(goal="usa api_key abc"), {"mode": "advance"})
+        self.assertNotIn("briefing", secret.mission)
+
     def test_gate_record_lists_only_doors_that_ran(self):
         verdict = self.director.tick(_wp(), {"mode": "advance"})
         self.assertEqual(verdict, "ACCEPTED")

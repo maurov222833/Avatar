@@ -786,6 +786,7 @@ class DevDirector:
             self.keeper.write(self.mission)
             return "WP_SIN_CRITERIOS"
         briefing = build_briefing(wp)
+        self.mission["briefing"] = briefing
         payload = dict(brief or {})
         payload["instruction"] = briefing
         payload["allowed_dir"] = payload.get("allowed_dir") or self.root

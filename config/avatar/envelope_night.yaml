@@ -1,0 +1,6 @@
+# Sobre de noche. Vacío y apagado = Avatar no hace nada de noche.
+version: 1
+enabled: false
+projects: []
+max_wps: 0
+token_budget: 0

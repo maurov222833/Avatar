@@ -1,0 +1,5 @@
+# Carpetas de escritura. Por defecto no hay ninguna ruta real.
+version: 1
+write:
+  - TODO_MAURO
+mission_trash: TODO_MAURO

@@ -1,0 +1,6 @@
+# Topes de gasto. 0 significa que no hay gasto autorizado.
+version: 1
+per_session: 0
+per_day: 0
+per_month: 0
+currency: TODO_MAURO

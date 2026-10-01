@@ -1,0 +1,8 @@
+# Solo lectura y diagnóstico. Un comando nuevo lo agrega Mauro.
+version: 1
+commands:
+  - git status
+  - git diff
+  - git log
+  - git show
+  - pytest

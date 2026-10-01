@@ -1,0 +1,10 @@
+# Canales apagados. El identificador del dueño no es un secreto, pero lo pone Mauro.
+version: 1
+telegram:
+  enabled: false
+  allowlist: []
+  owner_id: TODO_MAURO
+mail:
+  enabled: false
+voice:
+  enabled: false

@@ -1,0 +1,14 @@
+# Carta de Mauro. Rellena TODO_MAURO. No escribas secretos.
+version: 1
+enabled: false
+display_name: TODO_MAURO
+language: es
+# Qué puede decidir Avatar solo. Vacío hasta que Mauro lo escriba.
+decides_alone: []
+must_ask:
+  - dinero
+  - publicar
+  - borrar
+  - mensajes_a_terceros
+# La tecla global no se registra al cargar. Paso 2 lo decide Mauro por escrito.
+hotkey_listener: false

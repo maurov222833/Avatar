@@ -1,0 +1,7 @@
+# El único agente encendido es el simulador. Ningún IDE real.
+version: 1
+real_ides_enabled: false
+agents:
+  - name: fake
+    enabled: true
+    kind: simulator

@@ -1,0 +1,7 @@
+# Sin plataformas activas. El margen no se calcula con una tarifa inventada.
+version: 1
+active: []
+margin_rules:
+  require_tax: true
+  require_returns: true
+  hypothesis_is_not_official: true

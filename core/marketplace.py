@@ -87,13 +87,26 @@ class DropshipMachine:
                 row["state"] = "EXCEPCION"
                 self.alerts.append("direccion")
                 return row["state"]
-            net = unit_economics(
-                order["cost"], order["fees"], order["shipping"], order.get("ads", 0), order["price"]
-            )["net"]
-            if net < self.min_margin:
-                row["state"] = "EXCEPCION"
-                self.alerts.append("margen")
-                return row["state"]
+            if order.get("strict_margin"):
+                from core.margin import evaluate_product
+                checked = evaluate_product(
+                    order,
+                    min_margin=self.min_margin,
+                    approved_suppliers=list(self.approved_suppliers),
+                )
+                row["margin"] = checked
+                if checked["verdict"] != "VALE":
+                    row["state"] = "EXCEPCION"
+                    self.alerts.append("margen" if checked["verdict"] == "NO_VALE" else "margen_incompleto")
+                    return row["state"]
+            else:
+                net = unit_economics(
+                    order["cost"], order["fees"], order["shipping"], order.get("ads", 0), order["price"]
+                )["net"]
+                if net < self.min_margin:
+                    row["state"] = "EXCEPCION"
+                    self.alerts.append("margen")
+                    return row["state"]
             if order.get("stock", 1) <= 0:
                 row["state"] = "EXCEPCION"
                 self.alerts.append("sin_stock")
@@ -101,7 +114,7 @@ class DropshipMachine:
             row["state"] = "VALIDADO"
             return row["state"]
         if state == "VALIDADO":
-            pay = float(order["cost"])
+            pay = float(order["cost"] if "cost" in order else order["supplier_cost"])
             if self.paid_today + pay > self.daily_pay_cap:
                 self.alerts.append("tope_pago")
                 return "QUEUED"

@@ -225,6 +225,9 @@ def verify_package(wp: Dict[str, Any], obs: Dict[str, Any], allowed_dir: str) ->
         reasons.append("TESTS")
     if obs.get("claim") and obs.get("tests_passed") is not True:
         reasons.append("FALSE_DONE")
+    folded = _fold(str(obs.get("diff") or ""))
+    if "api_key=" in folded or "begin private" in folded:
+        reasons.append("SECRET")
     return reasons
 
 
@@ -340,6 +343,37 @@ def handover(mission: Dict[str, Any]) -> Dict[str, Any]:
         "assumptions": list(mission.get("assumptions") or []),
         "next": mission.get("next") or "",
     }
+
+
+_STALL_PLAYBOOK = {
+    "S1": "PB-05",
+    "S2": "PB-09",
+    "S5": "PB-07",
+    "S6": "PB-06",
+    "S7": "PB-11",
+    "S8": "PB-10",
+    "S9": "PB-06",
+    "S10": "PB-10",
+    "S11": "PB-05",
+    "S14": "PB-05",
+}
+
+
+def playbook_for(stall: str) -> str:
+    return _STALL_PLAYBOOK.get(stall, "PB-05")
+
+
+def load_playbook(path: str, pb_id: str) -> str:
+    with open(path, "r", encoding="utf-8") as handle:
+        text = handle.read()
+    marker = f"## {pb_id} "
+    start = text.find(marker)
+    if start < 0:
+        raise KeyError(pb_id)
+    rest = text[start + len(marker):]
+    nxt = rest.find("\n## ")
+    body = rest if nxt < 0 else rest[:nxt]
+    return f"## {pb_id} {body}".strip()
 
 
 def render_report(mission: Dict[str, Any]) -> str:
@@ -463,6 +497,7 @@ class DevDirector:
 
     def _on_stall(self, stall: str, obs: Dict[str, Any], wp: Dict[str, Any], allowed_dir: str) -> str:
         self.mission["stalls"].append(stall)
+        self.mission["playbook"] = playbook_for(stall)
         self.mission["state"] = "STALLED_RECOVERING"
         if stall == "S14":
             self.envelope.consecutive_stalls = 0

@@ -62,7 +62,8 @@ class FakeDevAgent:
         self.instructions.append(instruction)
         pending = brief.get("pending_command") or ""
         outside = brief.get("outside_path") or ""
-        observation = _observe(mode, self.root, pending, outside, instruction, self.instructions)
+        write_root = _contained_dir(self.root, str(brief.get("allowed_dir") or ""))
+        observation = _observe(mode, write_root, pending, outside, instruction, self.instructions)
         self.tasks[task_id] = observation
         return task_id
 
@@ -92,6 +93,22 @@ class FakeDevAgent:
         row["tests_passed"] = True
         row["claim"] = ""
         return "APPROVED"
+
+
+def _contained_dir(root: str, allowed: str) -> str:
+    """Escribe solo dentro del repo del agente. Una ruta de fuera se ignora."""
+    if not allowed:
+        return root
+    base = os.path.realpath(root)
+    target = os.path.realpath(allowed)
+    try:
+        inside = os.path.commonpath([base, target]) == base
+    except ValueError:
+        return root
+    if not inside:
+        return root
+    os.makedirs(target, exist_ok=True)
+    return target
 
 
 def _observe(mode: str, root: str, pending: str, outside: str, instruction: str, history: List[str]) -> Dict[str, object]:

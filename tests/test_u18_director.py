@@ -16,6 +16,7 @@ from core.dev_director import (
     detect_stall,
     accept_case,
     handover,
+    isolate_dispatch,
     propose_case,
     resume_from_handover,
     rule_from_case,
@@ -310,6 +311,10 @@ class DirectorTests(unittest.TestCase):
         ], {"mode": "advance"})
         self.assertEqual(verdict, "ACCEPTED")
         self.assertEqual(len(ready.agent.instructions), 1)
+        self.assertFalse(os.path.exists(os.path.join(self.root, "out.txt")))
+        self.assertTrue(os.path.isfile(os.path.join(self.root, ".avatar-dispatch", "WP-1", "out.txt")))
+        with self.assertRaises(ValueError):
+            isolate_dispatch(self.root, "main")
         self.assertEqual(ready.mission["remaining"], ["WP-2"])
         self.assertEqual(ready.mission["held"], ["WP-sin"])
         second = ready.run_next([

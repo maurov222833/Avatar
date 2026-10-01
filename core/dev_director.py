@@ -270,6 +270,17 @@ def plan_packages(items: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
     }
 
 
+def isolate_dispatch(root: str, wp_id: str) -> str:
+    """PB-04. Carpeta aparte. No crea la rama main ni llama a git."""
+    name = (wp_id or "wp").strip()
+    if name.lower() in {"main", "master"}:
+        raise ValueError("DISPATCH_MAIN_REFUSED")
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in name)[:40] or "wp"
+    path = os.path.join(root, ".avatar-dispatch", safe)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
 def index_files(root: str) -> set:
     """Archivos ya presentes bajo la carpeta. No sigue enlaces."""
     base = os.path.realpath(root)
@@ -702,7 +713,12 @@ class DevDirector:
             return self.mission["state"]
         self.mission["remaining"] = [str(item.get("id") or "") for item in packages[1:]]
         self.mission["playbook"] = "PB-04"
-        return self.tick(packages[0], brief)
+        dispatch = isolate_dispatch(self.root, str(packages[0].get("id") or "wp"))
+        payload = dict(brief or {})
+        if not payload.get("allowed_dir"):
+            payload["allowed_dir"] = dispatch
+        self.mission["dispatch_dir"] = dispatch
+        return self.tick(packages[0], payload)
 
     def tick(self, wp: Optional[Dict[str, Any]], brief: Optional[Dict[str, str]] = None) -> str:
         from core.halt import current_block_reason

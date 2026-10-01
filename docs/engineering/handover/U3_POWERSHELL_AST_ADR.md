@@ -1,6 +1,12 @@
-# ADR — AST de PowerShell (U3) — pendiente de aprobación
+# ADR — AST de PowerShell (U3) — cerrado
 
-Fecha: 2026-10-01. Mauro pidió el documento y **no autorizó el código**. No hay parser nuevo en `core/command_risk.py` por este archivo. El ADR vigente de clasificación sigue siendo `U3_COMMAND_RISK_ADR.md`.
+Fecha: 2026-10-01. Mauro pidió cerrar el analizador. No hay un parser nuevo.
+
+## Decisión
+
+Queda la alternativa 1. El clasificador de `core/command_risk.py` es el analizador: `Invoke-Expression`, `iex`, bajar la política de ejecución, `format`, `diskpart`, `bcdedit`, borrar registro y apagar el firewall salen `PROHIBITED`. `-EncodedCommand`, aquí-strings y composición salen al menos C. Un envoltorio no baja el nivel. Si el texto no se entiende, el nivel es C.
+
+La alternativa 2 no se escribe. Un árbol a medias que clasifique de menos sería peor que este fallo cerrado. La alternativa 3, pedirle el árbol a PowerShell en el PC, sigue `UNVERIFIED` hasta que ese PC la ejecute.
 
 ## Problema
 
@@ -37,8 +43,8 @@ Cada autorización de misión sigue en el grant (`core/grants.py`): niveles, cad
 
 ## Riesgos
 
-Un AST incompleto que clasifique de menos sería peor que el fallo cerrado de hoy. Por eso el código espera aprobación. Si el parser duda, el nivel será C o PROHIBITED, nunca A.
+Un AST incompleto que clasifique de menos sería peor que el fallo cerrado de hoy. Por eso no se añade un parser. Si el clasificador duda, el nivel es C o PROHIBITED, nunca A.
 
 ## Decisión que falta
 
-Mauro aprueba o rechaza la alternativa 2 por escrito. Hasta entonces este ADR no autoriza una línea de parser.
+Ninguna. La alternativa 2 queda rechazada por el riesgo que este mismo ADR nombra.

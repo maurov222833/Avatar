@@ -8,3 +8,6 @@ mail:
   enabled: false
 voice:
   enabled: false
+# WhatsApp sigue aparcado. No hay QR ni verificación de teléfono.
+whatsapp:
+  enabled: false

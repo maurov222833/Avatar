@@ -383,6 +383,13 @@ def recover_crash(done_non_idempotent: List[str], pending: List[str]) -> List[st
     return [item for item in pending if item not in done]
 
 
+def second_opinion(*, per_session: int, currency: str) -> Dict[str, Any]:
+    """PB-08. No llama a un modelo. Sin tope numérico no hay dictamen."""
+    if not isinstance(per_session, int) or per_session <= 0 or currency in ("", "TODO_MAURO"):
+        return {"status": "NO_BUDGET", "called": False}
+    return {"status": "NOT_SENT", "called": False, "reason": "sin revisor local"}
+
+
 def propose_lesson(text: str) -> Dict[str, Any]:
     return {"text": text, "status": "PROPOSED", "approved_by": ""}
 

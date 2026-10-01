@@ -204,7 +204,8 @@ def start_hotkey_listener(config: Optional[Dict[str, Any]] = None) -> str:
     """No importa ni registra un gancho al cargar este módulo.
 
     El interruptor por defecto es false. Aunque esté en true, esta versión
-    no instala la tecla: eso es el paso 2 y lo decide Mauro por escrito.
+    no instala la tecla. El 2026-10-01 el cierre fue ese: no hay gancho en
+    esta sesión, y un proceso Linux no registra la tecla del PC.
     """
     enabled = (config or {}).get("hotkey_listener") is True
     if not enabled:

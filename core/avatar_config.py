@@ -169,7 +169,7 @@ def check_config(folder: str) -> Tuple[int, List[str]]:
     if watch.get("trade") is not False:
         lines.append("INSEGURO markets_watchlist.yaml trade debe ser false")
         broken = True
-    for key in ("telegram", "mail", "voice"):
+    for key in ("telegram", "mail", "voice", "whatsapp"):
         block = channels.get(key) or {}
         if isinstance(block, dict) and block.get("enabled") is not False:
             lines.append(f"INSEGURO channels.yaml {key}.enabled debe ser false")

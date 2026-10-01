@@ -34,4 +34,4 @@ La parada vive en el proceso. Otro código que llame a una herramienta saltándo
 
 ## Siguiente paso
 
-El margen estricto ya está en el simulador. WhatsApp sigue aparcado. La contención automática sigue apagada. El modo noche sigue apagado. La tecla global no se instala. No hay cuentas de tienda ni de broker. Lo que queda fuera de este equipo es la prueba en el PC de Windows y el teléfono.
+El 2026-10-01 quedaron cerradas las puertas de `GATES_CERRADAS.md`: IDE real apagado, carta sin respuestas, tecla sin instalar, analizador = clasificador actual, WhatsApp aparcado, fusión a `main` en cola, segunda opinión sin gasto y sin llamada. La contención automática y el modo noche siguen apagados. No hay cuentas de tienda ni de broker. Lo que queda fuera de este equipo es la prueba en el PC de Windows.

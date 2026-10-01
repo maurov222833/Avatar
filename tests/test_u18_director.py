@@ -29,6 +29,7 @@ from core.dev_director import (
     verify_package,
     request_merge,
     resolve_gap,
+    stall_evidence,
 )
 from core.external_dev import FakeDevAgent
 from core.halt import engage, resume
@@ -130,6 +131,11 @@ class DirectorTests(unittest.TestCase):
     def test_quota_switches_or_waits(self):
         switched = self.director.tick(_wp(), {"mode": "quota"})
         self.assertEqual(switched, "S2_SWITCH")
+        report = self.director.mission["stall_reports"][-1]
+        self.assertEqual(report["type"], "S2")
+        self.assertIn("quota", report["evidence"])
+        self.assertFalse(report["claim_is_evidence"])
+        self.assertEqual(stall_evidence({"claim": "hecho"}), "sin evidencia observada")
         self.assertIn("sin merge a main", self.director.mission["handover"]["restrictions"])
         resumed = DevDirector(FakeDevAgent(self.root), self.root)
         state = resume_from_handover(resumed, {

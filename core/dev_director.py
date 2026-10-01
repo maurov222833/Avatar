@@ -202,6 +202,19 @@ def build_briefing(wp: Dict[str, Any]) -> str:
     return text
 
 
+def stall_evidence(obs: Dict[str, Any]) -> str:
+    """PB-05. La frase del IDE no entra como evidencia."""
+    log = str(obs.get("log") or "").strip()
+    if log:
+        return log
+    written = [str(path) for path in (obs.get("written") or [])]
+    if written:
+        return "archivos: " + ", ".join(written)
+    if str(obs.get("pending_command") or "").strip():
+        return "comando pendiente"
+    return "sin evidencia observada"
+
+
 def detect_stall(obs: Dict[str, Any]) -> Optional[str]:
     """Clasifica una observación. S14 es trabajo largo, no una caída."""
     pending = str(obs.get("pending_command") or "")
@@ -784,6 +797,12 @@ class DevDirector:
     def _on_stall(self, stall: str, obs: Dict[str, Any], wp: Dict[str, Any], allowed_dir: str) -> str:
         self.mission["stalls"].append(stall)
         self.mission["playbook"] = playbook_for(stall)
+        self.mission.setdefault("stall_reports", []).append({
+            "type": stall,
+            "evidence": stall_evidence(obs),
+            "step": playbook_for(stall),
+            "claim_is_evidence": False,
+        })
         self.mission["state"] = "STALLED_RECOVERING"
         if stall == "S14":
             self.envelope.consecutive_stalls = 0

@@ -559,6 +559,7 @@ def handover(mission: Dict[str, Any]) -> Dict[str, Any]:
             restrictions.append(item)
     return {
         "state": mission.get("state"),
+        "objective": str(mission.get("objective") or ""),
         "restrictions": restrictions,
         "decisions": list(mission.get("decisions") or []),
         "assumptions": list(mission.get("assumptions") or []),
@@ -573,6 +574,7 @@ def resume_from_handover(director: "DevDirector", packet: Dict[str, Any]) -> str
         if item not in restored:
             restored.append(item)
     director.mission["restrictions"] = restored
+    director.mission["objective"] = str(packet.get("objective") or "")
     director.mission["decisions"] = list(packet.get("decisions") or [])
     director.mission["assumptions"] = list(packet.get("assumptions") or [])
     director.mission["next"] = str(packet.get("next") or "")
@@ -705,6 +707,7 @@ class DevDirector:
         """PB-01. Anota el objetivo y no despacha."""
         self.mission["state"] = "PLANNING"
         self.mission["playbook"] = "PB-01"
+        self.mission["objective"] = objective
         self.mission["summary"] = objective
         self.mission["digest_ok"] = bool(digest_present)
         if not digest_present:

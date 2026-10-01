@@ -1,6 +1,6 @@
 # U18 — Comparación con el código
 
-Fecha: 2026-10-01. Adenda 3 de la Spec 003. Sin código nuevo de motor.
+Fecha: 2026-10-01. Adenda 3 de la Spec 003. El simulador de esta rama ya tiene el director.
 Estados usados: `IMPLEMENTED`, `INTEGRATED`, `TESTED_LINUX`, `VERIFIED_WINDOWS`, `VERIFIED_PC`, `UNVERIFIED`, `PARTIAL`, `BLOCKED`, `NOT_IMPLEMENTED`.
 
 Nada de esta tabla es `VERIFIED_PC`. No se probó contra un repositorio real de Mauro.
@@ -13,7 +13,7 @@ Nada de esta tabla es `VERIFIED_PC`. No se probó contra un repositorio real de 
 | Todo efecto por el chokepoint | `core/act_chokepoint.py` | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | El IDE no hereda permisos. Un proceso `agent` con `--force` se salta esta puerta. No se usará. |
 | Riesgo A–D de cada acción | `core/command_risk.py`, `core/grants.py` | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Los niveles D0–D3 de la adenda son otra capa (decisiones de ingeniería). No sustituyen A–D. |
 | Rutas prohibidas | `core/path_guard.py` | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Junctions, 8.3 y UNC siguen `UNVERIFIED` en Windows. |
-| Estado que no inventa el modelo | `core/mission_transition.py`, `core/mission_report.py` | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Los estados de `DevMission` no existen. No se renombran los estados ya persistidos. |
+| Estado que no inventa el modelo | `core/mission_transition.py`, `core/mission_report.py` | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Los estados de `DevMission` viven en el simulador. No se renombran los estados ya persistidos de U6. |
 | Adaptador de IDE | `core/external_dev.py`, `SimulatedDevAgent` | `IMPLEMENTED + TESTED_LINUX` | Escribe un archivo de prueba. No simula S1–S14. No habla con Cursor. |
 | Revisión de alcance del diff | `review_diff` en el mismo archivo | `PARTIAL` | Solo mira rutas. No mira pruebas debilitadas, hardcode ni secretos. |
 | Subagente con alcance | `AvatarOrchestrator.run_scoped_act` | `IMPLEMENTED + INTEGRATED + TESTED_LINUX` | Una escritura acotada. No es un revisor independiente ni una flota. |
@@ -30,7 +30,7 @@ Nada de esta tabla es `VERIFIED_PC`. No se probó contra un repositorio real de 
 | Requisito | Estado |
 |---|---|
 | `DevMission`, `WorkPackage`, cola de preguntas, registro DEC | `IMPLEMENTED + TESTED_LINUX` en `core/dev_director.py`. No está unido al servidor. |
-| `Planner`, `BriefingBuilder`, playbooks PB-01 a PB-12 versionados | `PARTIAL`. `begin` aplica PB-01 y no despacha. `run_next` salta lo ya aceptado, despacha un paquete en `.avatar-dispatch/` y, si no queda trabajo seguro, cierra con PB-12. El briefing enviado queda en la misión; si trae un secreto, no se guarda. No abre una rama `main` ni llama a git. No elige el piloto ni redacta el cerebro. El servidor no lo arranca. |
+| `Planner`, `BriefingBuilder`, playbooks PB-01 a PB-12 versionados | `PARTIAL`. `begin` aplica PB-01 y no despacha. `run_next` salta lo ya aceptado, despacha un paquete en `.avatar-dispatch/` y, si no queda trabajo seguro, cierra con PB-12. El briefing enviado queda en la misión; si trae un secreto, no se guarda. El traspaso guarda el objetivo aparte del resumen. No abre una rama `main` ni llama a git. No elige el piloto ni redacta el cerebro. El servidor no lo arranca. |
 | `Dispatcher` sobre un IDE real | `NOT_IMPLEMENTED`. El despacho prueba `FakeDevAgent`. |
 | `FakeDevAgent` con modos S1–S14 | `IMPLEMENTED + TESTED_LINUX` |
 | `Monitor` y `StallDetector` | `IMPLEMENTED + TESTED_LINUX` sobre la observación del simulador. Cada detención guarda tipo, evidencia observada y el escalón. Una compilación en curso queda en el escalón 1. Un bucle empieza en el 5. La frase del IDE no entra en la evidencia. |

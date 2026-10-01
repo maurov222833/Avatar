@@ -808,6 +808,7 @@ class DevDirector:
             self.envelope.consecutive_stalls = 0
             self.mission["state"] = "IN_PROGRESS"
             self.mission["summary"] = "compilacion en curso"
+            self._stamp_step("1")
             self.keeper.write(self.mission)
             return "S14_WAIT"
         self.envelope.consecutive_stalls += 1
@@ -819,6 +820,7 @@ class DevDirector:
             self.mission["summary"] = "comando destructivo no aprobado"
             move = intervention("S11", self.mission["tried"])
             self.mission["tried"].append(move["text"])
+            self._stamp_step(str(move["step"]))
             self.keeper.write(self.mission)
             return "S11_BLOCKED"
         if stall == "S2":
@@ -841,11 +843,13 @@ class DevDirector:
                 move = intervention("S5", self.mission["tried"] + [move["text"]])
             self.mission["tried"].append(move["text"])
             self.mission["summary"] = move["text"]
+            self._stamp_step(str(move["step"]))
             self.keeper.write(self.mission)
             return f"S5_STEP_{move['step']}"
         if stall == "S6":
             move = intervention("S6", self.mission["tried"])
             self.mission["tried"].append(move["text"])
+            self._stamp_step(str(move["step"]))
             self.keeper.write(self.mission)
             return "S6_NO_WEAKEN"
         if stall == "S8":
@@ -887,8 +891,14 @@ class DevDirector:
             return "S7_CONTINUE" if gap["continued"] else "S7_WAIT"
         move = intervention(stall, self.mission["tried"])
         self.mission["tried"].append(move["text"])
+        self._stamp_step(str(move["step"]))
         self.keeper.write(self.mission)
         return f"{stall}_STEP_{move['step']}"
+
+    def _stamp_step(self, step: str) -> None:
+        reports = self.mission.get("stall_reports") or []
+        if reports:
+            reports[-1]["step"] = step
 
     def _dialog(self, obs: Dict[str, Any]) -> str:
         command = str(obs.get("pending_command") or "")

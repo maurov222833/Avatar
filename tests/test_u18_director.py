@@ -136,6 +136,9 @@ class DirectorTests(unittest.TestCase):
         self.assertIn("quota", report["evidence"])
         self.assertFalse(report["claim_is_evidence"])
         self.assertEqual(stall_evidence({"claim": "hecho"}), "sin evidencia observada")
+        compiler = DevDirector(FakeDevAgent(self.root), self.root)
+        self.assertEqual(compiler.tick(_wp(), {"mode": "long_job"}), "S14_WAIT")
+        self.assertEqual(compiler.mission["stall_reports"][-1]["step"], "1")
         self.assertIn("sin merge a main", self.director.mission["handover"]["restrictions"])
         resumed = DevDirector(FakeDevAgent(self.root), self.root)
         state = resume_from_handover(resumed, {
@@ -153,6 +156,7 @@ class DirectorTests(unittest.TestCase):
     def test_loop_does_not_repeat_the_failed_order(self):
         first = self.director.tick(_wp(), {"mode": "loop", "instruction": "repite el parche"})
         self.assertTrue(first.startswith("S5_STEP_"))
+        self.assertEqual(self.director.mission["stall_reports"][-1]["step"], "5")
         tried = list(self.director.mission["tried"])
         second = self.director.tick(_wp(), {"mode": "loop", "instruction": "repite el parche"})
         self.assertNotEqual(self.director.mission["tried"][-1], "")

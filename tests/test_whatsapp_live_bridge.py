@@ -180,8 +180,36 @@ class TestLiveLoop(unittest.TestCase):
             reader.login_state = lambda: "QR_REQUIRED"
             b = _bridge(reader)
             with self.assertRaises(WhatsAppReadError) as ctx:
-                b.start_live_bridge("Chat Prueba", max_polls=1)
+                b.start_live_bridge("Chat Prueba", max_polls=1, qr_hold_seconds=0)
             self.assertEqual(ctx.exception.code, WhatsAppReadError.LOGIN_REQUIRED_QR)
+
+    def test_qr_window_stays_until_the_scan(self):
+        with _TempWorld():
+            reader = FakeReader([])
+            seen = {"n": 0}
+
+            def login_state():
+                seen["n"] += 1
+                return "QR_REQUIRED" if seen["n"] < 3 else "LOGGED_IN"
+
+            reader.login_state = login_state
+
+            def wait_for_login(hold_seconds=300, poll_seconds=2.0, stop_path=""):
+                state = reader.login_state()
+                while state != "LOGGED_IN" and hold_seconds != 0:
+                    state = reader.login_state()
+                    if state == "LOGGED_IN":
+                        break
+                return state
+
+            reader.wait_for_login = wait_for_login
+            b = _bridge(reader)
+            calls = []
+            b.orchestrator.process_user_input = lambda m, **kw: calls.append(m) or "ok"
+            b._deliver = lambda **k: "delivered"
+            summary = b.start_live_bridge("Chat Prueba", max_polls=1, qr_hold_seconds=30)
+            self.assertEqual(seen["n"] >= 3, True)
+            self.assertEqual(summary["polls"], 1)
 
     def test_provider_silence_skips_delivery_but_advances(self):
         """El silencio del proveedor no se envía al chat; el cursor avanza igual."""
@@ -285,6 +313,42 @@ class TestLiveLoop(unittest.TestCase):
         send, shaped = WB.format_whatsapp_reply("x" * 2000)
         self.assertTrue(send)
         self.assertLessEqual(len(shaped), WB.MAX_REPLY_CHARS + 60)
+
+
+class TestQrHold(unittest.TestCase):
+    def test_wait_for_login_polls_until_logged_in(self):
+        from bridges.whatsapp_reader import WhatsAppWebReader
+        folder = tempfile.mkdtemp(prefix="avatar_qr_")
+
+        class Reader(WhatsAppWebReader):
+            def __init__(self):
+                super().__init__(folder)
+                self.n = 0
+
+            def login_state(self):
+                self.n += 1
+                return "QR_REQUIRED" if self.n < 3 else "LOGGED_IN"
+
+        reader = Reader()
+        state = reader.wait_for_login(hold_seconds=5, poll_seconds=0.01)
+        self.assertEqual(state, "LOGGED_IN")
+        self.assertGreaterEqual(reader.n, 3)
+
+    def test_status_does_not_open_a_second_window(self):
+        import json
+        import time
+        from core.orchestrator import AvatarOrchestrator
+        from bridges.whatsapp_reader import profile_lock_fresh
+
+        folder = tempfile.mkdtemp(prefix="avatar_wa_lock_")
+        with open(folder + ".lock", "w", encoding="utf-8") as handle:
+            json.dump({"pid": 4242, "ts": time.time()}, handle)
+        self.assertIn("4242", profile_lock_fresh(folder))
+        orch = AvatarOrchestrator()
+        orch._wa_profile_dir = lambda: folder
+        result = orch._exec_whatsapp_status({})
+        self.assertIn("VENTANA_YA_ABIERTA", result)
+        self.assertNotIn("LOGIN_REQUIRED", result)
 
 
 if __name__ == "__main__":

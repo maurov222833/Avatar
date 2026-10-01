@@ -3,10 +3,10 @@ Avatar WhatsApp 24/7 — runner persistente con supervisor.
 
 Mantiene el puente vivo día y noche:
   - Cada ciclo usa un navegador fresco (evita pudrimiento de estado) y lo cierra
-    con watchdog al terminar.
+    con watchdog al terminar el ciclo, no mientras el QR está en pantalla.
   - Si el ciclo muere (excepción/cuelgue), espera con backoff y reintenta.
-  - Si la sesión QR expiró, NO cuenta como fallo: avisa y reintenta cada 5 min
-    hasta que el dueño re-escanee.
+  - Si falta sesión, la ventana del QR permanece abierta hasta el escaneo o
+    hasta memory/AVATAR_WA_STOP. No se cierra a los pocos segundos.
   - Heartbeat en memory/whatsapp_heartbeat.json para monitoreo externo.
   - Parada limpia creando memory/AVATAR_WA_STOP.
 
@@ -144,7 +144,8 @@ def run_cycle(cfg, max_polls=0):
         )
     try:
         summary = bridge.start_live_bridge(
-            target, max_polls=max_polls, heartbeat_cb=beat, stop_path=STOP_PATH)
+            target, max_polls=max_polls, heartbeat_cb=beat, stop_path=STOP_PATH,
+            qr_hold_seconds=None)
         return ("STOP", f"loop terminó: {summary}")
     except WhatsAppReadError as exc:
         if exc.code == WhatsAppReadError.LOGIN_REQUIRED_QR:

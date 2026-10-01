@@ -1288,15 +1288,30 @@ class AvatarOrchestrator:
                 or "Mauro Vanegas 2025")
 
     def _exec_whatsapp_status(self, args: Dict[str, Any]) -> str:
-        """Estado real de sesión. Una llamada = un navegador fresco (lento pero seguro)."""
+        """Estado real. Si ya hay ventana, no abre otra ni la cierra.
+
+        Si falta sesión, deja el QR a la vista el tiempo de escaneo y solo
+        entonces cierra.
+        """
         from bridges.whatsapp_reader import (
-            WhatsAppWebReader, WhatsAppReadError, run_blocking)
+            WhatsAppWebReader, WhatsAppReadError, profile_lock_fresh, run_blocking)
+
+        profile = self._wa_profile_dir()
+        busy = profile_lock_fresh(profile)
+        if busy:
+            return (
+                "RESULT:OK estado=VENTANA_YA_ABIERTA "
+                f"{busy}. No abro otra ventana ni cierro la que está."
+            )
 
         def _do():
-            reader = WhatsAppWebReader(profile_dir=self._wa_profile_dir())
+            reader = WhatsAppWebReader(profile_dir=profile)
             reader.launch()
             try:
-                return f"RESULT:OK estado={reader.login_state()}"
+                state = reader.login_state()
+                if state != "LOGGED_IN":
+                    state = reader.wait_for_login(hold_seconds=240, poll_seconds=2.0)
+                return f"RESULT:OK estado={state}"
             finally:
                 try:
                     reader.close()
@@ -1304,7 +1319,7 @@ class AvatarOrchestrator:
                     pass
 
         try:
-            return run_blocking(_do)
+            return run_blocking(_do, timeout_s=400.0)
         except WhatsAppReadError as exc:
             return f"RESULT:ERROR {exc.code}: {exc.detail}"
         except Exception as exc:

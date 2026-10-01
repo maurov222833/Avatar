@@ -3,6 +3,7 @@ import requests
 import json
 import os
 import sys
+from typing import Optional
 
 # Garantizar resolución de imports raíz ('core', 'tools', 'memory')
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -187,7 +188,8 @@ class WhatsAppBridge:
     # -- loop vivo ------------------------------------------------------
     def start_live_bridge(self, target_chat: str = "Mauro Vanegas 2025",
                           max_polls: int = 0, heartbeat_cb=None,
-                          stop_path: str = "") -> dict:
+                          stop_path: str = "",
+                          qr_hold_seconds: Optional[float] = 300) -> dict:
         """
         Puente activo real para el chat indicado.
 
@@ -207,11 +209,28 @@ class WhatsAppBridge:
         reader.launch()
         try:
             state = reader.login_state()
+            if state != "LOGGED_IN" and qr_hold_seconds != 0:
+                _walog(
+                    "QR visible. La ventana queda abierta hasta que escanees "
+                    "o aparezca el archivo de parada."
+                )
+                if heartbeat_cb is not None:
+                    try:
+                        heartbeat_cb({"phase": "waiting_qr"})
+                    except Exception:
+                        pass
+                waiter = getattr(reader, "wait_for_login", None)
+                if waiter is not None:
+                    state = waiter(
+                        hold_seconds=qr_hold_seconds,
+                        poll_seconds=2.0,
+                        stop_path=stop_path,
+                    )
             if state != "LOGGED_IN":
                 raise WhatsAppReadError(
                     WhatsAppReadError.LOGIN_REQUIRED_QR,
-                    "Sesión no iniciada: escanea el QR una vez en la ventana abierta "
-                    "y vuelve a arrancar el puente.")
+                    "Sesión no iniciada: la ventana del QR sigue el plazo de espera. "
+                    "Escanéala con el celular antes de que se cierre.")
             reader.open_chat(target_chat)
             # El envío del loop usa el lector DOM (verificado por relectura) en lugar
             # del AutoReply de ventana activa. La política y el ledger se conservan:

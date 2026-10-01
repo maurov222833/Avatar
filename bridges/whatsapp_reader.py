@@ -167,12 +167,46 @@ class WhatsAppWebReader:
                 WhatsAppReadError.BROWSER_LAUNCH_FAILED,
                 f"no se pudo tomar el lock: {exc}"[:200])
 
+    def _refresh_lock(self) -> None:
+        """Mantiene vivo el lock mientras la ventana espera el escaneo."""
+        import json as _json
+        import time as _time
+        path = self._lock_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                _json.dump({"pid": os.getpid(), "ts": _time.time()}, f)
+        except Exception:
+            pass
+
     def _release_lock(self) -> None:
         try:
             if os.path.exists(self._lock_path()):
                 os.remove(self._lock_path())
         except Exception:
             pass
+
+    def wait_for_login(
+        self,
+        hold_seconds: Optional[float] = 300,
+        poll_seconds: float = 2.0,
+        stop_path: str = "",
+    ) -> str:
+        """Deja la ventana abierta hasta LOGGED_IN, el archivo de parada o el plazo.
+
+        hold_seconds None no corta por tiempo: solo para cuando hay sesión o parada.
+        """
+        state = self.login_state()
+        started = time.time()
+        while state != "LOGGED_IN":
+            if stop_path and os.path.exists(stop_path):
+                break
+            if hold_seconds is not None and (time.time() - started) >= float(hold_seconds):
+                break
+            self._refresh_lock()
+            time.sleep(max(0.05, float(poll_seconds)))
+            state = self.login_state()
+        return state
 
     # -- lifecycle ------------------------------------------------------
     def launch(self) -> None:
@@ -533,6 +567,22 @@ class WhatsAppWebReader:
         raise WhatsAppReadError(
             WhatsAppReadError.SEND_UNVERIFIED,
             "texto pegado pero no aparece como saliente tras Enter ni botón")
+
+
+
+def profile_lock_fresh(profile_dir: str) -> str:
+    """Texto si otro dueño tiene el perfil. Vacío si se puede abrir una ventana."""
+    import json as _json
+    path = os.path.abspath(profile_dir) + ".lock"
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = _json.load(handle)
+        age = time.time() - float(data.get("ts", 0))
+    except (OSError, ValueError, TypeError):
+        return ""
+    if age < WhatsAppWebReader.LOCK_TTL_S:
+        return f"pid={data.get('pid')} hace {age:.0f}s"
+    return ""
 
 
 def run_blocking(fn, timeout_s: float = 300.0):

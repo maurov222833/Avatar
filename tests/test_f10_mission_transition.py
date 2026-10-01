@@ -82,6 +82,25 @@ class TestF10MissionTransition(unittest.TestCase):
             {"tool_name": "WRITE_FILE"},
         ])
         self.assertTrue(any(c.get("act_type") == "WRITE_FILE" for c in derived2))
+        browsed = derive_acceptance_criteria("abre whatsapp", [
+            {"tool_name": "BROWSER_NAVIGATE"},
+        ])
+        self.assertEqual(browsed, [])
+
+    def test_visible_whatsapp_uses_the_system_browser(self):
+        from unittest import mock
+        from core.system_browser import wants_visible_whatsapp
+        self.assertTrue(wants_visible_whatsapp(
+            "Abre WhatsApp web y deja la ventana del QR abierta"))
+        self.assertFalse(wants_visible_whatsapp("hola, qué tal"))
+        orch = AvatarOrchestrator()
+        with mock.patch("core.system_browser.open_whatsapp_web", return_value="ABIERTO") as opened:
+            text = orch.process_user_input(
+                "Abre WhatsApp web y deja la ventana del QR abierta")
+        opened.assert_called_once()
+        self.assertIn("navegador de tu PC", text)
+        self.assertIn("UNVERIFIED", text)
+        self.assertNotIn("COMPLETED_VERIFIED", text)
 
 
 if __name__ == "__main__":

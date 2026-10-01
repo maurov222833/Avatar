@@ -274,7 +274,7 @@ AVATAR_TOOLS_SCHEMA = [
             },
             {
                 "name": "BROWSER_NAVIGATE",
-                "description": "Abre o navega el navegador controlado (Playwright) a una URL. Requiere dominio permitido si hay allowlist.",
+                "description": "Navega un navegador de prueba, a menudo oculto. Mauro no ve esa ventana. No lo uses para el QR de WhatsApp ni afirmes que una ventana quedó a la vista.",
                 "parameters": {
                     "type": "OBJECT",
                     "properties": {
@@ -583,6 +583,34 @@ class AvatarOrchestrator:
             # The legacy text-parsed tool path fires inside this same request, so it can be
             # bound to this mission for attribution.
             self._legacy_mission_id = current_mission_id
+
+        from core.system_browser import open_whatsapp_web, wants_visible_whatsapp
+        if wants_visible_whatsapp(user_input):
+            opened = open_whatsapp_web()
+            if opened == "ABIERTO":
+                final_user_response = (
+                    "Pedí al navegador de tu PC que abra https://web.whatsapp.com. "
+                    "Es Chrome o Edge, no una ventana oculta. "
+                    "Si no la ves en la barra de tareas, no quedó abierta. "
+                    "El QR se escanea ahí. La sesión todavía no está vinculada."
+                )
+            else:
+                final_user_response = (
+                    "No pude abrir el navegador de tu PC. "
+                    f"Detalle: {opened}. La sesión no quedó vinculada."
+                )
+            if self.state_db and current_mission_id:
+                raw_status = self._reconcile_mission(current_mission_id)
+                if raw_status:
+                    from core.mission_report import from_transition
+                    final_user_response = (
+                        f"{final_user_response}\n\nEstado de la misión: "
+                        f"{from_transition(raw_status)}."
+                    )
+            self.history.append({"role": "user", "content": user_input})
+            self.history.append({"role": "assistant", "content": final_user_response})
+            self.memory.save_history(self.history)
+            return final_user_response
 
         # 0. Verificar si es una misión multi-tarea determinista ÚNICAMENTE si la interacción es DIRECT_ACTION o contiene JSON explícito
         has_json_block = "```json" in user_input and "[" in user_input

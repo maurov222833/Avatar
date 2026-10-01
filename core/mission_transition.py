@@ -70,7 +70,9 @@ def derive_acceptance_criteria(user_input: str, tool_summary: Sequence[Dict[str,
             continue
         # Reads alone do not prove a goal was completed.
         if name in ("READ_FILE", "LIST_DIR", "WEB_SEARCH", "FETCH_URL",
-                    "WHATSAPP_STATUS", "WHATSAPP_READ", "SCREEN_CAPTURE"):
+                    "WHATSAPP_STATUS", "WHATSAPP_READ", "SCREEN_CAPTURE",
+                    "BROWSER_NAVIGATE", "BROWSER_OBSERVE", "BROWSER_CLICK",
+                    "BROWSER_FILL", "BROWSER_CLOSE"):
             continue
         seen.add(name)
         criteria.append({"type": CRITERION_ACT_OBSERVED, "act_type": name})

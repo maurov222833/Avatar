@@ -1,7 +1,7 @@
 # Comparación Spec 003 v2 (U11–U17) contra el código
 
 Fecha: 2026-09-30  
-Estado de este documento: comparación, sin cambios de motor.  
+Estado de este documento: comparación histórica del 2026-09-30, sin cambios de motor en esa fecha. El estado vigente de U1 a U18 es `SPEC_003_CIERRE.md`. Las filas `NOT_IMPLEMENTED` de abajo no se usan como tablero actual.  
 Estados usados: los de la sección 1 del spec (`IMPLEMENTED`, `INTEGRATED`, `TESTED_LINUX`, `VERIFIED_WINDOWS`, `VERIFIED_PC`, `UNVERIFIED`, `PARTIAL`, `BLOCKED`, `NOT_IMPLEMENTED`).
 
 La versión consolidada sustituye a la spec inicial y a las adendas. El orden de la sección 5 se mantiene: U1, U2 y el ADR de U3 van antes que documentos, asistente, 24/7 y negocio.

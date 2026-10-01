@@ -276,6 +276,7 @@ class DirectorTests(unittest.TestCase):
         resume_from_handover(resumed, packet)
         self.assertEqual(resumed.mission["objective"], "hacer la suma")
         self.assertIn("sin merge a main", resumed.mission["restrictions"])
+        self.assertIn("Objetivo: hacer la suma", render_report(self.director.mission))
         engage("KILL_SWITCH", source="test", actor="Mauro")
         agent = FakeDevAgent(self.root)
         director = DevDirector(agent, self.root)
@@ -286,6 +287,7 @@ class DirectorTests(unittest.TestCase):
         self.assertEqual(director.mission["state"], "ABORTED")
         report = render_report({"state": "ABORTED", "cost": None, "decisions": [], "assumptions": [], "questions": [], "stalls": [], "accepted": []})
         self.assertIn("UNKNOWN", report)
+        self.assertIn("(sin objetivo)", report)
         self.assertIn("Estado de la misión: ABORTED", report)
 
 

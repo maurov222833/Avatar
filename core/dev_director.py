@@ -646,6 +646,7 @@ def render_report(mission: Dict[str, Any]) -> str:
     lines = [
         f"INFORME DE DIRECCIÓN DE DESARROLLO — {mission.get('project') or 'piloto'}",
         f"Estado de la misión: {mission.get('state')}",
+        f"Objetivo: {mission.get('objective') or '(sin objetivo)'}",
         "1. Resumen",
         str(mission.get("summary") or ""),
         "2. Trabajo aceptado",

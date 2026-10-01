@@ -17,6 +17,7 @@ from core.dev_director import (
     handover,
     calibration_stage,
     plan_packages,
+    revert_new_files,
     propose_lesson,
     recover_crash,
     render_report,
@@ -331,6 +332,65 @@ class DirectorTests(unittest.TestCase):
         short = calibration_stage({"decisions": 1}, charter_approved=True)
         self.assertEqual(short["stage"], "E0")
         self.assertIn("packages", short["missing"])
+
+    def test_revert_removes_only_new_files_inside_the_scope(self):
+        kept = os.path.join(self.root, "antes.txt")
+        with open(kept, "w", encoding="utf-8") as handle:
+            handle.write("queda")
+        before = {os.path.realpath(kept)}
+        created = os.path.join(self.root, "nuevo.py")
+        with open(created, "w", encoding="utf-8") as handle:
+            handle.write("x = 1\n")
+        sibling = tempfile.mkdtemp()
+        self.addCleanup(lambda: os.path.isdir(sibling) and os.rmdir(sibling))
+        outside = os.path.join(sibling, "fuera.txt")
+        with open(outside, "w", encoding="utf-8") as handle:
+            handle.write("no tocar")
+        self.addCleanup(lambda: os.path.exists(outside) and os.remove(outside))
+        report = revert_new_files(self.root, before, [created, outside, kept])
+        self.assertFalse(os.path.exists(created))
+        with open(outside, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "no tocar")
+        with open(kept, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "queda")
+        self.assertIn(os.path.realpath(outside), report["left_in_place"])
+
+        class _OutsideWriter:
+            def __init__(self):
+                self.instructions = []
+                self.cancelled = False
+
+            def start(self, brief):
+                self.instructions.append(brief.get("instruction") or "")
+                new = os.path.join(self_root, "nuevo.py")
+                with open(new, "w", encoding="utf-8") as handle:
+                    handle.write("y = 2\n")
+                with open(outside, "w", encoding="utf-8") as handle:
+                    handle.write("no tocar")
+                self.row = {
+                    "written": [new, outside],
+                    "tests_passed": False,
+                    "claim": "listo",
+                    "status": "exited",
+                    "diff": "",
+                    "tokens": 0,
+                }
+                return "t1"
+
+            def observe(self, _task):
+                return dict(self.row)
+
+            def cancel(self, _task):
+                self.cancelled = True
+
+        self_root = self.root
+        agent = _OutsideWriter()
+        director = DevDirector(agent, self.root)
+        verdict = director.tick(_wp(), {"mode": "scope", "outside_path": outside})
+        self.assertEqual(verdict, "S8_REVERT")
+        self.assertFalse(os.path.exists(os.path.join(self.root, "nuevo.py")))
+        self.assertTrue(os.path.exists(outside))
+        self.assertEqual(director.mission["playbook"], "PB-10")
 
 
 if __name__ == "__main__":

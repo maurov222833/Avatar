@@ -255,6 +255,43 @@ def plan_packages(items: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
     }
 
 
+def index_files(root: str) -> set:
+    """Archivos ya presentes bajo la carpeta. No sigue enlaces."""
+    base = os.path.realpath(root)
+    found = set()
+    if not os.path.isdir(base):
+        return found
+    for dirpath, _dirnames, filenames in os.walk(base, followlinks=False):
+        for name in filenames:
+            path = os.path.realpath(os.path.join(dirpath, name))
+            try:
+                inside = os.path.commonpath([path, base]) == base
+            except ValueError:
+                inside = False
+            if inside:
+                found.add(path)
+    return found
+
+
+def revert_new_files(root: str, before: set, written: List[str]) -> Dict[str, List[str]]:
+    """PB-10. Borra solo archivos nuevos dentro del alcance. No llama a git."""
+    base = os.path.realpath(root)
+    removed: List[str] = []
+    left: List[str] = []
+    for path in written:
+        real = os.path.realpath(path)
+        try:
+            inside = os.path.commonpath([real, base]) == base
+        except ValueError:
+            inside = False
+        if not inside or real in before or not os.path.isfile(real):
+            left.append(real)
+            continue
+        os.remove(real)
+        removed.append(real)
+    return {"removed": removed, "left_in_place": left}
+
+
 def critical_write(written: List[str]) -> Optional[str]:
     """Un parche sobre autoridad, parada, secretos o gasto no se acepta."""
     for path in written:
@@ -640,6 +677,7 @@ class DevDirector:
         payload = dict(brief or {})
         payload["instruction"] = briefing
         payload["allowed_dir"] = payload.get("allowed_dir") or self.root
+        self._before = index_files(payload["allowed_dir"])
         task_id = self.agent.start(payload)
         self.mission["task_id"] = task_id
         self.mission["state"] = "DISPATCHED"
@@ -715,6 +753,13 @@ class DevDirector:
             self.keeper.write(self.mission)
             return "S6_NO_WEAKEN"
         if stall == "S8":
+            report = revert_new_files(
+                allowed_dir,
+                getattr(self, "_before", set()),
+                [str(path) for path in (obs.get("written") or [])],
+            )
+            self.mission["revert"] = report
+            self.mission["playbook"] = "PB-10"
             self.keeper.write(self.mission)
             return "S8_REVERT"
         if stall == "S9":

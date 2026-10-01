@@ -81,6 +81,7 @@ class DirectorTests(unittest.TestCase):
         self.assertEqual(verdict, "ACCEPTED")
         self.assertEqual(self.director.mission["state"], "COMPLETED_VERIFIED")
         self.assertIn("Estado de la misión: COMPLETED_VERIFIED", render_report(self.director.mission))
+        self.assertIn("la frase del IDE no es evidencia", render_report(self.director.mission))
 
     def test_each_stall_mode_is_classified(self):
         samples = {

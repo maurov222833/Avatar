@@ -253,6 +253,29 @@ class DirectorTests(unittest.TestCase):
         self.assertNotIn("LICENSE", quiet)
         self.assertIn("SCOPE", quiet)
 
+    def test_a_patch_on_a_critical_module_is_not_accepted(self):
+        target = os.path.join(self.root, "halt.py")
+        with open(target, "w", encoding="utf-8") as handle:
+            handle.write("hotkey_listener = True\n")
+        reasons = verify_package(
+            _wp(),
+            {"written": [target], "diff": "hotkey_listener = True", "tests_passed": True},
+            self.root,
+        )
+        self.assertIn("CRITICAL", reasons)
+        briefing = build_briefing(_wp())
+        self.assertIn("halt.py", briefing)
+        self.assertIn("act_chokepoint.py", briefing)
+        ordinary = os.path.join(self.root, "suma.py")
+        with open(ordinary, "w", encoding="utf-8") as handle:
+            handle.write("def suma(a, b):\n    return a + b\n")
+        clean = verify_package(
+            _wp(),
+            {"written": [ordinary], "diff": "def suma", "tests_passed": True},
+            self.root,
+        )
+        self.assertNotIn("CRITICAL", clean)
+
 
 if __name__ == "__main__":
     unittest.main()

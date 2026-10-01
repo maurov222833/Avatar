@@ -44,6 +44,23 @@ _CHEATS = (
 )
 _SECRET_WORDS = ("api_key", "api key", "password=", "begin private", "bearer ")
 _IRREVERSIBLE = ("api publica", "borrar", "seguridad", "merge", "deploy", "secreto", "force push")
+# El director puede proponer un parche. No lo acepta si toca estos módulos.
+_CRITICAL_FILES = frozenset({
+    "act_chokepoint.py",
+    "halt.py",
+    "path_guard.py",
+    "grants.py",
+    "command_risk.py",
+    "closed_gates.py",
+    "containment.py",
+    "state_db.py",
+    "redaction.py",
+    "remote_guard.py",
+    "telegram_daemon.py",
+    "model_inventory.py",
+    "llm_provider.py",
+    "provider_usage.py",
+})
 
 
 def _fold(text: str) -> str:
@@ -142,7 +159,8 @@ def build_briefing(wp: Dict[str, Any]) -> str:
         "",
         "## Alcance",
         f"- Puedes modificar: {', '.join(wp.get('allowed') or [])}",
-        f"- NO modifiques: {', '.join(wp.get('forbidden') or [])}",
+        "- NO modifiques: "
+        + ", ".join(list(wp.get("forbidden") or []) + sorted(_CRITICAL_FILES)),
         "",
         "## Restricciones",
         "- Seguridad: sin secretos, sin rutas de sistema, sin comandos prohibidos",
@@ -237,6 +255,14 @@ def plan_packages(items: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
     }
 
 
+def critical_write(written: List[str]) -> Optional[str]:
+    """Un parche sobre autoridad, parada, secretos o gasto no se acepta."""
+    for path in written:
+        if os.path.basename(str(path)).lower() in _CRITICAL_FILES:
+            return "CRITICAL"
+    return None
+
+
 def lint_written_python(written: List[str], allowed_dir: str) -> Optional[str]:
     """Sintaxis de los .py escritos dentro del alcance. No ejecuta el archivo."""
     root = os.path.realpath(allowed_dir)
@@ -286,6 +312,8 @@ def verify_package(wp: Dict[str, Any], obs: Dict[str, Any], allowed_dir: str) ->
     folded = _fold(str(obs.get("diff") or ""))
     if "api_key=" in folded or "begin private" in folded:
         reasons.append("SECRET")
+    if critical_write(written) == "CRITICAL":
+        reasons.append("CRITICAL")
     if lint_written_python(written, allowed_dir) == "LINT":
         reasons.append("LINT")
     if license_conflict(str(obs.get("diff") or ""), list(wp.get("rejected_licenses") or [])) == "LICENSE":

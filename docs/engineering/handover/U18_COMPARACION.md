@@ -47,7 +47,7 @@ Nada de esta tabla es `VERIFIED_PC`. No se probó contra un repositorio real de 
 2. **Dos sistemas de estados.** U6 calcula `COMPLETED_VERIFIED` y vecinos desde actos de Avatar. U18 añade estados de `DevMission`. Convivirán. El modelo no escribe ninguno de los dos.
 3. **Dos sobres.** `NightEnvelope` no se estira para cubrir ramas, merges y paquetes de trabajo. `DevEnvelope` será otro objeto, cuando se autorice U18.8, y el modo noche sigue apagado.
 4. **Dos cajas de gasto.** Cursor cobra por su cuenta. U7 no lo ve. Hasta que Mauro fije un tope, el gasto del CLI queda `UNKNOWN` y el director no lo lanza.
-5. **Dirigir a Avatar.** Los componentes críticos (autoridad, permisos, chokepoint, denylist, parada, persistencia, secretos, canal remoto, enrutador de gasto) no se modifican de forma autónoma. El director puede proponer un parche. No aplicarlo.
+5. **Dirigir a Avatar.** Los componentes críticos (autoridad, permisos, chokepoint, denylist, parada, persistencia, secretos, canal remoto, enrutador de gasto) no se aceptan si el diff los toca. El director los nombra en el briefing. `verify_package` devuelve `CRITICAL` y el paquete no pasa a aceptado. No borra el archivo.
 6. **GUI de Cursor.** Automatizar la ventana del IDE es el último recurso de la sección 10. Es frágil y en Linux no valida Windows. No es el camino de U18.2.
 
 ## Bloqueos

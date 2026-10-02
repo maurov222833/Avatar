@@ -540,6 +540,128 @@ class TestGroupFIntegration(ComposedBase):
             CapabilityStatus.VERIFIED)
         self.assertEqual(self.db.complete_mission_with_authorization(mission), "COMPLETED")
 
+    def test_F5_overlapping_admission_cannot_drop_evidence(self):
+        """
+        Hold the first admission between read and write. A second admission must not
+        enter that window; otherwise the later save drops a required evidence type.
+        """
+        import threading
+        import time
+
+        mission = make_mission(self.db, ["CAP_STATE_ENGINE"])
+        evidence = authorized_evidence_for(self.db, self.registry, mission)
+        self.assertGreaterEqual(len(evidence), 2)
+        started = threading.Event()
+        release = threading.Event()
+        ready = {"n": 0}
+        ready_cv = threading.Condition()
+        peak = {"n": 0}
+        current = {"n": 0}
+        peak_mu = threading.Lock()
+        original = self.registry._load_record
+
+        def load(capability_id):
+            with peak_mu:
+                current["n"] += 1
+                peak["n"] = max(peak["n"], current["n"])
+            started.set()
+            self.assertTrue(release.wait(timeout=3), "la admisión retenida no se soltó")
+            try:
+                return original(capability_id)
+            finally:
+                with peak_mu:
+                    current["n"] -= 1
+
+        errors = []
+
+        def worker(item):
+            with ready_cv:
+                ready["n"] += 1
+                ready_cv.notify_all()
+            try:
+                self.registry.register_evidence(
+                    "CAP_STATE_ENGINE", item, mission_id=mission)
+            except Exception as exc:
+                errors.append(repr(exc))
+
+        self.registry._load_record = load
+        threads = [threading.Thread(target=worker, args=(item,)) for item in evidence[:2]]
+        try:
+            for thread in threads:
+                thread.start()
+            with ready_cv:
+                while ready["n"] < 2:
+                    self.assertTrue(ready_cv.wait(timeout=3), "las dos admisiones no arrancaron")
+            self.assertTrue(started.wait(timeout=3), "ninguna admisión llegó a leer el expediente")
+            time.sleep(0.3)
+            self.assertEqual(peak["n"], 1)
+            release.set()
+            for thread in threads:
+                thread.join(timeout=5)
+        finally:
+            release.set()
+            self.registry._load_record = original
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual(errors, [])
+        record = self.db.get_capability_record("CAP_STATE_ENGINE")
+        types = {
+            item.get("type")
+            for item in (record.get("evidence_ids") or [])
+            if isinstance(item, dict) and item.get("mission_id") == mission
+        }
+        self.assertGreaterEqual(len(types), 2)
+        self.assertEqual(
+            self.registry.get_capability_status("CAP_STATE_ENGINE", mission_id=mission),
+            CapabilityStatus.VERIFIED)
+
+    def test_F5_repeated_concurrent_rounds_stay_verified(self):
+        """Eight fresh missions, four threads each. Every one must end VERIFIED."""
+        import threading
+
+        for _round in range(8):
+            mission = make_mission(self.db, ["CAP_STATE_ENGINE"])
+            results = []
+
+            def worker(mission_id=mission):
+                try:
+                    results.append(certify_state_engine(self.db, self.registry, mission_id))
+                except Exception as exc:
+                    results.append(f"refused:{type(exc).__name__}")
+
+            threads = [threading.Thread(target=worker) for _ in range(4)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            self.assertEqual(len(results), 4, results)
+            self.assertEqual(
+                self.registry.get_capability_status("CAP_STATE_ENGINE", mission_id=mission),
+                CapabilityStatus.VERIFIED)
+
+    def test_F5_concurrent_sqlite_probe_uses_a_unique_key(self):
+        """Four inspections of the same file must all verify. A shared probe id does not."""
+        import threading
+
+        for _round in range(10):
+            facts = []
+            barrier = threading.Barrier(4)
+
+            def worker():
+                barrier.wait()
+                facts.append(PhysicalFactVerifier.verify_sqlite_persistence(
+                    self.db.db_path, execution_id="concurrent-probe"))
+
+            threads = [threading.Thread(target=worker) for _ in range(4)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            self.assertEqual(len(facts), 4)
+            self.assertTrue(
+                all(fact.verified for fact in facts),
+                [fact.error for fact in facts if not fact.verified],
+            )
+
     def test_F6_completion_racing_evidence_change_stays_consistent(self):
         """
         F6: a mission whose evidence is withdrawn mid-flight must not complete.

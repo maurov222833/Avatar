@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -111,6 +112,10 @@ class CapabilityEvidenceRegistry:
 
     def __init__(self, state_db: Optional[StateEngine] = None):
         self.state_db = state_db or StateEngine()
+        # register_evidence lee el expediente, lo muta y lo guarda. El candado de
+        # StateEngine se suelta entre esas dos llamadas, así que dos hilos pueden
+        # guardar cada uno una copia vieja y borrar la evidencia del otro.
+        self._evidence_lock = threading.Lock()
         self._init_default_capabilities()
 
     # ------------------------------------------------------------------
@@ -201,6 +206,15 @@ class CapabilityEvidenceRegistry:
         `mission_id` is the mission being certified. Passing a mission different from the one
         the evidence was bound to is rejected, which is what prevents cross-mission reuse.
         """
+        with self._evidence_lock:
+            return self._register_evidence_locked(capability_id, evidence, mission_id)
+
+    def _register_evidence_locked(
+        self,
+        capability_id: str,
+        evidence,
+        mission_id: Optional[str] = None,
+    ) -> str:
         rejection = self._validate(capability_id, evidence, mission_id)
         record = self._load_record(capability_id)
         if rejection is not None:

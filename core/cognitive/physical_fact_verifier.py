@@ -21,6 +21,7 @@ import hashlib
 import os
 import re
 import sqlite3
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -267,9 +268,11 @@ class PhysicalFactVerifier:
             )
 
         observed["file_exists"] = True
+        conn = None
         try:
-            conn = sqlite3.connect(db_path)
+            conn = sqlite3.connect(db_path, timeout=10.0)
             cur = conn.cursor()
+            cur.execute("PRAGMA busy_timeout = 5000;")
             observed["journal_mode"] = str(cur.execute("PRAGMA journal_mode").fetchone()[0]).lower()
             names = {r[0] for r in cur.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
@@ -277,7 +280,10 @@ class PhysicalFactVerifier:
             if observed["missions_table"]:
                 cols = {r[1] for r in cur.execute("PRAGMA table_info(missions)").fetchall()}
                 observed["required_columns"] = {"mission_id", "status", "required_capabilities"} <= cols
-                probe = f"__probe_{os.getpid()}_{id(db_path)}"
+                # Una clave fija por proceso y ruta choca cuando dos inspecciones
+                # escriben a la vez: UNIQUE, o el manejador queda abierto y la otra
+                # espera hasta "database is locked".
+                probe = f"__probe_{os.getpid()}_{uuid.uuid4().hex}"
                 cur.execute(
                     "INSERT INTO missions (mission_id, session_id, raw_prompt, classified_intent,"
                     " required_capabilities, status, created_at, updated_at)"
@@ -290,12 +296,14 @@ class PhysicalFactVerifier:
                 cur.execute("DELETE FROM missions WHERE mission_id = ?", (probe,))
                 conn.commit()
             cur.close()
-            conn.close()
         except Exception as exc:  # pragma: no cover - defensive
             return _issue(
                 fact_id, SQLITE_PERSISTENCE_FACT, subject, False, dict(observed), execution_id,
                 f"SQLite inspection failed: {exc}",
             )
+        finally:
+            if conn is not None:
+                conn.close()
 
         verified = (
             observed["file_exists"]

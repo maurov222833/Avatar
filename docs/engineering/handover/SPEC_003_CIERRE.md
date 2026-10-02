@@ -34,6 +34,14 @@ La suite de este árbol en Linux (`python -m unittest discover -s tests -q`) es 
 
 En la misma suite de Linux, y solo ahí (`TESTED_LINUX`; Windows `UNVERIFIED`; PC `UNVERIFIED`): la apertura de WhatsApp pasa por `perform()` y no usa `shell=True`; la intención queda `REQUESTED` antes del ejecutor y, si el proceso cae, el acto sigue `INTERRUPTED` / `UNVERIFIED` sin reejecutarse solo; el puente acepta un único chat configurado, con coincidencia exacta, rechaza grupos, y el nivel C o mayor espera un identificador numérico de Telegram; los hijos de prueba no heredan el token real y llevan la guarda de red; la captura de prueba va a `memory_dir()` del pin y no pulsa clics ni teclas salvo `AVATAR_ALLOW_REAL_INPUT=1`; la certificación concurrente ya no pierde la evidencia; la prueba del QR borra su directorio al salir.
 
+## Informe OpenCode 9 (2026-10-02, commit `aca3278`)
+
+La suite en Windows no pasó: 565 pruebas, 2 fallos, 50 errores, 2 omitidas, salida 1. La fase 3 sigue `TESTED_LINUX`. Windows y PC de esas correcciones siguen `UNVERIFIED`.
+
+La base viva no cambió de tamaño (1482752, wal 1899352, shm 32768) y la clave siguió en 32 bytes. `memory\screen_observation.png` no cambió de hora ni de tamaño. Una captura de la suite fue a `%TEMP%\avatar_test_*\memory\` y esa carpeta ya no está. Los enlaces `salto_fuera` y `enlace_fuera` no estaban; no se borró nada. `C:\Windows` sigue. La tarea `AvatarWhatsApp247` apareció Disabled; no se tocó.
+
+El respaldo `avatar_sandbox\respaldo_memory`, leído en una copia, tiene filas parecidas a pruebas: 73 misiones, 337 actos, 46 de memoria. Eso es suciedad anterior al pin. No se restauró la base.
+
 ## Riesgo que queda
 
 La parada vive en el proceso. Otro código que llame a una herramienta saltándose el chokepoint no la ve. La tecla global y las pruebas de rutas en Windows siguen pendientes. La prueba corta de Telegram en el PC ya la cerró Mauro el 2026-09-30.

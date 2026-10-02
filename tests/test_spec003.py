@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -33,7 +34,7 @@ from core.mission_report import compute_status, from_transition, render_report
 from core.model_inventory import ModelRouter, peer_is_paid_upgrade
 from core.provenance_store import record_external
 from core.night_mode import NightEnvelope, heartbeat_ok
-from core.path_guard import authorize_path, register_backup_root, safe_delete
+from core.path_guard import authorize_path, keep_previous_version, register_backup_root, safe_delete
 from core.provenance_store import ProvenanceStore, detect_injection
 from core.remote_guard import RemoteInbox
 from core.subagents import run_scoped
@@ -133,6 +134,46 @@ class HaltTests(unittest.TestCase):
         self.assertEqual(halt.poll_trigger_file(trigger), "STOP")
         self.assertEqual(halt.snapshot()["level"], "STOP")
 
+    def test_critical_write_finishes_and_a_new_act_does_not_start(self):
+        started = threading.Event()
+        release = threading.Event()
+
+        def writer(_args):
+            started.set()
+            self.assertTrue(release.wait(2))
+            return "escrito"
+
+        ran = []
+        cp = ActChokepoint(
+            policy=ActPolicy(dry_run=False, exec_requires_approval=False),
+            executors={
+                "WRITE_FILE": writer,
+                "COMMAND": lambda a: ran.append(a["command"]) or "ok",
+            },
+        )
+        holder = {}
+
+        def run():
+            holder["out"] = cp.perform(
+                "WRITE_FILE", {"file_path": "nota.txt", "content": "a"},
+            )
+
+        worker = threading.Thread(target=run)
+        worker.start()
+        self.assertTrue(started.wait(1))
+        names = halt.in_flight_critical()
+        self.assertEqual(len(names), 1)
+        halt.engage("STOP", source="synthetic", actor="mauro")
+        self.assertIn(names[0], halt.snapshot()["audit"][-1]["in_flight"])
+        denied = cp.perform("COMMAND", {"command": "echo x"})
+        self.assertIn("HALT_STOP", denied)
+        self.assertIn(names[0], denied)
+        self.assertEqual(ran, [])
+        release.set()
+        worker.join(2)
+        self.assertEqual(holder["out"], "escrito")
+        self.assertEqual(halt.in_flight_critical(), [])
+
 
 class PathTests(unittest.TestCase):
     def test_hostile_paths_are_denied(self):
@@ -150,6 +191,9 @@ class PathTests(unittest.TestCase):
             r"\\server\share\Windows\System32\cmd.exe",
             r"\\?\UNC\server\share\Windows\System32\cmd.exe",
             r"DOCUME~1\archivo.txt",
+            r"c:\WiNdOwS\SyStEm32\cmd.exe",
+            r"C:\Users\mauro\nota.txt.",
+            r"C:\Users\mauro\nota.txt ",
         ]
         for sample in samples:
             decision, reason = authorize_path(sample, "write", scope)
@@ -184,6 +228,39 @@ class PathTests(unittest.TestCase):
         mass, why = authorize_path(os.path.join(scope, "a.txt"), "write", scope, affected_count=10001)
         self.assertEqual(mass, "NEEDS_APPROVAL")
         self.assertEqual(why, "PATH_MASS_OPERATION")
+        dotted = os.path.join(scope, "nota.txt.")
+        decision, reason = authorize_path(dotted, "write", scope)
+        self.assertEqual(decision, "DENY")
+        self.assertEqual(reason, "PATH_TRAILING_DOT_OR_SPACE")
+
+    def test_overwrite_keeps_the_previous_bytes(self):
+        scope = tempfile.mkdtemp()
+        path = os.path.join(scope, "nota.txt")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("viejo")
+        kind, dest = keep_previous_version(path, scope, "m9")
+        self.assertEqual(kind, "ALLOW")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("nuevo")
+        with open(dest, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "viejo")
+        with open(path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "nuevo")
+        from tools.file_tool import FileTool
+        with mock.patch.object(FileTool, "get_allowed_workspace", return_value=scope):
+            written = FileTool.write_file(path, "tercero")
+        self.assertIn("Éxito", written)
+        with open(path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "tercero")
+        kept = []
+        trash = os.path.join(scope, ".avatar_trash")
+        for root, _dirs, files in os.walk(trash):
+            for name in files:
+                if name.startswith("nota"):
+                    with open(os.path.join(root, name), encoding="utf-8") as handle:
+                        kept.append(handle.read())
+        self.assertIn("viejo", kept)
+        self.assertIn("nuevo", kept)
 
     def test_command_cannot_name_a_windows_path(self):
         ran = []
@@ -199,6 +276,9 @@ class PathTests(unittest.TestCase):
         self.assertEqual(ran, [])
         slashed = cp.perform("COMMAND", {"command": "type C:/Windows/System32/cmd.exe"})
         self.assertIn("PATH_DENYLIST", slashed)
+        self.assertEqual(ran, [])
+        trailing = cp.perform("COMMAND", {"command": r"echo C:\Users\mauro\nota.txt."})
+        self.assertIn("PATH_TRAILING_DOT_OR_SPACE", trailing)
         self.assertEqual(ran, [])
         allowed = cp.perform("COMMAND", {"command": "echo hola"})
         self.assertEqual(allowed, "ok")

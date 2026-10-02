@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from typing import Iterable, Optional, Sequence, Tuple
 
 ALLOW = "ALLOW"
@@ -83,6 +84,27 @@ def _parts(path: str) -> list:
     return [p for p in parts if p not in ("", ".")]
 
 
+def _has_trailing_dot_or_space(raw: str) -> bool:
+    """Un componente que termina en punto o espacio no es un nombre normal."""
+    text = raw.replace("\\", "/")
+    lowered = text.lower()
+    if lowered.startswith("//?/unc/"):
+        text = text[8:]
+    elif lowered.startswith("//?/") or lowered.startswith("//./"):
+        text = text[4:]
+    if len(text) >= 2 and text[1] == ":" and text[0].isalpha():
+        text = text[2:]
+    for part in text.split("/"):
+        if part in ("", ".", ".."):
+            continue
+        name = part.split(":", 1)[0]
+        if name in ("", ".", ".."):
+            continue
+        if name.endswith(" ") or name.endswith("."):
+            return True
+    return False
+
+
 def _has_ads(raw: str) -> bool:
     text = raw.replace("\\", "/")
     # Letra de unidad C: no es un flujo.
@@ -136,9 +158,12 @@ def authorize_path(
     affected_count: int = 1,
 ) -> Tuple[str, str]:
     """Allow, Deny(reason) o NeedsApproval(reason)."""
-    raw = str(path or "").strip()
-    if not raw or "\x00" in raw:
+    original = str(path or "")
+    if not original.strip() or "\x00" in original:
         return DENY, "PATH_EMPTY_OR_AMBIGUOUS"
+    if _has_trailing_dot_or_space(original):
+        return DENY, "PATH_TRAILING_DOT_OR_SPACE"
+    raw = original.strip()
     if _has_ads(raw):
         return DENY, "PATH_ALTERNATE_DATA_STREAM"
     parts = _parts(raw)
@@ -219,6 +244,40 @@ def paths_in_command(command: str) -> list:
     return found
 
 
+def _unique_dest(trash: str, base: str) -> str:
+    dest = os.path.join(trash, base)
+    if not os.path.exists(dest):
+        return dest
+    stem, ext = os.path.splitext(base)
+    stamp = 2
+    dest = os.path.join(trash, f"{stem}-{stamp}{ext}")
+    while os.path.exists(dest):
+        stamp += 1
+        dest = os.path.join(trash, f"{stem}-{stamp}{ext}")
+    return dest
+
+
+def keep_previous_version(path: str, mission_scope: str, mission_id: str = "overwrite") -> Tuple[str, str]:
+    """Copia recuperable antes de pisar un archivo. El original sigue en su sitio."""
+    if not os.path.isfile(path):
+        return ALLOW, ""
+    decision, reason = authorize_path(path, "write", mission_scope)
+    if decision != ALLOW:
+        return decision, reason
+    trash = os.path.join(os.path.realpath(mission_scope), ".avatar_trash", mission_id or "overwrite")
+    os.makedirs(trash, exist_ok=True)
+    base = os.path.basename(os.path.realpath(path)) or "archivo"
+    dest = _unique_dest(trash, base)
+    try:
+        shutil.copy2(path, dest)
+    except OSError:
+        return DENY, "PATH_OVERWRITE_NOT_KEPT"
+    manifest = os.path.join(trash, "manifest.txt")
+    with open(manifest, "a", encoding="utf-8") as handle:
+        handle.write(f"overwrite\t{path}\t{dest}\n")
+    return ALLOW, dest
+
+
 def safe_delete(path: str, mission_id: str, mission_scope: str) -> Tuple[str, str]:
     """Mueve a la papelera de la misión. El borrado permanente no existe aquí."""
     decision, reason = authorize_path(path, "delete", mission_scope)
@@ -227,14 +286,7 @@ def safe_delete(path: str, mission_id: str, mission_scope: str) -> Tuple[str, st
     trash = os.path.join(mission_scope, ".avatar_trash", mission_id or "mission")
     os.makedirs(trash, exist_ok=True)
     base = os.path.basename(os.path.realpath(path))
-    dest = os.path.join(trash, base)
-    if os.path.exists(dest):
-        stem, ext = os.path.splitext(base)
-        stamp = 2
-        dest = os.path.join(trash, f"{stem}-{stamp}{ext}")
-        while os.path.exists(dest):
-            stamp += 1
-            dest = os.path.join(trash, f"{stem}-{stamp}{ext}")
+    dest = _unique_dest(trash, base)
     manifest = os.path.join(trash, "manifest.txt")
     os.replace(path, dest)
     with open(manifest, "a", encoding="utf-8") as handle:

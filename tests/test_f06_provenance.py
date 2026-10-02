@@ -14,6 +14,7 @@ from core.act_chokepoint import (
     CONTAMINATED_APPROVAL_REASON,
 )
 from core.orchestrator import AvatarOrchestrator
+from tests.scratch_dir import work_dir
 
 
 class TestF06ProvenanceContamination(unittest.TestCase):
@@ -94,7 +95,8 @@ class TestF06ProvenanceContamination(unittest.TestCase):
         """Owner decision: WhatsApp/Telegram are trusted personal channels."""
         from core.act_chokepoint import UNTRUSTED_INPUT_ACTS
         self.assertNotIn("WHATSAPP_READ", UNTRUSTED_INPUT_ACTS)
-        root = tempfile.mkdtemp()
+        # El temporal de Windows cae en AppData y path_guard lo niega.
+        root = work_dir("f06_")
         target = os.path.join(root, "x.py")
         cp = ActChokepoint(
             policy=ActPolicy(dry_run=False, exec_requires_approval=False,

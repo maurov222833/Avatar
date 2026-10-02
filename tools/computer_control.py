@@ -35,7 +35,8 @@ class ComputerControl:
     def observe_screen(self, output_path: Optional[str] = None) -> str:
         """Captura la pantalla utilizando ScreenTool (reuso estricto del componente existente)."""
         if output_path is None:
-            output_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "memory", "screen_observation.png")
+            from core.paths import memory_dir
+            output_path = os.path.join(memory_dir(), "screen_observation.png")
         return ScreenTool.take_screenshot(output_path)
 
     def resolve_target_coordinates(self, target: Any, hwnd_or_title: Optional[Any] = None) -> Optional[Tuple[int, int]]:
@@ -178,6 +179,10 @@ class ComputerControl:
         action_ok = False
 
         try:
+            if os.environ.get("AVATAR_ALLOW_REAL_INPUT") != "1":
+                raise RuntimeError(
+                    "AVATAR_ALLOW_REAL_INPUT=1 es obligatorio para un clic o una tecla"
+                )
             import pyautogui
             pyautogui.FAILSAFE = True
             

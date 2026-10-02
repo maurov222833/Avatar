@@ -13,6 +13,50 @@ from tools.computer_control import ComputerControl, ActionStatus
 from core.checkpoint_engine import CheckpointEngine, IdempotencyClass
 from core.state_db import StateEngine
 
+class TestDesktopInputStaysOff(unittest.TestCase):
+    def test_screenshot_uses_the_pinned_memory_dir(self):
+        from core.paths import memory_dir
+        folder = tempfile.mkdtemp()
+        db = StateEngine(db_path=os.path.join(folder, "state.db"))
+        control = ComputerControl(state_db=db, checkpoint_engine=CheckpointEngine(state_db=db))
+        path = control.observe_screen()
+        self.assertTrue(os.path.abspath(path).startswith(os.path.abspath(memory_dir())))
+        repo_memory = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "memory", "screen_observation.png",
+        )
+        self.assertNotEqual(os.path.abspath(path), os.path.abspath(repo_memory))
+        db.close()
+
+    def test_real_click_requires_an_explicit_variable(self):
+        folder = tempfile.mkdtemp()
+        db = StateEngine(db_path=os.path.join(folder, "state.db"))
+        control = ComputerControl(state_db=db, checkpoint_engine=CheckpointEngine(state_db=db))
+        calls = []
+
+        class FakeGui:
+            FAILSAFE = True
+
+            @staticmethod
+            def click(*args, **kwargs):
+                calls.append("click")
+
+        os.environ.pop("AVATAR_ALLOW_REAL_INPUT", None)
+        sys.modules["pyautogui"] = FakeGui
+        try:
+            blocked = control.execute_gui_action(action="click", target=(1, 1), wait_seconds=0)
+            self.assertEqual(calls, [])
+            self.assertFalse(blocked["executed"])
+            os.environ["AVATAR_ALLOW_REAL_INPUT"] = "1"
+            allowed = control.execute_gui_action(action="click", target=(1, 1), wait_seconds=0)
+            self.assertEqual(calls, ["click"])
+            self.assertTrue(allowed["executed"])
+        finally:
+            os.environ.pop("AVATAR_ALLOW_REAL_INPUT", None)
+            sys.modules.pop("pyautogui", None)
+            db.close()
+
+
 class TestDesktopVisionPhase3(unittest.TestCase):
 
     def setUp(self):

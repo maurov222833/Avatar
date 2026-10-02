@@ -317,8 +317,7 @@ def _classify_surface(command: str) -> Tuple[str, str]:
         return UNUNDERSTOOD, "OUTPUT_SINK"
     if head in ("curl", "wget", "irm", "invoke-webrequest"):
         return "C", "DOWNLOAD"
-    # Imprime. No lee una ruta. La redirección `>` no se ve aquí: es un hueco
-    # del análisis estructural, anotado en el ADR, no un parser nuevo.
+    # Imprime. No lee una ruta. `>` ya salió arriba como UNUNDERSTOOD / REDIRECT.
     if head == "echo":
         return "C", "ECHO"
     return UNUNDERSTOOD, "UNCLASSIFIED_DEFAULT_C"

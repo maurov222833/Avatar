@@ -102,13 +102,16 @@ class WhatsAppBridge:
 
     # -- QR -------------------------------------------------------------
     def sync_whatsapp_qr(self) -> str:
-        """Abre WhatsApp Web en la PC para permitir el escaneo del código QR."""
-        sync_script = os.path.join(base_dir, "whatsapp_native_sync.py")
-        if os.path.exists(sync_script):
-            import subprocess
-            subprocess.Popen([sys.executable, sync_script])
-            return "✅ Iniciando sincronización de WhatsApp Web en tu pantalla. Por favor escanea el código QR desde tu celular."
-        return "⚠️ No se encontró el script de sincronización whatsapp_native_sync.py."
+        """Abre WhatsApp Web solo a través del chokepoint, con destino fijo."""
+        if self.orchestrator.chokepoint is None:
+            self.orchestrator.chokepoint = self.orchestrator._build_chokepoint()
+        return self.orchestrator.chokepoint.perform(
+            act_type="OPEN_WHATSAPP",
+            args={"url": "https://web.whatsapp.com"},
+            mission_id="whatsapp-open",
+            task_id="open-web",
+            execution_id="wa-open",
+        )
 
     # -- procesar un mensaje -------------------------------------------
     def process_incoming_whatsapp(self, sender: str, message_body: str,

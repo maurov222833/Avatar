@@ -1,49 +1,24 @@
-import os
-import sys
-import subprocess
-import time
+"""Abre WhatsApp Web en el navegador. El destino es fijo.
 
-# Garantizar compatibilidad con consola de Windows UTF-8
-if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
-    try:
-        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-    except Exception:
-        pass
+La apertura real la pide el chokepoint (OPEN_WHATSAPP). Este módulo no
+construye un comando de shell.
+"""
+import webbrowser
 
-def start_whatsapp_sync():
-    print("==================================================")
-    print("[AVATAR AI]: Sincronizacion Nativa de WhatsApp Web")
-    print("==================================================")
-    print("Desplegando ventana de WhatsApp Web en tu pantalla...")
-    
-    url = "https://web.whatsapp.com"
-    
-    # 1. Abrir en el navegador activo via Windows Shell (No se cierra al salir Python)
-    try:
-        if sys.platform == "win32":
-            cmd = f'powershell -Command "Start-Process \'{url}\'"'
-            subprocess.Popen(cmd, shell=True)
-            print("[OK] WhatsApp Web abierto en tu navegador por defecto.")
-    except Exception as e:
-        print(f"[Aviso Shell]: {e}")
+WHATSAPP_WEB_URL = "https://web.whatsapp.com"
 
-    # 2. Desplegar tambien ventana nativa PyWebView de escritorio permanente
-    try:
-        import webview
-        print("[AVATAR AI]: Abriendo ventana flotante PyWebView...")
-        window = webview.create_window(
-            title="WhatsApp Web - Escanea el codigo QR (Avatar AI)",
-            url=url,
-            width=1000,
-            height=800,
-            resizable=True,
-            on_top=True
-        )
-        print("[OK] Ventana PyWebView abierta. Escanea el codigo QR con tu celular.")
-        webview.start()
-    except Exception as e:
-        print(f"[Aviso PyWebView]: {e}")
+
+def open_whatsapp_web(_args=None) -> str:
+    """Ignora cualquier URL que venga en la petición. Solo abre el destino fijo."""
+    webbrowser.open(WHATSAPP_WEB_URL, new=1)
+    return f"OPENED {WHATSAPP_WEB_URL}"
+
+
+def start_whatsapp_sync() -> str:
+    """Pasa por perform(). No abre el navegador por su cuenta."""
+    from bridges.whatsapp_bridge import WhatsAppBridge
+    return WhatsAppBridge().sync_whatsapp_qr()
+
 
 if __name__ == "__main__":
-    start_whatsapp_sync()
+    print(start_whatsapp_sync())

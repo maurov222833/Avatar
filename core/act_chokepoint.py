@@ -75,6 +75,7 @@ ACT_TYPES: Dict[str, str] = {
     # WhatsApp por navegador dedicado (verificado por relectura), en vez de
     # improvisar con COMMAND+python. STATUS/READ son observación; SEND exige
     # consentimiento como todo mensaje externo.
+    "OPEN_WHATSAPP": ActRisk.NETWORK,
     "WHATSAPP_STATUS": ActRisk.READ,
     "WHATSAPP_READ": ActRisk.READ,
     "WHATSAPP_SEND": ActRisk.EXTERNAL_MESSAGE,

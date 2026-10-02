@@ -323,6 +323,38 @@ class TestLiveLoop(unittest.TestCase):
         self.assertLessEqual(len(shaped), WB.MAX_REPLY_CHARS + 60)
 
 
+class TestOpenWhatsAppGoesThroughChokepoint(unittest.TestCase):
+    def test_open_uses_perform_and_a_fixed_url_without_shell(self):
+        import inspect
+        import whatsapp_native_sync
+        from bridges.whatsapp_bridge import WhatsAppBridge
+        from core.orchestrator import AvatarOrchestrator
+
+        source = inspect.getsource(whatsapp_native_sync)
+        self.assertNotIn("shell=True", source)
+        self.assertNotIn("subprocess", source)
+        opened = []
+
+        def fake_open(url, new=0):
+            opened.append(url)
+            return True
+
+        from unittest.mock import patch
+        orch = AvatarOrchestrator()
+        orch.chokepoint = orch._build_chokepoint()
+        bridge = WhatsAppBridge(orchestrator=orch)
+        with patch("webbrowser.open", fake_open):
+            result = bridge.sync_whatsapp_qr()
+            direct = whatsapp_native_sync.open_whatsapp_web({"url": "https://evil.example"})
+        self.assertEqual(opened, ["https://web.whatsapp.com", "https://web.whatsapp.com"])
+        self.assertIn("https://web.whatsapp.com", result)
+        self.assertIn("https://web.whatsapp.com", direct)
+        self.assertNotIn("evil.example", "".join(opened))
+        acts = orch.chokepoint.list_acts()
+        self.assertTrue(acts)
+        self.assertEqual(acts[-1]["act_type"], "OPEN_WHATSAPP")
+
+
 class TestQrHold(unittest.TestCase):
     def test_wait_for_login_polls_until_logged_in(self):
         from bridges.whatsapp_reader import WhatsAppWebReader

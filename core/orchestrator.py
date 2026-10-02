@@ -1328,6 +1328,11 @@ class AvatarOrchestrator:
         return (args.get("chat") or cfg.get("target_chat")
                 or "Mauro Vanegas 2025")
 
+    def _exec_open_whatsapp(self, args: Dict[str, Any]) -> str:
+        """Destino fijo. La URL de la petición no se usa."""
+        from whatsapp_native_sync import open_whatsapp_web
+        return open_whatsapp_web(args)
+
     def _exec_whatsapp_status(self, args: Dict[str, Any]) -> str:
         """Estado real. Si ya hay ventana, no abre otra ni la cierra.
 
@@ -1503,6 +1508,7 @@ class AvatarOrchestrator:
             "SCREEN_CAPTURE": _take_screenshot,
             "SEND_WHATSAPP": lambda a: WhatsAppAutoReply.send_reply(
                 a.get("message") or a.get("params") or ""),
+            "OPEN_WHATSAPP": lambda a: self._exec_open_whatsapp(a or {}),
             "WHATSAPP_STATUS": lambda a: self._exec_whatsapp_status(a or {}),
             "WHATSAPP_READ": lambda a: self._exec_whatsapp_read(a or {}),
             "WHATSAPP_SEND": lambda a: self._exec_whatsapp_send(a or {}),

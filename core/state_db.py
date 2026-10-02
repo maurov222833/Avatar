@@ -15,6 +15,109 @@ from typing import Dict, Any, List, Optional, TYPE_CHECKING
 
 
 _LIVE_ENGINES: "weakref.WeakSet[StateEngine]" = weakref.WeakSet()
+_O_BINARY = getattr(os, "O_BINARY", 0)
+
+
+def _read_binary(path: str) -> bytes:
+    """Lee bytes tal cual. O_BINARY evita que Windows traduzca 0x0A o corte en 0x1A."""
+    fd = os.open(path, os.O_RDONLY | _O_BINARY)
+    try:
+        chunks = []
+        while True:
+            block = os.read(fd, 65536)
+            if not block:
+                break
+            chunks.append(block)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    view = memoryview(data)
+    while view:
+        written = os.write(fd, view)
+        if written <= 0:
+            raise OSError("SEAL_KEY_WRITE_FAILED")
+        view = view[written:]
+
+
+def _write_binary_exclusive(path: str, data: bytes) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | _O_BINARY
+    fd = os.open(path, flags, 0o600)
+    try:
+        _write_all(fd, data)
+    except Exception:
+        os.close(fd)
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        raise
+    else:
+        os.close(fd)
+
+
+def _seal_key_rejected(path: str, size: int) -> ValueError:
+    return ValueError(
+        f"SEAL_KEY_REJECTED size={size} path={path}. "
+        "Hacen falta 32 bytes. No se regenera sola. "
+        "Comando: avatar seal-key regenerate --db RUTA_DE_LA_BASE --confirm. "
+        "Eso invalida los sellos v2 ya escritos: esas misiones quedan tampered "
+        "y no se completan. Un proceso vivo conserva la clave anterior en memoria."
+    )
+
+
+def regenerate_seal_key(db_path: str) -> str:
+    """Sustituye la clave. Los sellos v2 anteriores dejan de verificar.
+
+    No reescribe el registro de misiones. Tras el reinicio, un sello v2 hecho
+    con la clave anterior sale ``tampered`` y la misión no se completa.
+    """
+    engine = StateEngine(db_path=db_path)
+    try:
+        path = engine._seal_key_path()
+        key = secrets.token_bytes(32)
+        tmp = path + ".new"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | _O_BINARY
+        fd = os.open(tmp, flags, 0o600)
+        try:
+            _write_all(fd, key)
+        except Exception:
+            os.close(fd)
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
+        else:
+            os.close(fd)
+        os.replace(tmp, path)
+        engine._seal_key_cache = None
+        return path
+    finally:
+        engine.close()
+
+
+def regenerate_seal_key_cli(argv: List[str]) -> int:
+    """Sin ``--confirm`` no escribe. Imprime las consecuencias y sale 2."""
+    args = list(argv)
+    confirm = "--confirm" in args
+    if confirm:
+        args.remove("--confirm")
+    db = args[1] if len(args) == 2 and args[0] == "--db" else ""
+    if not db or not confirm:
+        print("Uso: avatar seal-key regenerate --db RUTA_DE_LA_BASE --confirm")
+        print("Sin --confirm no se escribe nada.")
+        print("Consecuencias: los sellos v2 ya guardados dejan de coincidir con la clave.")
+        print("Esas misiones quedan tampered y el cierre no las marca completas.")
+        print("El registro no se reescribe. Reinicia Avatar: el proceso vivo guarda la clave vieja.")
+        return 2
+    path = regenerate_seal_key(db)
+    print(f"SEAL_KEY_REGENERATED path={path}")
+    print("Los sellos v2 anteriores no verifican. Esas misiones quedan tampered y no se completan.")
+    print("Reinicia Avatar antes de seguir: un proceso vivo conserva la clave anterior en memoria.")
+    return 0
 
 
 def _path_inside(path: str, root: str) -> bool:
@@ -310,35 +413,33 @@ class StateEngine:
 
         It survives a restart, so a real seal still verifies. It is not in the mission
         row: an UPDATE of the requirement columns cannot mint a new valid seal.
+
+        Read and write are binary. On Windows, text mode turns 0x0A into 0x0D 0x0A
+        and stops reading at 0x1A. A key that is not 32 bytes is rejected. It is
+        not replaced unless the operator runs the regenerate command.
         """
         cached = getattr(self, "_seal_key_cache", None)
         if isinstance(cached, bytes) and len(cached) == 32:
             return cached
         path = self._seal_key_path()
         try:
-            with open(path, "rb") as handle:
-                data = handle.read()
+            data = _read_binary(path)
         except FileNotFoundError:
             data = b""
         if len(data) == 32:
             self._seal_key_cache = data
             return data
-        if data:
-            raise ValueError(f"requirements seal key at {path} is not 32 bytes")
+        if data or os.path.exists(path):
+            raise _seal_key_rejected(path, len(data))
         key = secrets.token_bytes(32)
         try:
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            _write_binary_exclusive(path, key)
         except FileExistsError:
-            with open(path, "rb") as handle:
-                data = handle.read()
+            data = _read_binary(path)
             if len(data) != 32:
-                raise ValueError(f"requirements seal key at {path} is not 32 bytes")
+                raise _seal_key_rejected(path, len(data))
             self._seal_key_cache = data
             return data
-        try:
-            os.write(fd, key)
-        finally:
-            os.close(fd)
         self._seal_key_cache = key
         return key
 

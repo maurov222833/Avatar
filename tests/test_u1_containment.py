@@ -21,13 +21,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.act_chokepoint import (
     ActChokepoint, ActPolicy, ActStatus, EXEC_APPROVAL_REASON, command_matches_allowlist)
 from core.redaction import REDACTED, redact_secret_text
+from tests.scratch_dir import work_dir
 
 
 class _TempWorld:
     """Redirige las rutas implícitas de BD a un directorio temporal."""
 
     def __init__(self):
-        self.dir = tempfile.mkdtemp(prefix="avatar_u1_")
+        self.dir = work_dir("avatar_u1_")
 
     def __enter__(self):
         import core.state_db as sd
@@ -103,7 +104,7 @@ class TestExecPolicy(unittest.TestCase):
 
     def test_git_guard_follows_links_and_windows_aliases(self):
         from core.act_chokepoint import _is_git_metadata, _normalized_parts
-        repo = tempfile.mkdtemp(prefix="avatar_git_")
+        repo = work_dir("avatar_git_")
         os.makedirs(os.path.join(repo, ".git", "hooks"))
         config = os.path.join(repo, ".git", "config")
         with open(config, "w") as f:
@@ -132,7 +133,7 @@ class TestExecPolicy(unittest.TestCase):
         for path in ("C:/repo/src/gitlab.py", "C:/repo/notes/gitconfig", "C:/repo/docs/GitConfig",
                      "C:/repo/src/git/main.py", "C:/repo/my.gitconfig", "C:/repo/docs/.gitignore"):
             self.assertFalse(_is_git_metadata(_normalized_parts(path)), path)
-        work = tempfile.mkdtemp(prefix="avatar_links_")
+        work = work_dir("avatar_links_")
         readme = os.path.join(work, "readme.txt")
         with open(readme, "w") as f:
             f.write("x")
@@ -162,7 +163,7 @@ class TestExecPolicy(unittest.TestCase):
         self.assertEqual(ran, ["echo x"])
 
     def test_workspace_root_is_not_a_string_prefix(self):
-        root = tempfile.mkdtemp(prefix="avatar_root_")
+        root = work_dir("avatar_root_")
         policy = ActPolicy(allowed_workspace_root=root)
         allowed, _ = policy.decide("WRITE_FILE", {"file_path": os.path.join(root, "a.txt")})
         sibling, reason = policy.decide("WRITE_FILE", {"file_path": root + "_evil/a.txt"})

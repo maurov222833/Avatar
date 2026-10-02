@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 import tempfile
 import threading
 import unittest
@@ -38,6 +39,7 @@ from core.path_guard import authorize_path, keep_previous_version, register_back
 from core.provenance_store import ProvenanceStore, detect_injection
 from core.remote_guard import RemoteInbox
 from core.subagents import run_scoped
+from tests.scratch_dir import work_dir
 
 
 def _halt_env(path):
@@ -69,7 +71,16 @@ class HaltTests(unittest.TestCase):
         halt.engage_from_hotkey()
         self.assertEqual(halt.snapshot()["level"], "PAUSE")
         self.assertEqual(halt.configured_hotkey(), "ctrl+alt+shift+x")
-        self.assertFalse(halt.os_hotkey_hook_available())
+        before = {thread.name for thread in threading.enumerate()}
+        self.assertEqual(halt.start_hotkey_listener({}), "HOTKEY_LISTENER_OFF")
+        self.assertEqual(
+            halt.start_hotkey_listener({"hotkey_listener": True}),
+            "HOTKEY_LISTENER_NOT_INSTALLED",
+        )
+        self.assertEqual(before, {thread.name for thread in threading.enumerate()})
+        self.assertNotIn("pynput", sys.modules)
+        self.assertNotIn("keyboard", sys.modules)
+        self.assertFalse(any(name.startswith("pynput") for name in sys.modules))
 
     def test_pause_toggles_and_does_not_clear_a_stop(self):
         self.assertEqual(halt.toggle_pause("111", source="telegram"), "PAUSE")
@@ -177,7 +188,7 @@ class HaltTests(unittest.TestCase):
 
 class PathTests(unittest.TestCase):
     def test_hostile_paths_are_denied(self):
-        scope = tempfile.mkdtemp()
+        scope = work_dir("path_")
         samples = [
             r"..\..\Windows\System32\cmd.exe",
             r"C:\Windows\System32\cmd.exe",
@@ -200,8 +211,8 @@ class PathTests(unittest.TestCase):
             self.assertEqual(decision, "DENY", sample + " " + reason)
 
     def test_symlink_escape_and_trash_and_mass(self):
-        scope = tempfile.mkdtemp()
-        outside = tempfile.mkdtemp()
+        scope = work_dir("path_")
+        outside = work_dir("out_")
         link = os.path.join(scope, "salto")
         os.symlink(outside, link)
         decision, _ = authorize_path(link, "write", scope)
@@ -234,7 +245,7 @@ class PathTests(unittest.TestCase):
         self.assertEqual(reason, "PATH_TRAILING_DOT_OR_SPACE")
 
     def test_overwrite_keeps_the_previous_bytes(self):
-        scope = tempfile.mkdtemp()
+        scope = work_dir("over_")
         path = os.path.join(scope, "nota.txt")
         with open(path, "w", encoding="utf-8") as handle:
             handle.write("viejo")
@@ -299,9 +310,9 @@ class PathTests(unittest.TestCase):
         decision, reason = authorize_path(target, "write", package_root())
         self.assertEqual(decision, "DENY")
         self.assertEqual(reason, "PATH_SECURITY_COMPONENT")
-        backup = tempfile.mkdtemp()
+        backup = work_dir("bak_")
         register_backup_root(backup)
-        decision, reason = authorize_path(os.path.join(backup, "copia.txt"), "delete", tempfile.mkdtemp())
+        decision, reason = authorize_path(os.path.join(backup, "copia.txt"), "delete", work_dir("scope_"))
         self.assertEqual(reason, "PATH_BACKUP_IMMUTABLE")
 
 
@@ -648,10 +659,10 @@ class BusinessTests(unittest.TestCase):
         self.assertEqual(score["score"], 1.0)
 
     def test_backup_night_trade_and_deliverable(self):
-        source = tempfile.mkdtemp()
+        source = work_dir("src_")
         with open(os.path.join(source, "a.txt"), "w", encoding="utf-8") as handle:
             handle.write("dato")
-        saved = backup_tree(source, tempfile.mkdtemp())
+        saved = backup_tree(source, work_dir("dst_"))
         decision, reason = authorize_path(
             os.path.join(saved["path"], "a.txt"), "delete", source,
         )
@@ -710,7 +721,7 @@ class BusinessTests(unittest.TestCase):
         self.assertNotIn("trade", ran)
         self.assertNotIn("review", ran)
 
-        workspace = tempfile.mkdtemp()
+        workspace = work_dir("ws_")
         original = os.path.join(workspace, "original.txt")
         with open(original, "w", encoding="utf-8") as handle:
             handle.write("no tocar")
@@ -746,7 +757,7 @@ class BusinessTests(unittest.TestCase):
             write_deliverable(writer, workspace, "../fuera.txt", "X", [("A", "b")]),
             "PATH_OUTSIDE_MISSION_SCOPE",
         )
-        outside = tempfile.mkdtemp()
+        outside = work_dir("out_")
         denied = AvatarOrchestrator.run_scoped_act(
             type("Host", (), {"chokepoint": writer})(),
             workspace, "WRITE_FILE", {"file_path": os.path.join(outside, "x.txt")}, "m",

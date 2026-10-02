@@ -14,6 +14,7 @@ from core.orchestrator import AvatarOrchestrator
 from core.resume_engine import MissionResumeStatus, ResumeEngine
 from core.state_db import StateEngine
 from core.watchdog import Watchdog, WatchdogConfig
+from tests.scratch_dir import work_dir
 
 
 class _TempWorld:
@@ -89,10 +90,10 @@ class TestWatchdog(unittest.TestCase):
             self.assertEqual(len(report.skipped_failed), 1)
 
     def test_night_does_not_resume_and_a_backup_is_kept(self):
-        source = tempfile.mkdtemp()
+        source = work_dir("wd_src_")
         with open(os.path.join(source, "a.txt"), "w", encoding="utf-8") as handle:
             handle.write("dato")
-        dest = tempfile.mkdtemp()
+        dest = work_dir("wd_dst_")
         halt_path = os.path.join(tempfile.mkdtemp(), "halt.json")
         orch = mock.Mock()
         orch.config = {}

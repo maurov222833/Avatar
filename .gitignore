@@ -24,6 +24,9 @@ whatsapp_profile/
 screenshot.png
 screen_observation.png
 
+# Pruebas: carpeta de trabajo dentro del repo. No es el Temp del sistema.
+.test_scratch/
+
 # Python
 __pycache__/
 *.py[cod]

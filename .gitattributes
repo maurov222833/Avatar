@@ -1,0 +1,14 @@
+# El hash de MASTER_DIRECTIVE_002.md solo coincidía tras pasar CRLF a LF.
+# El checkout en Windows no debe reescribir los textos.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.whl binary
+*.db binary

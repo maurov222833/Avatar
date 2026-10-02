@@ -14,6 +14,7 @@ telegram_config.txt
 
 # Estado runtime: SQLite, sesiones, capturas, conocimiento local
 memory/
+logs/
 *.db
 *.db-wal
 *.db-shm

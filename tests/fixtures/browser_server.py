@@ -67,6 +67,7 @@ class LocalTestServer:
                 "Cierra el proceso que lo usa y vuelve a correr el test. "
                 f"Detalle: {exc}"
             ) from exc
+        self.port = int(self.httpd.server_address[1])
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.thread.start()
 

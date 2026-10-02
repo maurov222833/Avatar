@@ -22,13 +22,30 @@ class TestLocalFixturePort(unittest.TestCase):
         self.assertIn("8765", message)
         self.assertIn("ocupado", message)
 
+    def test_fixture_starts_while_8765_is_taken(self):
+        import socketserver
+
+        class _Blocker(socketserver.TCPServer):
+            allow_reuse_address = True
+
+        blocker = _Blocker(("127.0.0.1", 8765), socketserver.BaseRequestHandler)
+        server = LocalTestServer(port=0)
+        try:
+            server.start()
+            self.assertGreater(server.port, 0)
+            self.assertNotEqual(server.port, 8765)
+        finally:
+            server.stop()
+            blocker.server_close()
+
 
 class TestBrowserEngine(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.server = LocalTestServer(port=8765)
+        cls.server = LocalTestServer(port=0)
         cls.server.start()
+        cls.base = f"http://127.0.0.1:{cls.server.port}"
         time.sleep(0.5) # Wait for server to spin up
 
     @classmethod
@@ -50,7 +67,7 @@ class TestBrowserEngine(unittest.TestCase):
 
     def test_02_navigation_and_observation(self):
         self.browser.launch()
-        res = self.browser.navigate("http://127.0.0.1:8765")
+        res = self.browser.navigate(self.base)
         self.assertTrue(res["success"])
         self.assertEqual(res["title"], "Avatar Browser Test Fixture")
 
@@ -60,7 +77,7 @@ class TestBrowserEngine(unittest.TestCase):
 
     def test_03_dynamic_javascript_content(self):
         self.browser.launch()
-        self.browser.navigate("http://127.0.0.1:8765")
+        self.browser.navigate(self.base)
         # Wait for dynamic JS to inject content after 100ms
         time.sleep(0.3)
         obs = self.browser.observe()
@@ -69,7 +86,7 @@ class TestBrowserEngine(unittest.TestCase):
 
     def test_04_form_interaction_and_submission(self):
         self.browser.launch()
-        self.browser.navigate("http://127.0.0.1:8765")
+        self.browser.navigate(self.base)
         
         # Fill form
         fill_res = self.browser.fill("#username", "avatar_agent")
@@ -91,7 +108,7 @@ class TestBrowserEngine(unittest.TestCase):
 
     def test_05_navigation_history(self):
         self.browser.launch()
-        self.browser.navigate("http://127.0.0.1:8765")
+        self.browser.navigate(self.base)
         
         # Navigate back/forward/reload
         reload_res = self.browser.reload()
@@ -99,7 +116,7 @@ class TestBrowserEngine(unittest.TestCase):
 
     def test_06_target_not_found_handling(self):
         self.browser.launch()
-        self.browser.navigate("http://127.0.0.1:8765")
+        self.browser.navigate(self.base)
         click_res = self.browser.click("#non-existent-element")
         self.assertFalse(click_res["success"])
         self.assertEqual(click_res["code"], "TARGET_NOT_FOUND")
@@ -108,14 +125,14 @@ class TestBrowserEngine(unittest.TestCase):
         # Disallow unauthorized domain
         restricted_browser = BrowserController(headless=True, allowed_domains=["trusted-domain.com"])
         restricted_browser.launch()
-        res = restricted_browser.navigate("http://127.0.0.1:8765")
+        res = restricted_browser.navigate(self.base)
         self.assertFalse(res["success"])
         self.assertIn("Domain scope violation", res["error"])
         restricted_browser.close()
 
     def test_08_untrusted_web_content_prompt_injection(self):
         self.browser.launch()
-        self.browser.navigate("http://127.0.0.1:8765")
+        self.browser.navigate(self.base)
         obs = self.browser.observe()
         self.assertTrue(obs["success"])
         # Verify untrusted text is wrapped and not executed as system instruction

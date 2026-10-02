@@ -133,3 +133,42 @@ class SuiteIsolationTests(unittest.TestCase):
         finally:
             sock.close()
         self.assertTrue(socket.getaddrinfo("127.0.0.1", 9))
+
+    def test_child_processes_keep_a_fictional_token_and_the_guard(self):
+        import textwrap
+        from core.test_home import FICTIONAL_TELEGRAM_TOKEN, remember_real_token
+        real = "999999:REAL-TOKEN-SHOULD-NOT-LEAK"
+        remember_real_token(real)
+        script = textwrap.dedent(
+            """
+            import os
+            import socket
+            from core.test_home import ExternalNetworkBlocked, FICTIONAL_TELEGRAM_TOKEN
+            token = os.environ.get("TELEGRAM_BOT_TOKEN")
+            assert token == FICTIONAL_TELEGRAM_TOKEN, token
+            assert token != "999999:REAL-TOKEN-SHOULD-NOT-LEAK"
+            try:
+                socket.getaddrinfo("api.telegram.org", 443)
+            except ExternalNetworkBlocked:
+                pass
+            else:
+                raise SystemExit("el hijo resolvió api.telegram.org")
+            """
+        )
+        env = os.environ.copy()
+        env["PYTHONPATH"] = _REPO + os.pathsep + env.get("PYTHONPATH", "")
+        env["TELEGRAM_BOT_TOKEN"] = real
+        done = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=_REPO,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(done.returncode, 0, done.stdout + "\n" + done.stderr)
+
+    def test_server_and_whatsapp_runner_do_not_install_the_guard(self):
+        for name in ("server.py", "whatsapp_24x7.py"):
+            with open(os.path.join(_REPO, name), encoding="utf-8") as handle:
+                source = handle.read()
+            self.assertNotIn("install_network_guard", source)

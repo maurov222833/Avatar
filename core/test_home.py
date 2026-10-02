@@ -17,6 +17,47 @@ import tempfile
 
 _PINNED = False
 _TEST_HOME = ""
+_REAL_TOKENS = set()
+_SUBPROCESS_SCRUBBED = False
+FICTIONAL_TELEGRAM_TOKEN = "123456:NOT-A-REAL-TOKEN"
+
+
+def remember_real_token(token: str) -> None:
+    """Un token visto en el proceso de prueba no puede pasar a un hijo."""
+    text = str(token or "").strip()
+    if text:
+        _REAL_TOKENS.add(text)
+
+
+def scrub_child_env(env):
+    """Los hijos de la suite llevan la guarda y nunca el token real."""
+    base = os.environ.copy() if env is None else dict(env)
+    base["AVATAR_TEST_NETWORK_GUARD"] = "1"
+    token = str(base.get("TELEGRAM_BOT_TOKEN") or "")
+    if token and token in _REAL_TOKENS:
+        base["TELEGRAM_BOT_TOKEN"] = FICTIONAL_TELEGRAM_TOKEN
+    return base
+
+
+def _install_subprocess_scrub() -> None:
+    global _SUBPROCESS_SCRUBBED
+    if _SUBPROCESS_SCRUBBED:
+        return
+    import subprocess
+    orig_run = subprocess.run
+    orig_popen = subprocess.Popen
+
+    def run(*args, **kwargs):
+        kwargs["env"] = scrub_child_env(kwargs.get("env"))
+        return orig_run(*args, **kwargs)
+
+    def popen(*args, **kwargs):
+        kwargs["env"] = scrub_child_env(kwargs.get("env"))
+        return orig_popen(*args, **kwargs)
+
+    subprocess.run = run
+    subprocess.Popen = popen
+    _SUBPROCESS_SCRUBBED = True
 
 
 def _head_is_test_runner(head: str) -> bool:
@@ -49,6 +90,8 @@ def running_as_test() -> bool:
 def pin_test_home() -> str:
     """Fija AVATAR_HOME en un temporal y aparta el token de Telegram. Idempotente."""
     global _PINNED, _TEST_HOME
+    if os.environ.get("AVATAR_TEST_NETWORK_GUARD") == "1":
+        install_network_guard()
     if _PINNED:
         return _TEST_HOME
     if not running_as_test():
@@ -56,8 +99,12 @@ def pin_test_home() -> str:
     _PINNED = True
     _TEST_HOME = tempfile.mkdtemp(prefix="avatar_test_")
     os.environ["AVATAR_HOME"] = _TEST_HOME
-    # El token del operador no entra en la suite. Un test que lo necesite lo pone después.
+    # El token del operador no entra en la suite ni en los hijos. Un test que
+    # necesite uno ficticio lo pone después.
+    remember_real_token(os.environ.get("TELEGRAM_BOT_TOKEN") or "")
     os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+    os.environ["AVATAR_TEST_NETWORK_GUARD"] = "1"
+    _install_subprocess_scrub()
     os.makedirs(os.path.join(_TEST_HOME, "memory"), exist_ok=True)
     with open(os.path.join(_TEST_HOME, "config.json"), "w", encoding="utf-8") as handle:
         json.dump({

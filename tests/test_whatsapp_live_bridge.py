@@ -5,6 +5,7 @@ No toca WhatsApp real, no usa LLM (process_user_input se sustituye por eco).
 Prueba: dedup, remitentes, modo observe, denegación por política, errores honestos.
 """
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -359,20 +360,27 @@ class TestQrHold(unittest.TestCase):
     def test_wait_for_login_polls_until_logged_in(self):
         from bridges.whatsapp_reader import WhatsAppWebReader
         folder = tempfile.mkdtemp(prefix="avatar_qr_")
+        try:
+            class Reader(WhatsAppWebReader):
+                def __init__(self):
+                    super().__init__(folder)
+                    self.n = 0
 
-        class Reader(WhatsAppWebReader):
-            def __init__(self):
-                super().__init__(folder)
-                self.n = 0
+                def login_state(self):
+                    self.n += 1
+                    return "QR_REQUIRED" if self.n < 3 else "LOGGED_IN"
 
-            def login_state(self):
-                self.n += 1
-                return "QR_REQUIRED" if self.n < 3 else "LOGGED_IN"
-
-        reader = Reader()
-        state = reader.wait_for_login(hold_seconds=5, poll_seconds=0.01)
-        self.assertEqual(state, "LOGGED_IN")
-        self.assertGreaterEqual(reader.n, 3)
+            reader = Reader()
+            state = reader.wait_for_login(hold_seconds=5, poll_seconds=0.01)
+            self.assertEqual(state, "LOGGED_IN")
+            self.assertGreaterEqual(reader.n, 3)
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+            lock_path = folder + ".lock"
+            if os.path.isfile(lock_path):
+                os.remove(lock_path)
+        self.assertFalse(os.path.isdir(folder))
+        self.assertFalse(os.path.exists(folder + ".lock"))
 
     def test_status_does_not_open_a_second_window(self):
         import json

@@ -8,6 +8,7 @@ del entorno.
 from __future__ import annotations
 
 import atexit
+import ipaddress
 import json
 import os
 import shutil
@@ -66,8 +67,61 @@ def pin_test_home() -> str:
             "telegram": {"allowed_chat_ids": []},
         }, handle, indent=2)
     _patch_default_stores(_TEST_HOME)
+    install_network_guard()
     atexit.register(shutil.rmtree, _TEST_HOME, True)
     return _TEST_HOME
+
+
+class ExternalNetworkBlocked(RuntimeError):
+    """La suite no abre conexiones fuera de localhost."""
+
+
+def _is_local_host(host) -> bool:
+    if host is None:
+        return True
+    text = str(host).strip().lower()
+    if text.startswith("[") and text.endswith("]"):
+        text = text[1:-1]
+    if text in {"", "localhost", "127.0.0.1", "::1", "0.0.0.0", "::"}:
+        return True
+    try:
+        return ipaddress.ip_address(text).is_loopback
+    except ValueError:
+        return False
+
+
+def install_network_guard() -> None:
+    """Bloquea api.telegram.org y cualquier host que no sea localhost."""
+    import socket
+    if getattr(socket, "_avatar_network_guard", False):
+        return
+
+    def _reject(address) -> None:
+        host = address[0] if isinstance(address, tuple) and address else address
+        if not _is_local_host(host):
+            raise ExternalNetworkBlocked(str(host))
+
+    orig_connect = socket.socket.connect
+    orig_connect_ex = socket.socket.connect_ex
+    orig_getaddrinfo = socket.getaddrinfo
+
+    def connect(self, address):
+        _reject(address)
+        return orig_connect(self, address)
+
+    def connect_ex(self, address):
+        _reject(address)
+        return orig_connect_ex(self, address)
+
+    def getaddrinfo(host, port, *args, **kwargs):
+        if not _is_local_host(host):
+            raise ExternalNetworkBlocked(str(host))
+        return orig_getaddrinfo(host, port, *args, **kwargs)
+
+    socket.socket.connect = connect
+    socket.socket.connect_ex = connect_ex
+    socket.getaddrinfo = getaddrinfo
+    socket._avatar_network_guard = True
 
 
 def _patch_default_stores(test_home: str) -> None:

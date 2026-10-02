@@ -120,3 +120,16 @@ class SuiteIsolationTests(unittest.TestCase):
                 text=True,
             )
         self.assertEqual(done.returncode, 0, done.stdout + "\n" + done.stderr)
+
+    def test_external_hosts_cannot_be_resolved_or_connected(self):
+        import socket
+        from core.test_home import ExternalNetworkBlocked
+        with self.assertRaises(ExternalNetworkBlocked):
+            socket.getaddrinfo("api.telegram.org", 443)
+        sock = socket.socket()
+        try:
+            with self.assertRaises(ExternalNetworkBlocked):
+                sock.connect(("1.1.1.1", 443))
+        finally:
+            sock.close()
+        self.assertTrue(socket.getaddrinfo("127.0.0.1", 9))

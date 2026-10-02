@@ -51,12 +51,15 @@ def _install_subprocess_scrub() -> None:
         kwargs["env"] = scrub_child_env(kwargs.get("env"))
         return orig_run(*args, **kwargs)
 
-    def popen(*args, **kwargs):
-        kwargs["env"] = scrub_child_env(kwargs.get("env"))
-        return orig_popen(*args, **kwargs)
+    class _ScrubbedPopen(orig_popen):
+        """Sigue siendo una clase: asyncio en Windows hace ``class Popen(subprocess.Popen)``."""
+
+        def __init__(self, *args, **kwargs):
+            kwargs["env"] = scrub_child_env(kwargs.get("env"))
+            super().__init__(*args, **kwargs)
 
     subprocess.run = run
-    subprocess.Popen = popen
+    subprocess.Popen = _ScrubbedPopen
     _SUBPROCESS_SCRUBBED = True
 
 

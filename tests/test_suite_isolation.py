@@ -167,6 +167,17 @@ class SuiteIsolationTests(unittest.TestCase):
         )
         self.assertEqual(done.returncode, 0, done.stdout + "\n" + done.stderr)
 
+    def test_popen_stays_a_class_so_asyncio_can_subclass_it(self):
+        import subprocess
+        from core.test_home import _install_subprocess_scrub
+        _install_subprocess_scrub()
+        self.assertIsInstance(subprocess.Popen, type)
+
+        class _LikeWindowsAsyncio(subprocess.Popen):
+            pass
+
+        self.assertTrue(issubclass(_LikeWindowsAsyncio, subprocess.Popen))
+
     def test_server_and_whatsapp_runner_do_not_install_the_guard(self):
         for name in ("server.py", "whatsapp_24x7.py"):
             with open(os.path.join(_REPO, name), encoding="utf-8") as handle:

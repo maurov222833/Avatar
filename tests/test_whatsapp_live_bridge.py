@@ -255,6 +255,14 @@ class TestLiveLoop(unittest.TestCase):
             summary = b.start_live_bridge("Chat Prueba", max_polls=2)
             self.assertEqual(n, ["uno", "dos"])
 
+    def test_default_stop_file_follows_avatar_home(self):
+        from bridges.whatsapp_bridge import _default_stop_path
+        from core.paths import memory_dir
+        self.assertEqual(
+            _default_stop_path(),
+            os.path.join(memory_dir(), "AVATAR_WA_STOP"),
+        )
+
     def test_stop_file_breaks_loop_cleanly(self):
         import tempfile as _t
         with _TempWorld():

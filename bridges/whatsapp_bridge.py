@@ -31,6 +31,12 @@ DEFAULT_STATE_PATH = os.path.join(base_dir, "memory", "whatsapp_bridge_state.jso
 
 
 
+def _default_stop_path() -> str:
+    """El stop-file sigue al home de Avatar. La suite no ve el del repo."""
+    from core.paths import memory_dir
+    return os.path.join(memory_dir(), "AVATAR_WA_STOP")
+
+
 def _walog(message: str, level: str = "INFO") -> None:
     try:
         from core.logging_util import log
@@ -290,7 +296,7 @@ class WhatsAppBridge:
         polls = 0
         processed = 0
         replied = 0
-        stop_file = stop_path or os.path.join(base_dir, "memory", "AVATAR_WA_STOP")
+        stop_file = stop_path or _default_stop_path()
         allowed_senders = (self.authorized_senders if self.authorized_senders is not None
                            else [target_chat])
         while not self._stop:

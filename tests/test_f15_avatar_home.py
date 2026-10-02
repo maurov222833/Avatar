@@ -54,6 +54,17 @@ class TestF15AvatarHome(unittest.TestCase):
         rag = RAGMemory(memory_dir=paths.memory_dir())
         self.assertEqual(os.path.abspath(rag.memory_dir), os.path.abspath(paths.memory_dir()))
 
+    def test_cleanup_closes_the_sqlite_file_inside_the_temp_dir(self):
+        import core.state_db as sd
+        folder = tempfile.TemporaryDirectory()
+        db = os.path.join(folder.name, "memory", "state_engine.db")
+        os.makedirs(os.path.dirname(db), exist_ok=True)
+        engine = sd.StateEngine(db_path=db)
+        self.assertIsNotNone(engine._conn)
+        folder.cleanup()
+        self.assertIsNone(engine._conn)
+        self.assertFalse(os.path.exists(db))
+
     def test_default_without_env_is_repo_root(self):
         os.environ.pop("AVATAR_HOME", None)
         try:

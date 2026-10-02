@@ -120,17 +120,30 @@ def regenerate_seal_key_cli(argv: List[str]) -> int:
     return 0
 
 
+def _normalize_fs_path(path: str) -> str:
+    """Misma clave en Windows aunque cambien mayúsculas o el prefijo \\\\?\\."""
+    text = os.path.abspath(os.path.realpath(path))
+    if text.startswith("\\\\?\\"):
+        text = text[4:]
+    return os.path.normcase(text)
+
+
 def _path_inside(path: str, root: str) -> bool:
     if not path or path == ":memory:":
         return False
     try:
-        return os.path.commonpath([os.path.realpath(path), os.path.realpath(root)]) == os.path.realpath(root)
+        file_path = _normalize_fs_path(path)
+        root_path = _normalize_fs_path(root)
+        if not root_path.endswith(os.sep):
+            root_path += os.sep
+        return file_path == root_path[:-1] or file_path.startswith(root_path)
     except (ValueError, OSError):
         return False
 
 
 def _close_resources_inside(root: str) -> None:
     """Windows no borra un directorio si SQLite o un log siguen abiertos."""
+    import gc
     for engine in list(_LIVE_ENGINES):
         if _path_inside(getattr(engine, "db_path", ""), root):
             engine.close()
@@ -141,6 +154,8 @@ def _close_resources_inside(root: str) -> None:
             if base and _path_inside(base, root):
                 handler.close()
                 logger.removeHandler(handler)
+    # En Windows el handle de sqlite3 sobrevive al close() hasta el recolector.
+    gc.collect()
 
 
 def _install_temp_cleanup() -> None:
@@ -148,7 +163,13 @@ def _install_temp_cleanup() -> None:
 
     def cleanup(self: tempfile.TemporaryDirectory) -> None:
         _close_resources_inside(self.name)
-        original(self)
+        try:
+            original(self)
+        except PermissionError:
+            if os.name != "nt":
+                raise
+            _close_resources_inside(self.name)
+            original(self)
 
     tempfile.TemporaryDirectory.cleanup = cleanup  # type: ignore[method-assign]
 
@@ -1415,3 +1436,10 @@ class StateEngine:
                 conn.close()
             except Exception:
                 pass
+            del conn
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass

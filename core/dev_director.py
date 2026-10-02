@@ -426,6 +426,7 @@ def verify_package(wp: Dict[str, Any], obs: Dict[str, Any], allowed_dir: str) ->
 
 
 _ALWAYS_GATES = ("SCOPE", "CHEAT", "SECRET", "LINT", "CRITICAL")
+_SECURITY_DOORS = ("CHEAT", "FALSE_DONE", "SECRET", "CRITICAL")
 
 
 def evaluated_gates(wp: Dict[str, Any], obs: Dict[str, Any], reasons: List[str]) -> List[Dict[str, str]]:
@@ -762,17 +763,29 @@ class DevDirector:
         planned = plan_packages(items)
         self.mission["package_list"] = package_record(items)
         accepted = {str(item) for item in (self.mission.get("accepted") or [])}
+        blocked = {str(item) for item in (self.mission.get("blocked") or [])}
+        still_blocked = [
+            str(item.get("id") or "")
+            for item in planned["packages"]
+            if str(item.get("id") or "") in blocked
+        ]
         packages = [
             item for item in planned["packages"]
             if str(item.get("id") or "") not in accepted
+            and str(item.get("id") or "") not in blocked
         ]
         self.mission["held"] = planned["held"]
         if not packages:
             self.mission["playbook"] = "PB-12"
             self.mission["remaining"] = []
-            if self.mission.get("accepted") and planned["held"]:
+            if self.mission.get("accepted") and (planned["held"] or still_blocked):
                 self.mission["state"] = "COMPLETED_WITH_LIMITATIONS"
-                self.mission["summary"] = "paquetes sin criterios siguen en espera"
+                if still_blocked and not planned["held"]:
+                    self.mission["summary"] = "paquetes rechazados por seguridad quedan fuera"
+                elif still_blocked:
+                    self.mission["summary"] = "paquetes rechazados o sin criterios siguen fuera"
+                else:
+                    self.mission["summary"] = "paquetes sin criterios siguen en espera"
             elif self.mission.get("accepted"):
                 self.mission["state"] = "COMPLETED_VERIFIED"
                 self.mission["summary"] = "no quedan paquetes"
@@ -876,6 +889,8 @@ class DevDirector:
             self.envelope.consecutive_stalls += 1
             if "CHEAT" in problems or "FALSE_DONE" in problems:
                 self.envelope.security_failures += 1
+            if any(door in problems for door in _SECURITY_DOORS):
+                self._block_package(wp)
             self.mission["state"] = "VERIFYING"
             self.mission["stalls"].append("REJECTED:" + ",".join(problems))
             self.keeper.write(self.mission)
@@ -958,6 +973,7 @@ class DevDirector:
             return "S8_REVERT"
         if stall == "S9":
             self.envelope.security_failures += 1
+            self._block_package(wp)
             self.keeper.write(self.mission)
             return "S9_REJECTED"
         if stall == "S10":
@@ -988,6 +1004,15 @@ class DevDirector:
         self._stamp_step(str(move["step"]))
         self.keeper.write(self.mission)
         return f"{stall}_STEP_{move['step']}"
+
+    def _block_package(self, wp: Dict[str, Any]) -> None:
+        ident = str(wp.get("id") or "")
+        if not ident:
+            return
+        blocked = [str(item) for item in (self.mission.get("blocked") or [])]
+        if ident not in blocked:
+            blocked.append(ident)
+        self.mission["blocked"] = blocked
 
     def _stamp_step(self, step: str) -> None:
         reports = self.mission.get("stall_reports") or []

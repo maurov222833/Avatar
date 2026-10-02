@@ -18,20 +18,30 @@ _PINNED = False
 _TEST_HOME = ""
 
 
+def _head_is_test_runner(head: str) -> bool:
+    """argv[0] a veces es el comando entero: «python -m unittest» o «python.exe -m unittest»."""
+    text = (head or "").replace("\\", "/").lower()
+    if "-m unittest" in text or "-m pytest" in text:
+        return True
+    if text.endswith("unittest/__main__.py") or text.endswith("pytest/__main__.py"):
+        return True
+    base = os.path.basename(text)
+    return base in {"pytest", "py.test", "pytest.exe"}
+
+
 def running_as_test() -> bool:
     """Verdadero solo en el proceso de la suite. Un server o el supervisor no entran."""
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return True
-    argv = sys.argv or []
-    head = argv[0] if argv else ""
-    norm = head.replace("\\", "/")
-    if head == "python -m unittest" or norm.endswith("unittest/__main__.py"):
+    argv = [str(arg) for arg in (sys.argv or [])]
+    if argv and _head_is_test_runner(argv[0]):
         return True
-    if any(arg == "unittest" for arg in argv):
-        return True
-    base = os.path.basename(head).lower()
-    if base in {"pytest", "py.test", "pytest.exe"}:
-        return True
+    for arg in argv:
+        if arg == "unittest":
+            return True
+        base = os.path.basename(arg.replace("\\", "/")).lower()
+        if base in {"pytest", "py.test", "pytest.exe"}:
+            return True
     return False
 
 

@@ -45,6 +45,7 @@ class SuiteIsolationTests(unittest.TestCase):
             env["PYTHONPATH"] = _REPO + os.pathsep + env.get("PYTHONPATH", "")
             env["REPO_ROOT"] = _REPO
             env["TELEGRAM_BOT_TOKEN"] = "123456:NOT-A-REAL-TOKEN"
+            env["AVATAR_HOME"] = folder
             done = subprocess.run(
                 [sys.executable, "-m", "unittest", "discover", "-s", folder, "-p", "test_probe.py"],
                 cwd=_REPO,
@@ -55,6 +56,49 @@ class SuiteIsolationTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + "\n" + done.stderr)
         after = os.path.getsize(real) if os.path.exists(real) else None
         self.assertEqual(before, after)
+
+    def test_windows_python_exe_argv_pins_over_an_inherited_home(self):
+        decoy = tempfile.mkdtemp(prefix="decoy_home_")
+        script = textwrap.dedent(
+            """
+            import os
+            import sys
+            sys.argv = ["python.exe -m unittest", "discover", "-s", "tests", "-q"]
+            from core.test_home import pin_test_home, running_as_test
+            from core.state_db import StateEngine
+
+            assert running_as_test(), sys.argv
+            home = pin_test_home()
+            assert "avatar_test_" in home, home
+            assert os.environ["AVATAR_HOME"] == home
+            assert home != os.environ["DECOY_HOME"]
+            assert "TELEGRAM_BOT_TOKEN" not in os.environ
+            engine = StateEngine()
+            try:
+                assert engine.db_path.startswith(home), engine.db_path
+            finally:
+                engine.close()
+
+            sys.argv = [r"C:\\Python\\python.exe", "-m", "unittest", "discover"]
+            assert running_as_test()
+            sys.argv = [r"C:\\Python\\python.exe", "whatsapp_24x7.py"]
+            assert not running_as_test()
+            """
+        )
+        env = os.environ.copy()
+        env["PYTHONPATH"] = _REPO + os.pathsep + env.get("PYTHONPATH", "")
+        env["AVATAR_HOME"] = decoy
+        env["DECOY_HOME"] = decoy
+        env["TELEGRAM_BOT_TOKEN"] = "123456:NOT-A-REAL-TOKEN"
+        done = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=_REPO,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(done.returncode, 0, done.stdout + "\n" + done.stderr)
+        self.assertFalse(os.path.exists(os.path.join(decoy, "memory", "state_engine.db")))
 
     def test_a_normal_process_keeps_its_home_and_token(self):
         with tempfile.TemporaryDirectory() as home:

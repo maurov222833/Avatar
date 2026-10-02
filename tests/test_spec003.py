@@ -328,16 +328,21 @@ class CommandTests(unittest.TestCase):
                 "git add .", "git commit -m hello",
                 "pip install --require-hashes -r requirements.lock",
                 "python -m pip install --require-hashes -r requirements.lock",
-                "npm ci", "pnpm install --frozen-lockfile",
+                "pip install --require-hashes -r requirements-httpx.txt",
             ] + [f"git add file{n}.py" for n in range(15)],
             "C": [
                 "git push", "npm install", "npm install -g tool",
                 "pip install -r requirements.txt", "python -m pip install requests",
+                "pip install --require-hashes -r requirements.txt",
+                "npm ci", "pnpm install --frozen-lockfile",
                 "curl https://example.test", "echo hola",
                 "git diff --output=out.patch", "Get-ChildItem Env:",
             ] + [f"sc start svc{n}" for n in range(15)],
             UNUNDERSTOOD: [
                 "git status; rm x", "Get-Content a.txt | findstr x",
+                "echo hola > salida.txt", "echo hola >> salida.txt",
+                "Get-Content a.txt | tee salida.txt",
+                "Out-File salida.txt", "Set-Content salida.txt hola", "tee salida.txt",
                 "herramienta-desconocida --ahora", "git", "git frobnicate",
             ],
             "D": [

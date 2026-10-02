@@ -33,9 +33,9 @@ Queda el clasificador de `core/command_risk.py` (expresiones y `shlex`). No se a
 | Nivel | Efecto (directriz 5.3) | Lo que clasifica el código |
 |---|---|---|
 | A | Lectura y pruebas no destructivas, sin ruta protegida | `git status`/`diff`/`log`/`show`, `pytest`, `python -m pytest`, `npm test`, `ls`, `dir`, `pwd`, `whoami`, `cat`, `type`, `Get-ChildItem`, `Get-Content`, `Get-Location` |
-| B | Escritura reversible, o un install fijado | `git add`, `git commit`, `git checkout`/`switch` sin descartar. Install desde archivo con versiones y hashes: `pip install --require-hashes -r <archivo>`, `npm ci`, `pnpm`/`yarn install --frozen-lockfile` |
+| B | Escritura reversible, o un install fijado y revisado | `git add`, `git commit`, `git checkout`/`switch` sin descartar. Install con hashes solo si el archivo está en `reviewed_install_files.yaml` y no cambió respecto a git |
 | C entendido | Efecto conocido fuera de lo rutinario | Ver la tabla de arriba |
-| UNUNDERSTOOD | El texto no se entendió | Ver la tabla de arriba. Motivos: `UNCLASSIFIED_DEFAULT_C`, `COMPOSITION`, `UNPARSEABLE`, `EMPTY_COMMAND`, `GIT_BARE`, `GIT_OTHER` |
+| UNUNDERSTOOD | El texto no se entendió | Ver la tabla de arriba. También `>`, `>>`, `Out-File`, `Set-Content` y `tee`. Motivos: `UNCLASSIFIED_DEFAULT_C`, `COMPOSITION`, `REDIRECT`, `OUTPUT_SINK`, `UNPARSEABLE`, `EMPTY_COMMAND`, `GIT_BARE`, `GIT_OTHER` |
 | D | Destructivo, o una lectura que nombra una ruta protegida | `git push --force`, `git reset --hard`, `git clean -fd`, `git checkout --`/`restore`, `git branch -d`, `rm`/`del`/`Remove-Item`, `shutdown`. También `Get-Content ~/.ssh/id_rsa`, `cat .aws/credentials`, una ruta con `AppData`, `.gnupg`, perfil de navegador (`user data`, `.mozilla`, `google-chrome`) o un nombre de clave (`id_rsa`, `id_ed25519`) |
 | PROHIBITED | Sin aprobación posible | `format`, `diskpart`, `bcdedit`, `reg delete`, `Set-ExecutionPolicy`, `Invoke-Expression`, `iex`, `irm \| iex`, `runas`, firewall, y la ofuscación de la tabla anterior |
 
@@ -43,13 +43,13 @@ La lista de rutas protegidas de una lectura es la de credenciales, perfiles de n
 
 `DESKTOP_CLICK` y `DESKTOP_TYPE` no tienen línea de comando. Siguen pidiendo aprobación.
 
-El clasificador no abre el archivo de requisitos. Acepta como install fijado solo la forma canónica del comando (`--require-hashes` junto con `-r`, o `npm ci`, o `--frozen-lockfile`). Si el archivo no trae hashes, pip lo rechaza al correr.
+El clasificador no abre el archivo de requisitos. La forma canónica (`--require-hashes` junto con `-r`, `npm ci`, `--frozen-lockfile`) es B solo si cada archivo está en `config/avatar/reviewed_install_files.yaml` y `git diff HEAD` no lo ve cambiado. Si no, es C (`INSTALL_UNREVIEWED`).
 
 ## Desviación aceptada
 
 El análisis es estructural, no el árbol de PowerShell. Mauro acepta esa desviación con una condición: hay que revisarla antes de usar `allow_level_c` por primera vez y antes de encender el modo noche. Hasta esa revisión, este ADR no se da por cerrado y no se enciende ninguna de esas dos cosas.
 
-Hueco de esa revisión: la redirección `>` no se trata como composición. `echo texto > archivo` queda en C entendido. No se inventa un parser para cerrarlo ahora.
+`>`, `>>`, una tubería, `Out-File`, `Set-Content` y `tee` quedan en `UNUNDERSTOOD`. No hay AST. La revisión estructural sigue pendiente antes de `allow_level_c` y del modo noche.
 
 ## Transición
 

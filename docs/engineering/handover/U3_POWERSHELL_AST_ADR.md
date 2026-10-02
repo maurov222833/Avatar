@@ -51,7 +51,7 @@ Cada autorización de misión sigue en el grant (`core/grants.py`): niveles, cad
 
 ## Riesgos
 
-Un AST incompleto que clasifique de menos sería peor que el fallo cerrado de hoy. El patrón actual también puede no ver una ofuscación nueva, y no ve la redirección `>`. `echo` es C entendido. Por eso la desviación se revisa antes de `allow_level_c` y antes del modo noche. Apagar `exec_requires_approval` no deja correr un comando no entendido.
+Un AST incompleto que clasifique de menos sería peor que el fallo cerrado de hoy. El patrón actual también puede no ver una ofuscación nueva. `>`, `>>`, `Out-File`, `Set-Content` y `tee` quedan en `UNUNDERSTOOD`. `echo` sin redirección es C entendido. Por eso la desviación se revisa antes de `allow_level_c` y antes del modo noche. Apagar `exec_requires_approval` no deja correr un comando no entendido.
 
 ## Decisión que falta
 

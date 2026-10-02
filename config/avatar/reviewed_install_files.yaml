@@ -1,0 +1,6 @@
+# Install con hashes: B solo si el archivo está en esta lista y no cambió respecto a git.
+# Si falta o el trabajo difiere de HEAD, el comando queda en C.
+version: 1
+files:
+  - requirements.lock
+  - requirements-httpx.txt

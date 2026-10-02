@@ -6,6 +6,7 @@ completo. Lo ofuscado es PROHIBITED. Esto no apaga exec_requires_approval.
 """
 from __future__ import annotations
 
+import os
 import re
 import shlex
 from typing import List, Optional, Sequence, Tuple
@@ -131,8 +132,85 @@ def _pip_args(head: str, tail: Sequence[str]) -> Optional[Sequence[str]]:
     return None
 
 
+def _named_requirement(tail: Sequence[str]) -> Optional[str]:
+    for index, token in enumerate(tail):
+        if token in ("-r", "--requirement") and index + 1 < len(tail):
+            return tail[index + 1]
+        if token.startswith("--requirement="):
+            return token.split("=", 1)[1]
+    return None
+
+
+def _pinned_files(head: str, tail: Sequence[str]) -> Optional[List[str]]:
+    """Archivos que la forma canónica da por fijados. None si no es un install con hashes."""
+    pip_args = _pip_args(head, tail)
+    if pip_args is not None:
+        if not pip_args or pip_args[0] != "install":
+            return None
+        if "--require-hashes" in pip_args and _has_requirement_file(pip_args):
+            named = _named_requirement(pip_args)
+            return [named] if named else []
+        return None
+    if head == "npm" and tail[:1] == ["ci"]:
+        return ["package-lock.json"]
+    if head == "pnpm" and tail[:1] == ["install"] and "--frozen-lockfile" in tail:
+        return ["pnpm-lock.yaml"]
+    if head == "yarn" and tail[:1] == ["install"] and "--frozen-lockfile" in tail:
+        return ["yarn.lock"]
+    return None
+
+
+def _repo_root() -> str:
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _reviewed_install_files() -> set:
+    path = os.path.join(_repo_root(), "config", "avatar", "reviewed_install_files.yaml")
+    try:
+        from core.avatar_config import parse_simple_yaml
+        with open(path, "r", encoding="utf-8") as handle:
+            parsed = parse_simple_yaml(handle.read()) or {}
+    except (OSError, ValueError):
+        return set()
+    files = parsed.get("files") if isinstance(parsed, dict) else None
+    if not isinstance(files, list):
+        return set()
+    return {str(item).replace("\\", "/").lstrip("./") for item in files}
+
+
+def _git_unchanged(relative: str) -> bool:
+    """Verdadero solo si git tiene el archivo y el trabajo coincide con HEAD."""
+    import subprocess
+    root = _repo_root()
+    relative = relative.replace("\\", "/").lstrip("./")
+    listed = subprocess.run(
+        ["git", "-C", root, "ls-files", "--error-unmatch", "--", relative],
+        capture_output=True,
+        check=False,
+    )
+    if listed.returncode != 0:
+        return False
+    diff = subprocess.run(
+        ["git", "-C", root, "diff", "--quiet", "HEAD", "--", relative],
+        capture_output=True,
+        check=False,
+    )
+    return diff.returncode == 0
+
+
+def _reviewed_and_clean(paths: Sequence[str]) -> bool:
+    if not paths:
+        return False
+    reviewed = _reviewed_install_files()
+    for path in paths:
+        relative = str(path).replace("\\", "/").lstrip("./")
+        if relative not in reviewed or not _git_unchanged(relative):
+            return False
+    return True
+
+
 def _install_from_pinned_file(head: str, tail: Sequence[str]) -> Optional[Tuple[str, str]]:
-    """B solo si el comando nombra un archivo y exige hashes. Si no, C entendido."""
+    """B solo si el archivo está revisado y no cambió respecto a git. Si no, C."""
     pip_args = _pip_args(head, tail)
     if pip_args is not None:
         if not pip_args or pip_args[0] != "install":
@@ -140,15 +218,17 @@ def _install_from_pinned_file(head: str, tail: Sequence[str]) -> Optional[Tuple[
         if _global_install(pip_args):
             return "C", "GLOBAL_INSTALL"
         if "--require-hashes" in pip_args and _has_requirement_file(pip_args):
-            return "B", "INSTALL_PINNED_FILE"
+            if _reviewed_and_clean(_pinned_files(head, tail) or []):
+                return "B", "INSTALL_PINNED_FILE"
+            return "C", "INSTALL_UNREVIEWED"
         return "C", "INSTALL_UNPINNED"
-    if head in ("npm", "pnpm", "yarn"):
-        if tail[:1] == ["ci"] or (
-            tail[:1] == ["install"] and "--frozen-lockfile" in tail
-        ):
+    pinned = _pinned_files(head, tail)
+    if pinned is not None:
+        if _reviewed_and_clean(pinned):
             return "B", "INSTALL_PINNED_FILE"
-        if tail[:1] == ["install"]:
-            return "C", "INSTALL_UNPINNED"
+        return "C", "INSTALL_UNREVIEWED"
+    if head in ("npm", "pnpm", "yarn") and tail[:1] == ["install"]:
+        return "C", "INSTALL_UNPINNED"
     return None
 
 
@@ -170,6 +250,8 @@ def _classify_surface(command: str) -> Tuple[str, str]:
         return PROHIBITED, "PROHIBITED_COMMAND"
     if _OBFUSCATED_RE.search(raw):
         return PROHIBITED, "OBFUSCATED"
+    if ">" in raw:
+        return UNUNDERSTOOD, "REDIRECT"
     if any(tok in raw for tok in (";", "|", "&", "\n")):
         return UNUNDERSTOOD, "COMPOSITION"
     tokens = _tokens(raw)
@@ -231,6 +313,8 @@ def _classify_surface(command: str) -> Tuple[str, str]:
         return "D", "POWER_COMMAND"
     if head in ("sc", "net") and any(word in tail for word in ("start", "stop", "delete")):
         return "C", "SERVICE_COMMAND"
+    if head in ("out-file", "set-content", "tee", "tee-object"):
+        return UNUNDERSTOOD, "OUTPUT_SINK"
     if head in ("curl", "wget", "irm", "invoke-webrequest"):
         return "C", "DOWNLOAD"
     # Imprime. No lee una ruta. La redirección `>` no se ve aquí: es un hueco

@@ -49,6 +49,8 @@ class WhatsAppReadError(Exception):
     LOGIN_REQUIRED_QR = "LOGIN_REQUIRED_QR"
     BROWSER_LAUNCH_FAILED = "BROWSER_LAUNCH_FAILED"
     CHAT_NOT_FOUND = "CHAT_NOT_FOUND"
+    CHAT_NOT_UNIQUE = "CHAT_NOT_UNIQUE"
+    GROUP_REJECTED = "GROUP_REJECTED"
     DOM_UNRECOGNIZED = "DOM_UNRECOGNIZED"
     SEND_UNVERIFIED = "SEND_UNVERIFIED"
 
@@ -98,6 +100,30 @@ _READ_JS = r"""
 }
 """
 
+_EXACT_CHAT_CLICK_JS = r"""
+(want) => {
+  const nodes = Array.from(document.querySelectorAll(
+    'div[data-testid="chat-list"] span[title], #pane-side span[title]'));
+  const exact = nodes.filter((n) => (n.getAttribute("title") || "") === want);
+  if (exact.length === 1) exact[0].click();
+  return {match_count: exact.length};
+}
+"""
+
+_CHAT_HEADER_JS = r"""
+() => {
+  const header = document.querySelector(
+    'header[data-testid="conversation-header"], #main header');
+  if (!header) return {title: "", is_group: false};
+  const titled = header.querySelector("span[title]");
+  const title = titled ? (titled.getAttribute("title") || "") : "";
+  let isGroup = !!header.querySelector('[data-icon="default-group"], [data-icon="group"]');
+  const text = header.innerText || "";
+  if (/participan|participants/i.test(text)) isGroup = true;
+  return {title, is_group: isGroup};
+}
+"""
+
 _COMPOSE_SELECTORS = [
     'div[data-testid="conversation-compose-box-input"]',
     'footer div[contenteditable="true"]',
@@ -108,6 +134,19 @@ _COMPOSE_SELECTORS = [
 def _synthetic_id(incoming: bool, sender: str, timestamp: str, text: str) -> str:
     raw = f"{1 if incoming else 0}|{sender}|{timestamp}|{text}"
     return hashlib.sha1(raw.encode("utf-8", errors="replace")).hexdigest()[:16]
+
+
+def accept_configured_chat(configured: str, title: str, match_count: int, is_group: bool) -> str:
+    """Vacío si el chat configurado coincide exacto, una sola vez, y no es grupo.
+
+    El nombre visible no autoriza un parecido ni un grupo. «Mauro Vanegas 2025»
+    es el chat propio solo cuando el operador lo configuró así, carácter por carácter.
+    """
+    if is_group:
+        return WhatsAppReadError.GROUP_REJECTED
+    if not configured or int(match_count) != 1 or title != configured:
+        return WhatsAppReadError.CHAT_NOT_UNIQUE
+    return ""
 
 
 def _text_key(s: str) -> str:
@@ -132,6 +171,7 @@ class WhatsAppWebReader:
         self._context = None
         self._page = None
         self.current_chat: str = ""
+        self.chat_gate: str = ""
         # Textos que ESTE lector envió (normalizados): el loop no los reprocesa.
         self.sent_texts = set()
 
@@ -381,62 +421,40 @@ class WhatsAppWebReader:
                 tag = search.evaluate("(el) => el.tagName")
             except Exception:
                 tag = ""
-            # Tecleo real (fill no siempre dispara el filtrado de WA Web).
-            # Si parece un número, buscar por los últimos dígitos: el "+" y los
-            # espacios del formato internacional rompen el match exacto.
-            digits = "".join(ch for ch in chat_name if ch.isdigit())
-            query = digits[-8:] if len(digits) >= 7 else chat_name
+            # Nombre completo. Un sufijo de dígitos o un Enter abrirían otro chat.
             try:
                 search.click()
             except Exception:
                 pass
             page.keyboard.press("ControlOrMeta+a")
-            page.keyboard.type(query, delay=30)
+            page.keyboard.type(chat_name, delay=30)
             page.wait_for_timeout(2000)
-            # Clic directo en la sugerencia que contenga el nombre/dígitos (más
-            # robusto que Enter, que con 0-1 coincidencias abre paneles ajenos).
-            needle = (digits[-8:] if len(digits) >= 7
-                      else "".join(ch for ch in chat_name if ch.isalnum())[-8:])
-            suggestion = None
-            try:
-                suggestion = page.query_selector(
-                    f'div[data-testid="chat-list"] span[title*="{needle}"]')
-            except Exception:
-                suggestion = None
-            if suggestion is not None:
-                try:
-                    suggestion.click()
-                except Exception:
-                    page.keyboard.press("Enter")
-            else:
-                page.keyboard.press("Enter")
-            page.wait_for_timeout(2000)
-            # Verificar que se abrió LA conversación pedida (cabecera dedicada,
-            # no el primer header genérico de la página).
-            header = ""
-            for hsel in ('header[data-testid="conversation-header"]',
-                         '#main header'):
-                try:
-                    header = page.inner_text(hsel) or ""
-                except Exception:
-                    header = ""
-                if header:
-                    break
-            if not header:
-                try:
-                    header = page.inner_text("header") or ""
-                except Exception:
-                    header = ""
-            hlow = header.lower()
-            tail = "".join(ch for ch in chat_name if ch.isdigit())[-8:]
-            if chat_name.lower() not in hlow and (not tail or tail not in hlow):
+            picked = page.evaluate(_EXACT_CHAT_CLICK_JS, chat_name)
+            if not isinstance(picked, dict):
+                raise WhatsAppReadError(
+                    WhatsAppReadError.DOM_UNRECOGNIZED, "identidad de chat ilegible")
+            page.wait_for_timeout(500)
+            header = page.evaluate(_CHAT_HEADER_JS)
+            if not isinstance(header, dict):
+                header = {}
+            title = str(header.get("title") or "")
+            reason = accept_configured_chat(
+                chat_name,
+                title,
+                int(picked.get("match_count") or 0),
+                bool(picked.get("is_group") or header.get("is_group")),
+            )
+            if reason:
+                self.chat_gate = reason
                 try:
                     page.keyboard.press("Escape")
                 except Exception:
                     pass
                 raise WhatsAppReadError(
-                    WhatsAppReadError.CHAT_NOT_FOUND,
-                    f"sin coincidencia para '{chat_name}' (cabecera: {header[:80]!r})")
+                    reason,
+                    f"se rechaza '{chat_name}' (titulo={title!r}, "
+                    f"coincidencias={picked.get('match_count')})")
+            self.chat_gate = ""
             self.current_chat = chat_name
         except WhatsAppReadError:
             raise

@@ -132,7 +132,12 @@ class WhatsAppBridge:
             if handled:
                 self._deliver(sender=sender, message_body=message_body, response=handled)
             return handled
-        response = self.orchestrator.process_user_input(message_body, channel="remote")
+        previous = getattr(self.orchestrator, "origin_channel", "")
+        self.orchestrator.origin_channel = "whatsapp"
+        try:
+            response = self.orchestrator.process_user_input(message_body, channel="remote")
+        finally:
+            self.orchestrator.origin_channel = previous
         self._deliver(sender=sender, message_body=message_body, response=response)
         return response
 
@@ -190,6 +195,7 @@ class WhatsAppBridge:
             mission_id=f"whatsapp-{sender}",
             task_id="whatsapp-reply",
             execution_id=f"wa-exec-{abs(hash(message_body)) % 10**8}",
+            origin="whatsapp",
         )
         _walog(f"📤 [Entrega a {sender}]: {delivery[:160]}")
         return delivery
@@ -299,9 +305,18 @@ class WhatsAppBridge:
         polls = 0
         processed = 0
         replied = 0
+        gate = getattr(reader, "chat_gate", "") or ""
+        if gate:
+            raise WhatsAppReadError(
+                gate, "el puente solo acepta el chat configurado, exacto y único")
         stop_file = stop_path or _default_stop_path()
-        allowed_senders = (self.authorized_senders if self.authorized_senders is not None
-                           else [target_chat])
+        configured = (list(self.authorized_senders)
+                      if self.authorized_senders is not None else [target_chat])
+        if len(configured) != 1 or configured[0] != str(configured[0]).strip() or not configured[0]:
+            raise WhatsAppReadError(
+                WhatsAppReadError.CHAT_NOT_UNIQUE,
+                "hace falta un solo chat, coincidencia exacta")
+        allowed_senders = configured
         while not self._stop:
             if max_polls and polls >= max_polls:
                 break
@@ -349,9 +364,14 @@ class WhatsAppBridge:
                     if handled is not None:
                         response = handled
                     else:
-                        response = self.orchestrator.process_user_input(
-                            msg.text, channel="remote",
-                        )
+                        previous = getattr(self.orchestrator, "origin_channel", "")
+                        self.orchestrator.origin_channel = "whatsapp"
+                        try:
+                            response = self.orchestrator.process_user_input(
+                                msg.text, channel="remote",
+                            )
+                        finally:
+                            self.orchestrator.origin_channel = previous
                     send, shaped = self.format_whatsapp_reply(response)
                     if not send:
                         _walog(f"[WhatsAppBridge] respuesta suprimida por política "

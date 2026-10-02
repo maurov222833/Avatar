@@ -107,6 +107,8 @@ EXEC_APPROVAL_REASON = "EXEC_REQUIRES_OPERATOR_APPROVAL"
 CONTAMINATED_APPROVAL_REASON = "CONTAMINATED_CONTEXT_REQUIRES_APPROVAL"
 PATH_MASS_APPROVAL_REASON = "PATH_MASS_OPERATION"
 COMMAND_NOT_UNDERSTOOD = "COMMAND_NOT_UNDERSTOOD"
+WHATSAPP_LEVEL_C_REQUIRES_TELEGRAM = "WHATSAPP_LEVEL_C_REQUIRES_TELEGRAM"
+_ACT_LEVEL_RANK = {"A": 0, "B": 1, "C": 2, "UNUNDERSTOOD": 3, "D": 4, "PROHIBITED": 5}
 APPROVAL_GATE_REASONS = frozenset({
     EXEC_APPROVAL_REASON, CONTAMINATED_APPROVAL_REASON, PATH_MASS_APPROVAL_REASON,
     COMMAND_NOT_UNDERSTOOD,
@@ -446,6 +448,23 @@ class ActRecord:
             self.created_at,
             self.idempotency_key or "",
         )
+
+
+def act_level(act_type: str, args: Optional[Dict[str, Any]] = None) -> str:
+    """A y B pueden salir del chat propio. C o más pide un id numérico de Telegram."""
+    args = args or {}
+    if act_type == "COMMAND":
+        from core.command_risk import classify_command
+        level, _why = classify_command(str(args.get("command") or args.get("params") or ""))
+        return level
+    risk = ACT_TYPES.get(act_type)
+    return {
+        ActRisk.READ: "A",
+        ActRisk.LOCAL_WRITE: "B",
+        ActRisk.NETWORK: "C",
+        ActRisk.EXEC: "C",
+        ActRisk.EXTERNAL_MESSAGE: "D",
+    }.get(risk, "UNUNDERSTOOD")
 
 
 def _now() -> str:
@@ -856,6 +875,15 @@ class ActChokepoint:
                 "approval_id": approval_id,
                 "status": row["status"],
             }
+        if row.get("reason") == WHATSAPP_LEVEL_C_REQUIRES_TELEGRAM:
+            allowed_ids = {str(item) for item in self.policy.trusted_telegram_chat_ids}
+            resolver_id = str(resolver or "").strip()
+            if not (resolver_id.isdigit() and resolver_id in allowed_ids):
+                return {
+                    "ok": False,
+                    "error": "TELEGRAM_NUMERIC_ID_REQUIRED",
+                    "approval_id": approval_id,
+                }
 
         try:
             request = json.loads(row["request"] or "{}")
@@ -978,6 +1006,7 @@ class ActChokepoint:
         mission_id: str = "",
         task_id: str = "",
         execution_id: str = "",
+        origin: str = "",
     ) -> str:
         """
         Request, authorise, execute and observe one act.
@@ -1031,6 +1060,40 @@ class ActChokepoint:
         allowed, reason = self.policy.decide(
             act_type, args or {}, acts_already=acts_already)
         asked = reason
+        level = act_level(act_type, args)
+        needs_telegram = (
+            origin == "whatsapp"
+            and _ACT_LEVEL_RANK.get(level, 99) >= _ACT_LEVEL_RANK["C"]
+            and (allowed or reason in APPROVAL_GATE_REASONS)
+        )
+        if needs_telegram:
+            record.policy_reason = WHATSAPP_LEVEL_C_REQUIRES_TELEGRAM
+            record.status = ActStatus.PENDING_APPROVAL
+            self._persist(record)
+            if self.state_db is not None:
+                approval_id = f"apr_{uuid.uuid4().hex[:12]}"
+                self._persist_approval(
+                    approval_id=approval_id,
+                    act_id=record.act_id,
+                    mission_id=record.mission_id,
+                    task_id=record.task_id,
+                    execution_id=record.execution_id,
+                    act_type=act_type,
+                    risk=risk,
+                    request=dict(args or {}),
+                    reason=WHATSAPP_LEVEL_C_REQUIRES_TELEGRAM,
+                    status="PENDING",
+                )
+                return (
+                    f"[PENDING_APPROVAL:{approval_id}] Motivo: "
+                    f"{WHATSAPP_LEVEL_C_REQUIRES_TELEGRAM}. "
+                    f"No se ejecutó '{act_type}'. Confirma con /approve {approval_id} "
+                    f"desde un chat numérico de Telegram."
+                )
+            return (
+                f"[Bloqueado por política: {WHATSAPP_LEVEL_C_REQUIRES_TELEGRAM}] "
+                f"No se ejecutó '{act_type}'."
+            )
         if not allowed and reason in APPROVAL_GATE_REASONS:
             if self.approver is not None:
                 try:

@@ -84,6 +84,7 @@ def run_cycle(cfg, max_polls=0):
     from bridges.whatsapp_reader import WhatsAppWebReader
     from core.runtime import get_shared_orchestrator
 
+    # Chat propio de Mauro, coincidencia exacta. No es un grupo ni un nombre parecido.
     target = cfg.get("target_chat", "Mauro Vanegas 2025")
     reader = WhatsAppWebReader(
         profile_dir=os.path.join(BASE_DIR, "memory", "whatsapp_profile"))

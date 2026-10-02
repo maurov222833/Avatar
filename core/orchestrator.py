@@ -2033,6 +2033,7 @@ class AvatarOrchestrator:
             args=args or {},
             mission_id=mission_id,
             task_id=task_id,
+            origin=getattr(self, "origin_channel", "") or "",
             execution_id=execution_id,
         )
 
@@ -2300,5 +2301,6 @@ class AvatarOrchestrator:
             mission_id=self._legacy_mission_id or "",
             task_id="legacy-text-action",
             execution_id=f"legacy-exec-{uuid.uuid4().hex[:8]}",
+            origin=getattr(self, "origin_channel", "") or "",
         )
 

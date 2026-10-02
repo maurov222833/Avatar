@@ -643,6 +643,30 @@ class TelegramBridge:
             self.send_message(chat_id, f"Parada {level} activa.")
             return
 
+        stripped = text.strip()
+        if stripped.startswith("/approve") or stripped.startswith("/deny"):
+            parts = stripped.split()
+            if len(parts) < 2 or not chat_id.isdigit() or chat_id not in self.allowed_chat_ids:
+                self.send_message(
+                    chat_id,
+                    "Solo un allowed_chat_ids numérico puede confirmar: /approve <id>.",
+                )
+                return
+            orch = self.orchestrator
+            if orch is not None and orch.chokepoint is None:
+                orch.chokepoint = orch._build_chokepoint()
+            if orch is None or orch.chokepoint is None:
+                self.send_message(chat_id, "No hay chokepoint para confirmar.")
+                return
+            result = orch.chokepoint.resolve_approval(
+                parts[1],
+                approved=stripped.startswith("/approve"),
+                resolver=chat_id,
+            )
+            notice = result.get("error") or result.get("status") or "ok"
+            self.send_message(chat_id, str(notice)[:400])
+            return
+
         self.last_inbound_at = time.time()
         inbox = getattr(self, "_remote_inbox", None)
         if inbox is None:

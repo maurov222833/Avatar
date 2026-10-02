@@ -343,7 +343,7 @@ class ActPolicy:
             hard_deny = (
                 "PATH_DENYLIST", "PATH_SECRET", "PATH_RESERVED",
                 "PATH_ALTERNATE", "PATH_SHORT", "PATH_DRIVE_ROOT", "PATH_DRIVE_RELATIVE",
-                "PATH_SECURITY", "PATH_BACKUP",
+                "PATH_SECURITY", "PATH_BACKUP", "PATH_TRAILING",
             )
             for candidate in paths_in_command(str(command_text)):
                 decision, why = authorize_path(
@@ -441,6 +441,20 @@ class ActRecord:
 
 def _now() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+# Una escritura a medias no se corta. Se nombra, se deja terminar y no se abre otro acto.
+_NON_INTERRUPTIBLE = frozenset({"WRITE_FILE"})
+
+
+def _halt_block_message(act_type: str, args: Dict[str, Any], reason: str) -> str:
+    from core.halt import in_flight_critical
+    names = in_flight_critical()
+    course = f" En curso: {', '.join(names)}." if names else ""
+    return (
+        f"[Bloqueado por política: {reason}] No se ejecutó '{act_type}'.{course} "
+        f"Solicitud: {json.dumps(args or {}, ensure_ascii=False)[:200]}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -947,10 +961,7 @@ class ActChokepoint:
             record.policy_reason = halted
             record.status = ActStatus.DENIED
             self._persist(record)
-            return (
-                f"[Bloqueado por política: {halted}] No se ejecutó '{act_type}'. "
-                f"Solicitud: {json.dumps(args or {}, ensure_ascii=False)[:200]}"
-            )
+            return _halt_block_message(act_type, args or {}, halted)
 
         acts_already = None
         if mission_id and self.policy.max_acts_per_mission is not None:
@@ -1023,15 +1034,29 @@ class ActChokepoint:
             self._persist(record)
             return f"[Error]: no hay ejecutor registrado para '{act_type}'."
 
+        from core.halt import clear_critical, current_block_reason, note_critical
+        halted_now = current_block_reason()
+        if halted_now:
+            record.policy_reason = halted_now
+            record.status = ActStatus.DENIED
+            self._persist(record)
+            return _halt_block_message(act_type, args or {}, halted_now)
+
+        critical = act_type in _NON_INTERRUPTIBLE
+        if critical:
+            note_critical(record.act_id)
         try:
             result = executor(args or {})
-            record.executor_result = result
-            record.status = ActStatus.EXECUTED
         except Exception as exc:
             record.status = ActStatus.FAILED
             record.policy_reason = f"EXECUTOR_ERROR:{type(exc).__name__}"
             self._persist(record)
             return f"[Error de ejecución en {act_type}]: {exc}"
+        finally:
+            if critical:
+                clear_critical(record.act_id)
+        record.executor_result = result
+        record.status = ActStatus.EXECUTED
 
         observer = self.observers.get(act_type)
         if observer is not None:

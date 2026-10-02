@@ -88,6 +88,11 @@ def snapshot() -> Dict[str, Any]:
         return _read()
 
 
+def in_flight_critical() -> List[str]:
+    data = snapshot()
+    return [str(item) for item in (data.get("in_flight_critical") or []) if item]
+
+
 def note_critical(act_id: str) -> None:
     with _LOCK:
         data = _read()
@@ -228,6 +233,38 @@ def engage_from_hotkey() -> Dict[str, Any]:
 def os_hotkey_hook_available() -> bool:
     """El gancho global de Windows no existe en este proceso Linux."""
     return os.name == "nt"
+
+
+_WATCH_STOP: Dict[str, threading.Event] = {}
+
+
+def start_trigger_watcher(path: str, *, interval: float = 0.05) -> str:
+    """Hilo aparte del orquestador. Lee un archivo y no registra una tecla.
+
+    No arranca al importar este módulo. Quien lo llama es una prueba o un
+    proceso que ya decidió vigilar ese archivo.
+    """
+    stop = threading.Event()
+
+    def _loop() -> None:
+        while not stop.is_set():
+            poll_trigger_file(path)
+            stop.wait(interval)
+
+    with _LOCK:
+        previous = _WATCH_STOP.get(path)
+        if previous is not None:
+            previous.set()
+        _WATCH_STOP[path] = stop
+    threading.Thread(target=_loop, name="avatar-halt-trigger", daemon=True).start()
+    return "TRIGGER_WATCHER_ON"
+
+
+def stop_trigger_watcher(path: str) -> None:
+    with _LOCK:
+        stop = _WATCH_STOP.pop(path, None)
+    if stop is not None:
+        stop.set()
 
 
 def poll_trigger_file(path: str) -> Optional[str]:

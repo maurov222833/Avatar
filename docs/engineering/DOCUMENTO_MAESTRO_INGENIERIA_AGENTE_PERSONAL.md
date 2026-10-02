@@ -1,7 +1,7 @@
 # DOCUMENTO MAESTRO DE INGENIERÍA
 ## Cómo se construye un agente de IA personal, autónomo y seguro que vive en un PC
 
-**Versión:** 1.0 · **Idioma:** español · **Alcance:** concepto profesional genérico, aplicable a cualquier agente de este tipo.
+**Versión:** 1.1 (v1.1: añade ítems 8.5, 8.6, 12.9, 12.10 y antipatrones 25–27, derivados de un defecto real de E/S binaria en Windows) · **Idioma:** español · **Alcance:** concepto profesional genérico, aplicable a cualquier agente de este tipo.
 **Uso previsto:** (1) guía de construcción; (2) **línea base de auditoría**: un revisor (humano o IA) la usa para revisar un repositorio existente, encontrar defectos y detectar lo que se está escapando (ver Parte K).
 
 > **Aviso de honestidad.** Este documento es criterio de ingeniería, no una garantía. Nada de lo descrito está "probado en tu sistema" por el simple hecho de estar escrito aquí. Las políticas y APIs de plataformas externas cambian: antes de construir cada integración, se verifican con documentación vigente. Los temas legales, fiscales y financieros requieren un profesional.
@@ -414,6 +414,8 @@ El que ejecuta no es el que verifica. El verificador **re-ejecuta o re-comprueba
 - [ ] 8.2 Almacén del SO/gestor; el modelo nunca ve el valor. **S0**
 - [ ] 8.3 Escáner de secretos en CI y pre-commit. **S1**
 - [ ] 8.4 Claves de mínimo privilegio; plan de rotación. **S1**
+- [ ] 8.5 **E/S binaria explícita** en archivos de claves, tokens, sellos y bloqueos: escritura **y lectura** en modo binario (`os.O_BINARY` donde exista, `'wb'`/`'rb'`), nunca modo texto. En Windows el modo texto traduce `0x0A` a `0D 0A` y trata `0x1A` como fin de archivo, deformando el material criptográfico de forma intermitente (~12 % de las claves de 32 bytes aleatorios contienen un `0x0A`). **S0**
+- [ ] 8.6 El tamaño y formato de una clave se validan al cargarla; si no son válidos, **falla cerrada con error claro** (incluido el tamaño real). **Nunca** se regenera en silencio una clave que sella o autentica el registro: la regeneración es un comando explícito del operador, con sus consecuencias documentadas. **S0**
 
 ### 9. Canales de mando
 - [ ] 9.1 Autenticación del operador, lista de permitidos. **S0**
@@ -444,6 +446,8 @@ El que ejecuta no es el que verifica. El verificador **re-ejecuta o re-comprueba
 - [ ] 12.6 Verificador independiente del que ejecuta. **S1**
 - [ ] 12.7 Pruebas omitidas documentadas con motivo; no hay `skip` silenciosos. **S2**
 - [ ] 12.8 Cada afirmación de "listo" tiene estado de evidencia. **S1**
+- [ ] 12.9 Las pruebas de E/S usan **datos con bytes especiales** (`0x00`, `0x0A`, `0x0D`, `0x1A`, `0xFF`) y comprueban el tamaño y el contenido exactos tras escribir y releer, en el sistema operativo donde correrá el agente. **S1**
+- [ ] 12.10 Todo fallo intermitente (flaky) se investiga hasta una **causa raíz con prueba determinista**; no se archiva como "problema del entorno/plataforma" sin demostrarlo. Se mide la frecuencia (N corridas) antes y después del arreglo. **S1**
 
 ### 13. Cadena de suministro y despliegue
 - [ ] 13.1 Dependencias fijadas (lockfile con hash) y revisadas. **S1**
@@ -570,6 +574,9 @@ Lista de revisión rápida: lo que más se omite en agentes reales.
 22. **Prueba de la parada solo "en papel".**
 23. **Un solo proveedor de modelo sin cascada**; o cascada que gasta sin tope.
 24. **Falta de límite en operaciones masivas** (borrar/mover miles de archivos con una orden).
+25. **E/S de claves, tokens, sellos y archivos de bloqueo en modo texto** (o sin `O_BINARY`) en Windows: traduce saltos de línea y trata `0x1A` como fin de archivo; corrompe de forma intermitente y en Linux nunca falla, por lo que pasa desapercibido.
+26. **Atribuir un fallo intermitente al entorno o a la plataforma** sin una prueba determinista que lo demuestre (la réplica de laboratorio puede reproducir el mismo defecto que el código y confirmar la conclusión equivocada).
+27. **Regenerar en silencio una clave de sellado/autenticación** ante corrupción: invalida la verificación de lo ya firmado y permite que un archivo dañado reinicie la confianza sin que nadie lo note.
 
 ---
 

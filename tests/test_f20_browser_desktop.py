@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import contextlib
 import os
 import sys
 import tempfile
@@ -65,8 +66,9 @@ class TestF20SchemaAndTaxonomy(unittest.TestCase):
 
 class TestF20ChokepointExecutors(unittest.TestCase):
     def test_browser_navigate_and_observe_via_chokepoint(self):
-        with tempfile.TemporaryDirectory(prefix="avatar_f20_") as tmp:
-            db = StateEngine(db_path=os.path.join(tmp, "state.db"))
+        with contextlib.ExitStack() as stack:
+            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="avatar_f20_"))
+            db = stack.enter_context(contextlib.closing(StateEngine(db_path=os.path.join(tmp, "state.db"))))
             calls = []
 
             class FakeBrowser:
@@ -123,8 +125,9 @@ class TestF20ChokepointExecutors(unittest.TestCase):
             self.assertIn(("close",), calls)
 
     def test_desktop_hotkey_runs_without_exec_approval(self):
-        with tempfile.TemporaryDirectory(prefix="avatar_f20h_") as tmp:
-            db = StateEngine(db_path=os.path.join(tmp, "state.db"))
+        with contextlib.ExitStack() as stack:
+            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="avatar_f20h_"))
+            db = stack.enter_context(contextlib.closing(StateEngine(db_path=os.path.join(tmp, "state.db"))))
             ran = []
             cp = ActChokepoint(
                 state_db=db,
@@ -143,8 +146,9 @@ class TestF20ChokepointExecutors(unittest.TestCase):
             self.assertNotEqual(cp.list_acts("m3")[-1]["status"], ActStatus.PENDING_APPROVAL)
 
     def test_desktop_click_requires_approval_without_approver(self):
-        with tempfile.TemporaryDirectory(prefix="avatar_f20d_") as tmp:
-            db = StateEngine(db_path=os.path.join(tmp, "state.db"))
+        with contextlib.ExitStack() as stack:
+            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="avatar_f20d_"))
+            db = stack.enter_context(contextlib.closing(StateEngine(db_path=os.path.join(tmp, "state.db"))))
             ran = []
             cp = ActChokepoint(
                 state_db=db,

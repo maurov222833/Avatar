@@ -138,6 +138,11 @@ def configure_logging(
         file_path = log_file if log_file is not None else os.environ.get(LOG_ENV_FILE, "").strip()
 
         root = logging.getLogger("avatar")
+        for handler in list(root.handlers):
+            try:
+                handler.close()
+            except Exception:
+                pass
         root.handlers.clear()
         root.setLevel(lvl)
         root.propagate = False

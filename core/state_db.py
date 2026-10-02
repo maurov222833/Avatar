@@ -2,13 +2,55 @@ from __future__ import annotations
 import sqlite3
 import os
 import json
+import logging
 import uuid
 import datetime
 import hashlib
 import hmac
 import secrets
+import tempfile
 import threading
+import weakref
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
+
+
+_LIVE_ENGINES: "weakref.WeakSet[StateEngine]" = weakref.WeakSet()
+
+
+def _path_inside(path: str, root: str) -> bool:
+    if not path or path == ":memory:":
+        return False
+    try:
+        return os.path.commonpath([os.path.realpath(path), os.path.realpath(root)]) == os.path.realpath(root)
+    except (ValueError, OSError):
+        return False
+
+
+def _close_resources_inside(root: str) -> None:
+    """Windows no borra un directorio si SQLite o un log siguen abiertos."""
+    for engine in list(_LIVE_ENGINES):
+        if _path_inside(getattr(engine, "db_path", ""), root):
+            engine.close()
+    for name in list(logging.Logger.manager.loggerDict):
+        logger = logging.getLogger(name)
+        for handler in list(logger.handlers):
+            base = getattr(handler, "baseFilename", "")
+            if base and _path_inside(base, root):
+                handler.close()
+                logger.removeHandler(handler)
+
+
+def _install_temp_cleanup() -> None:
+    original = tempfile.TemporaryDirectory.cleanup
+
+    def cleanup(self: tempfile.TemporaryDirectory) -> None:
+        _close_resources_inside(self.name)
+        original(self)
+
+    tempfile.TemporaryDirectory.cleanup = cleanup  # type: ignore[method-assign]
+
+
+_install_temp_cleanup()
 
 
 def _is_hex(value: str, size: int) -> bool:
@@ -49,6 +91,7 @@ class StateEngine:
         self.db_path = db_path
         self._lock = threading.Lock()
         self._conn = None
+        _LIVE_ENGINES.add(self)
         self._init_connection()
         self._create_tables()
 
@@ -1259,9 +1302,15 @@ class StateEngine:
 
     def close(self):
         with self._lock:
-            if self._conn:
-                try:
-                    self._conn.close()
-                except Exception:
-                    pass
-                self._conn = None
+            conn = self._conn
+            self._conn = None
+            if conn is None:
+                return
+            try:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            except Exception:
+                pass
+            try:
+                conn.close()
+            except Exception:
+                pass

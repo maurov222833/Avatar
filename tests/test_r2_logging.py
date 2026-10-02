@@ -21,6 +21,8 @@ class TestStructuredLogging(unittest.TestCase):
         lu._CONFIGURED = False
         lu._EXTRA_SECRETS.clear()
         root = logging.getLogger("avatar")
+        for handler in list(root.handlers):
+            handler.close()
         root.handlers.clear()
 
     def test_json_log_redacts_known_and_shaped_secrets(self):
@@ -85,6 +87,10 @@ class TestStructuredLogging(unittest.TestCase):
             content = Path(path).read_text(encoding="utf-8")
             self.assertIn("file-line", content)
             self.assertIn('"level": "INFO"', content)
+            root = logging.getLogger("avatar")
+            for handler in list(root.handlers):
+                handler.close()
+            root.handlers.clear()
 
 
 class TestRequirementsLock(unittest.TestCase):

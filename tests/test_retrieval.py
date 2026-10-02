@@ -1,6 +1,7 @@
 """Búsqueda de memoria: palabras partidas y fichas de conocimiento vigentes."""
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -15,15 +16,19 @@ from core.state_db import StateEngine
 
 class RetrievalTests(unittest.TestCase):
     def test_hyphenated_topic_matches_the_word(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            mem = RAGMemory(memory_dir=tmp, state_db=StateEngine(os.path.join(tmp, "s.db")))
+        with contextlib.ExitStack() as stack:
+            tmp = stack.enter_context(tempfile.TemporaryDirectory())
+            db = stack.enter_context(contextlib.closing(StateEngine(os.path.join(tmp, "s.db"))))
+            mem = RAGMemory(memory_dir=tmp, state_db=db)
             mem.save_knowledge("canal-24-7", "El candado del perfil se renueva solo.")
             hit = mem.search_knowledge("canal")
             self.assertIn("candado", hit)
 
     def test_valid_expertise_is_found_and_expired_is_not(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            mem = RAGMemory(memory_dir=tmp, state_db=StateEngine(os.path.join(tmp, "s.db")))
+        with contextlib.ExitStack() as stack:
+            tmp = stack.enter_context(tempfile.TemporaryDirectory())
+            db = stack.enter_context(contextlib.closing(StateEngine(os.path.join(tmp, "s.db"))))
+            mem = RAGMemory(memory_dir=tmp, state_db=db)
             with open(os.path.join(tmp, "expertise.json"), "w", encoding="utf-8") as handle:
                 json.dump([
                     {
@@ -44,8 +49,10 @@ class RetrievalTests(unittest.TestCase):
             self.assertNotIn("tarifa vieja", hit)
 
     def test_expertise_alone_is_searchable(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            mem = RAGMemory(memory_dir=tmp, state_db=StateEngine(os.path.join(tmp, "s.db")))
+        with contextlib.ExitStack() as stack:
+            tmp = stack.enter_context(tempfile.TemporaryDirectory())
+            db = stack.enter_context(contextlib.closing(StateEngine(os.path.join(tmp, "s.db"))))
+            mem = RAGMemory(memory_dir=tmp, state_db=db)
             with open(os.path.join(tmp, "expertise.json"), "w", encoding="utf-8") as handle:
                 json.dump([{
                     "domain": "proveedor",

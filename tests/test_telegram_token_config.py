@@ -95,7 +95,8 @@ class TestTelegramTokenConfigPath(unittest.TestCase):
             )
             self.assertIn("RESULT:OK", out)
             self.assertNotIn(token, out)
-            stored = json.load(open(config_path(), encoding="utf-8"))
+            with open(config_path(), encoding="utf-8") as handle:
+                stored = json.load(handle)
             self.assertEqual(stored["telegram"]["bot_token"], token)
         finally:
             runtime.reset_shared_orchestrator()

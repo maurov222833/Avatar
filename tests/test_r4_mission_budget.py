@@ -1,6 +1,7 @@
 """R4: per-mission act and LLM call budgets."""
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 import tempfile
@@ -19,8 +20,9 @@ from core.state_db import StateEngine
 
 class TestR4MissionBudget(unittest.TestCase):
     def test_max_acts_per_mission_blocks_further_acts(self):
-        with tempfile.TemporaryDirectory(prefix="avatar_r4_") as tmp:
-            db = StateEngine(db_path=os.path.join(tmp, "state.db"))
+        with contextlib.ExitStack() as stack:
+            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="avatar_r4_"))
+            db = stack.enter_context(contextlib.closing(StateEngine(db_path=os.path.join(tmp, "state.db"))))
             ran = []
             cp = ActChokepoint(
                 state_db=db,
@@ -42,8 +44,9 @@ class TestR4MissionBudget(unittest.TestCase):
             self.assertEqual(cp.list_acts("m")[-1]["policy_reason"], MISSION_ACT_BUDGET_EXCEEDED)
 
     def test_budget_is_per_mission(self):
-        with tempfile.TemporaryDirectory(prefix="avatar_r4b_") as tmp:
-            db = StateEngine(db_path=os.path.join(tmp, "state.db"))
+        with contextlib.ExitStack() as stack:
+            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="avatar_r4b_"))
+            db = stack.enter_context(contextlib.closing(StateEngine(db_path=os.path.join(tmp, "state.db"))))
             ran = []
             cp = ActChokepoint(
                 state_db=db,

@@ -1,6 +1,7 @@
 """Telegram status/send/test acts — bidirectional probe without COMMAND scripts."""
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -36,8 +37,9 @@ class TestTelegramActs(unittest.TestCase):
         self.assertIn("prohibido improvisar", p)
 
     def test_status_via_chokepoint_with_mocked_api(self):
-        with tempfile.TemporaryDirectory(prefix="avatar_tg_st_") as tmp:
-            db = StateEngine(db_path=os.path.join(tmp, "s.db"))
+        with contextlib.ExitStack() as stack:
+            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="avatar_tg_st_"))
+            db = stack.enter_context(contextlib.closing(StateEngine(db_path=os.path.join(tmp, "s.db"))))
             orch = AvatarOrchestrator.__new__(AvatarOrchestrator)
             orch.state_db = db
             orch.config = {"telegram": {"bot_token": "1:AAFAKE", "allowed_chat_ids": []}}
@@ -76,8 +78,9 @@ class TestTelegramActs(unittest.TestCase):
             self.assertTrue(data["hint"])
 
     def test_send_to_allowlisted_chat_skips_dry_run(self):
-        with tempfile.TemporaryDirectory(prefix="avatar_tg_send_") as tmp:
-            db = StateEngine(db_path=os.path.join(tmp, "s.db"))
+        with contextlib.ExitStack() as stack:
+            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="avatar_tg_send_"))
+            db = stack.enter_context(contextlib.closing(StateEngine(db_path=os.path.join(tmp, "s.db"))))
             sent = []
 
             class FakeBridge:
@@ -110,8 +113,9 @@ class TestTelegramActs(unittest.TestCase):
             self.assertNotEqual(cp.list_acts("m")[-1]["status"], ActStatus.DENIED)
 
     def test_send_to_unknown_chat_blocked_by_dry_run(self):
-        with tempfile.TemporaryDirectory(prefix="avatar_tg_block_") as tmp:
-            db = StateEngine(db_path=os.path.join(tmp, "s.db"))
+        with contextlib.ExitStack() as stack:
+            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="avatar_tg_block_"))
+            db = stack.enter_context(contextlib.closing(StateEngine(db_path=os.path.join(tmp, "s.db"))))
             cp = ActChokepoint(
                 state_db=db,
                 policy=ActPolicy(
@@ -133,8 +137,9 @@ class TestTelegramActs(unittest.TestCase):
             self.assertEqual(cp.list_acts("m")[-1]["status"], ActStatus.DENIED)
 
     def test_telegram_test_reports_missing_allowlist(self):
-        with tempfile.TemporaryDirectory(prefix="avatar_tg_test_") as tmp:
-            db = StateEngine(db_path=os.path.join(tmp, "s.db"))
+        with contextlib.ExitStack() as stack:
+            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="avatar_tg_test_"))
+            db = stack.enter_context(contextlib.closing(StateEngine(db_path=os.path.join(tmp, "s.db"))))
 
             class FakeBridge:
                 bot_token = "1:AA"

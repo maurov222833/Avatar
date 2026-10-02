@@ -1,5 +1,7 @@
 # Decisión: las dos specs pedidas no se recuperan
 
+**Cierre 2026-10-02.** Mauro las adjuntó. Quedaron en `docs/engineering/` con los bytes recibidos, sin edición. El índice y `SPEC_HASHES.txt` apuntan a esos archivos. Lo que sigue es el registro de la búsqueda del 2026-10-01, no el estado vigente.
+
 Fecha: 2026-10-01. La dijo Mauro: ya no los encuentra.
 
 Nombres cerrados, sin hash y sin texto rehecho:

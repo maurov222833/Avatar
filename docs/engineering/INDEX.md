@@ -5,9 +5,9 @@ La spec v2 manda sobre la memoria de una conversación. Estos son los nombres pe
 | Nombre pedido | Ruta | Estado |
 |---|---|---|
 | `MASTER_DIRECTIVE_002.md` | `docs/engineering/handover/MASTER_DIRECTIVE_002.md` | En el repo desde `e02c9b5` |
-| `AVATAR_ENGINEERING_SPEC_003_v2_COMPLETA.md` | — | `PERDIDO` el 2026-10-01. Mauro confirmó que no se recupera. Decisión: `handover/SPEC_PERDIDAS_DECISION.md`. |
-| `AVATAR_SPEC_003_ADDENDUM_3_U18_DIRECTOR_DE_DESARROLLO.md` | — | `PERDIDO` el 2026-10-01. Mauro confirmó que no se recupera. Decisión: `handover/SPEC_PERDIDAS_DECISION.md`. |
+| `AVATAR_ENGINEERING_SPEC_003_v2_COMPLETA.md` | `docs/engineering/AVATAR_ENGINEERING_SPEC_003_v2_COMPLETA.md` | Recibida el 2026-10-02. Bytes sin modificar. |
+| `AVATAR_SPEC_003_ADDENDUM_3_U18_DIRECTOR_DE_DESARROLLO.md` | `docs/engineering/AVATAR_SPEC_003_ADDENDUM_3_U18_DIRECTOR_DE_DESARROLLO.md` | Recibida el 2026-10-02. Bytes sin modificar. |
 
 Hashes: `docs/engineering/SPEC_HASHES.txt`.
 
-Esos dos nombres quedan cerrados. Manda lo que sí está en el repo: `MASTER_DIRECTIVE_002.md`, `ENGINEERING_SPEC_003.md`, `SPEC_003_V2_GAP.md`, `U18_0_PREPARACION.md` y `U18_COMPARACION.md`, todos bajo `docs/engineering/handover/`. Si una tarea necesita una frase que solo estaba en el texto perdido, se pregunta esa decisión y el resto sigue.
+A partir de esta fecha manda `AVATAR_ENGINEERING_SPEC_003_v2_COMPLETA.md`. La adenda 3 manda en U18. `MASTER_DIRECTIVE_002.md` sigue en el repo. La búsqueda anterior quedó en `handover/SPEC_PERDIDAS_DECISION.md` y ya no cierra estos dos nombres.

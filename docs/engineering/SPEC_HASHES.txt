@@ -1,6 +1,6 @@
 # SHA-256 de los documentos de referencia.
-# ABSENT = no llegó. PERDIDO = Mauro confirmó que no se recupera. No hay hash de un texto inventado.
+# Hash del archivo commiteado. No se recalcula sobre una copia editada.
 
 MASTER_DIRECTIVE_002.md  0a1e540dea8175bf1e3f2fe128aebebcf2be1000be3e89c3d7d4e06c8d64a988  docs/engineering/handover/MASTER_DIRECTIVE_002.md
-AVATAR_ENGINEERING_SPEC_003_v2_COMPLETA.md  PERDIDO  docs/engineering/handover/SPEC_PERDIDAS_DECISION.md
-AVATAR_SPEC_003_ADDENDUM_3_U18_DIRECTOR_DE_DESARROLLO.md  PERDIDO  docs/engineering/handover/SPEC_PERDIDAS_DECISION.md
+AVATAR_ENGINEERING_SPEC_003_v2_COMPLETA.md  5e698e4a472f59ccc6a4999aa7293aead577c665bd38661737e5581e7bc549d1  docs/engineering/AVATAR_ENGINEERING_SPEC_003_v2_COMPLETA.md
+AVATAR_SPEC_003_ADDENDUM_3_U18_DIRECTOR_DE_DESARROLLO.md  7735f8efa66d1f216e1aa9e5aef232dc9ea9572c35efe77157d17c262d73e6c2  docs/engineering/AVATAR_SPEC_003_ADDENDUM_3_U18_DIRECTOR_DE_DESARROLLO.md

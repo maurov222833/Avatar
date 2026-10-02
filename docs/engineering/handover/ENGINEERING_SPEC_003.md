@@ -69,7 +69,7 @@ Mauro entregó la adenda «Director de desarrollo». Quedó como U18 en la fase 
 
 ### 2026-10-01 — estado vigente
 
-El simulador de U18 ya tiene código y pruebas en Linux: `core/dev_director.py` y `FakeDevAgent`. El detalle está en `SPEC_003_CIERRE.md` y `U18_COMPARACION.md`. No hay IDE real, no hay carta aprobada, la tecla global no está instalada, WhatsApp sigue aparcado y no se fusiona a `main`. Esas puertas están en `GATES_CERRADAS.md`. `exec_requires_approval` sigue activo. Las dos specs pedidas por nombre siguen `PERDIDO` (`SPEC_PERDIDAS_DECISION.md`).
+El simulador de U18 ya tiene código y pruebas en Linux: `core/dev_director.py` y `FakeDevAgent`. El detalle está en `SPEC_003_CIERRE.md` y `U18_COMPARACION.md`. No hay IDE real, no hay carta aprobada, la tecla global no está instalada, WhatsApp sigue aparcado y no se fusiona a `main`. Esas puertas están en `GATES_CERRADAS.md`. `exec_requires_approval` sigue activo. Las dos specs pedidas por nombre llegaron el 2026-10-02 y están en `docs/engineering/` (`SPEC_HASHES.txt`). La búsqueda del 2026-10-01 queda en `SPEC_PERDIDAS_DECISION.md`.
 
 ## Prueba en el PC
 

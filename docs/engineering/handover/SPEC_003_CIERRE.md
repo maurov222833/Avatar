@@ -42,6 +42,12 @@ La base viva no cambió de tamaño (1482752, wal 1899352, shm 32768) y la clave 
 
 El respaldo `avatar_sandbox\respaldo_memory`, leído en una copia, tiene filas parecidas a pruebas: 73 misiones, 337 actos, 46 de memoria. Eso es suciedad anterior al pin. No se restauró la base.
 
+## Informe OpenCode 10 (2026-10-02, commit `ee8b568`)
+
+Otra corrida en Windows: 798 pruebas, 1 error, 2 omitidas, salida 1. La fase 3 sigue `TESTED_LINUX`. Windows y PC de esas correcciones siguen `UNVERIFIED`.
+
+Desaparecieron los 50 errores de import y los 2 fallos de escritorio del informe 9. La base viva, el wal, el shm, la clave de 32 bytes y `memory\screen_observation.png` no cambiaron de tamaño ni de hora. El error que queda es el fixture del navegador: no pudo abrir el puerto 8765 porque lo tenía en escucha `Cursor.exe` (PID 8180). Esa clase no llegó a ejecutarse. No es un fallo de aserción del arreglo.
+
 ## Riesgo que queda
 
 La parada vive en el proceso. Otro código que llame a una herramienta saltándose el chokepoint no la ve. La tecla global y las pruebas de rutas en Windows siguen pendientes. La prueba corta de Telegram en el PC ya la cerró Mauro el 2026-09-30.

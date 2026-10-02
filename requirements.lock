@@ -13,6 +13,9 @@ colorama==0.4.6
 fastapi==0.141.1
 greenlet==3.5.6
 h11==0.16.0
+# httpx 0.28.1: admitido por Starlette 1.7 (httpx>=0.27,<0.29). httpx2 es el preferido
+# y no se instala aquí. Hashes de PyPI en requirements-httpx.txt.
+httpx==0.28.1
 idna==3.20
 iniconfig==2.3.0
 markdown-it-py==4.2.0

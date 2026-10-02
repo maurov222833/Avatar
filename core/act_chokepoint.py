@@ -48,6 +48,7 @@ class ActStatus:
     FAILED = "FAILED"
     OBSERVED = "OBSERVED"
     OBSERVATION_FAILED = "OBSERVATION_FAILED"
+    INTERRUPTED = "INTERRUPTED"
 
 
 class ActRisk:
@@ -432,6 +433,7 @@ class ActRecord:
     observed: Optional[Dict[str, Any]] = None
     observation_verified: Optional[bool] = None
     created_at: str = ""
+    idempotency_key: str = ""
 
     def to_row(self) -> Tuple:
         return (
@@ -442,6 +444,7 @@ class ActRecord:
             json.dumps(self.observed, ensure_ascii=False)[:2000] if self.observed else None,
             None if self.observation_verified is None else (1 if self.observation_verified else 0),
             self.created_at,
+            self.idempotency_key or "",
         )
 
 
@@ -622,6 +625,20 @@ class ActChokepoint:
                 "CREATE INDEX IF NOT EXISTS idx_acts_mission ON acts(mission_id)")
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_acts_created ON acts(created_at)")
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(acts)")}
+            if "idempotency_key" not in columns:
+                conn.execute("ALTER TABLE acts ADD COLUMN idempotency_key TEXT")
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_acts_idempotency "
+                "ON acts(idempotency_key) WHERE idempotency_key IS NOT NULL "
+                "AND idempotency_key != ''"
+            )
+            # Un REQUESTED sin resultado es una caída a mitad. No se reejecuta.
+            conn.execute(
+                "UPDATE acts SET status = ?, policy_reason = ?, observation_verified = 0 "
+                "WHERE status = ? AND (executor_result IS NULL OR executor_result = '')",
+                (ActStatus.INTERRUPTED, "UNVERIFIED", ActStatus.REQUESTED),
+            )
             conn.execute("""
             CREATE TABLE IF NOT EXISTS approvals (
                 approval_id TEXT PRIMARY KEY,
@@ -711,6 +728,19 @@ class ActChokepoint:
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
 
+    def _act_by_idempotency(self, key: str) -> Optional[Dict[str, Any]]:
+        if not self.state_db or not key:
+            return None
+        with self.state_db._lock:
+            conn = self.state_db._get_connection()
+            cur = conn.execute(
+                "SELECT * FROM acts WHERE idempotency_key = ?", (key,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            cols = [d[0] for d in cur.description]
+            return dict(zip(cols, row))
+
     def _persist(self, record: ActRecord):
         if not self.state_db:
             return
@@ -719,7 +749,8 @@ class ActChokepoint:
             conn.execute(
                 "INSERT OR REPLACE INTO acts (act_id, mission_id, task_id, execution_id, act_type,"
                 " risk, request, status, policy_reason, dry_run, executor_result, observed,"
-                " observation_verified, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " observation_verified, created_at, idempotency_key) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 record.to_row())
             conn.commit()
 
@@ -955,6 +986,14 @@ class ActChokepoint:
         expects, so integrating the chokepoint does not require rewriting the planning layer.
         """
         risk = ACT_TYPES.get(act_type, "UNKNOWN")
+        args = dict(args or {})
+        key = str(args.pop("idempotency_key", "") or "").strip() or f"idem_{uuid.uuid4().hex}"
+        prior = self._act_by_idempotency(key)
+        if prior is not None:
+            return (
+                f"[INTERRUPTED/UNVERIFIED] No se reejecuta '{act_type}'. "
+                f"La clave {key} ya está en {prior.get('status')}."
+            )
         record = ActRecord(
             act_id=f"act_{uuid.uuid4().hex[:12]}",
             mission_id=mission_id or "",
@@ -962,12 +1001,14 @@ class ActChokepoint:
             execution_id=execution_id or "",
             act_type=act_type,
             risk=risk,
-            request=dict(args or {}),
+            request=args,
             status=ActStatus.REQUESTED,
             policy_reason="",
             dry_run=self.policy.dry_run,
             created_at=_now(),
+            idempotency_key=key,
         )
+        self._persist(record)
 
         from core.halt import current_block_reason
         halted = current_block_reason()
@@ -980,7 +1021,10 @@ class ActChokepoint:
         acts_already = None
         if mission_id and self.policy.max_acts_per_mission is not None:
             try:
-                acts_already = len(self.list_acts(mission_id=mission_id))
+                acts_already = len([
+                    row for row in self.list_acts(mission_id=mission_id)
+                    if row.get("act_id") != record.act_id
+                ])
             except Exception:
                 acts_already = None
 

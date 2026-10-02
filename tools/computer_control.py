@@ -175,6 +175,15 @@ class ComputerControl:
 
         # 3. ACT (Ejecutar Acción)
         coords = self.resolve_target_coordinates(target, target_win)
+        if action_type in ("click", "double_click") and not coords:
+            return {
+                "status": ActionStatus.TARGET_NOT_FOUND,
+                "action": action_type,
+                "message": "No se pudieron resolver las coordenadas del objetivo.",
+                "coordinates": None,
+                "executed": False,
+                "verified": False,
+            }
         execution_msg = ""
         action_ok = False
 
@@ -187,12 +196,9 @@ class ComputerControl:
             pyautogui.FAILSAFE = True
             
             if action_type == "click":
-                if coords:
-                    pyautogui.click(coords[0], coords[1], button=action_args.get("button", "left"))
-                    execution_msg = f"Clic ejecutado en coordenadas ({coords[0]}, {coords[1]})"
-                    action_ok = True
-                else:
-                    return {"status": ActionStatus.TARGET_NOT_FOUND, "message": "No se pudieron resolver las coordenadas del objetivo."}
+                pyautogui.click(coords[0], coords[1], button=action_args.get("button", "left"))
+                execution_msg = f"Clic ejecutado en coordenadas ({coords[0]}, {coords[1]})"
+                action_ok = True
 
             elif action_type == "double_click":
                 if coords:

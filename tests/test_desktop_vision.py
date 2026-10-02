@@ -28,6 +28,20 @@ class TestDesktopInputStaysOff(unittest.TestCase):
         self.assertNotEqual(os.path.abspath(path), os.path.abspath(repo_memory))
         db.close()
 
+    def test_unresolved_click_reports_target_not_found(self):
+        folder = tempfile.mkdtemp()
+        db = StateEngine(db_path=os.path.join(folder, "state.db"))
+        control = ComputerControl(state_db=db, checkpoint_engine=CheckpointEngine(state_db=db))
+        os.environ.pop("AVATAR_ALLOW_REAL_INPUT", None)
+        res = control.execute_gui_action(
+            action="click",
+            target={"invalid_key": "invalid_val"},
+            wait_seconds=0,
+        )
+        self.assertEqual(res["status"], ActionStatus.TARGET_NOT_FOUND)
+        self.assertFalse(res.get("executed", False))
+        db.close()
+
     def test_real_click_requires_an_explicit_variable(self):
         folder = tempfile.mkdtemp()
         db = StateEngine(db_path=os.path.join(folder, "state.db"))

@@ -237,6 +237,42 @@ class DirectorTests(unittest.TestCase):
         hung = DevDirector(FakeDevAgent(self.root), self.root).tick(_wp(), {"mode": "hang"})
         self.assertTrue(hung.startswith("S10_"))
 
+    def test_a_running_compile_is_not_dispatched_again(self):
+        director = DevDirector(FakeDevAgent(self.root), self.root)
+        director.begin("compilar", digest_present=True)
+        first = director.run_next([_wp(id="WP-1"), _wp(id="WP-2")], {"mode": "long_job"})
+        self.assertEqual(first, "S14_WAIT")
+        self.assertEqual(len(director.agent.instructions), 1)
+        again = director.run_next([_wp(id="WP-1"), _wp(id="WP-2")], {"mode": "advance"})
+        self.assertEqual(again, "S14_WAIT")
+        self.assertEqual(len(director.agent.instructions), 1)
+        self.assertEqual(len(director.mission["stall_reports"]), 1)
+        self.assertEqual(director.mission["state"], "IN_PROGRESS")
+        self.assertEqual(director.mission["accepted"], [])
+        task_id = director.mission["task_id"]
+        dispatch = director.mission["dispatch_dir"]
+        target = os.path.join(dispatch, "out.txt")
+        with open(target, "w", encoding="utf-8") as handle:
+            handle.write("ok")
+        director.agent.tasks[task_id].update({
+            "status": "exited",
+            "activity": False,
+            "claim": "hecho",
+            "tests_passed": True,
+            "written": [target],
+            "pending_command": "",
+            "log": "",
+            "diff": "",
+        })
+        finished = director.run_next([_wp(id="WP-1"), _wp(id="WP-2")], {"mode": "advance"})
+        self.assertEqual(finished, "ACCEPTED")
+        self.assertEqual(len(director.agent.instructions), 1)
+        self.assertEqual(director.mission["accepted"], ["WP-1"])
+        nxt = director.run_next([_wp(id="WP-1"), _wp(id="WP-2")], {"mode": "advance"})
+        self.assertEqual(nxt, "ACCEPTED")
+        self.assertEqual(len(director.agent.instructions), 2)
+        self.assertEqual(director.mission["accepted"], ["WP-1", "WP-2"])
+
     def test_decisions_merge_gap_and_untrusted_text(self):
         merge = request_merge("main", DevEnvelope())
         self.assertEqual(merge["status"], "QUEUED")

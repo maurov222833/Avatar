@@ -291,6 +291,26 @@ def package_record(items: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]
     ]
 
 
+_PACKAGE_KEYS = (
+    "id",
+    "title",
+    "project",
+    "goal",
+    "allowed",
+    "forbidden",
+    "acceptance",
+    "verify",
+    "branch",
+    "read",
+    "rejected_licenses",
+)
+
+
+def package_snapshot(wp: Dict[str, Any]) -> Dict[str, Any]:
+    """Lo justo para volver a verificar el mismo paquete. Sin campos de más."""
+    return {key: wp[key] for key in _PACKAGE_KEYS if key in wp}
+
+
 def isolate_dispatch(root: str, wp_id: str) -> str:
     """PB-04. Carpeta aparte. No crea la rama main ni llama a git."""
     name = (wp_id or "wp").strip()
@@ -736,6 +756,9 @@ class DevDirector:
                 return "PB01_PENDIENTE"
             self.keeper.write(self.mission)
             return "DIGEST_NO_VERIFICADO"
+        polled = self._poll_compile()
+        if polled is not None:
+            return polled
         planned = plan_packages(items)
         self.mission["package_list"] = package_record(items)
         accepted = {str(item) for item in (self.mission.get("accepted") or [])}
@@ -800,6 +823,7 @@ class DevDirector:
             return "WP_SIN_CRITERIOS"
         briefing = build_briefing(wp)
         self.mission["briefing"] = briefing
+        self.mission["active_package"] = package_snapshot(wp)
         payload = dict(brief or {})
         payload["instruction"] = briefing
         payload["allowed_dir"] = payload.get("allowed_dir") or self.root
@@ -813,10 +837,39 @@ class DevDirector:
             obs["extra_spend"] = True
         self.envelope.spent_tokens += int(obs.get("tokens") or 0)
         self.mission["cost"] = self.envelope.spent_tokens
+        return self._judge(wp, obs, payload["allowed_dir"])
+
+    def _poll_compile(self) -> Optional[str]:
+        """PB-05. Una compilación en curso no abre otra tarea."""
+        if self.mission.get("state") != "IN_PROGRESS":
+            return None
+        reports = self.mission.get("stall_reports") or []
+        if not reports or reports[-1].get("type") != "S14":
+            return None
+        task_id = str(self.mission.get("task_id") or "")
+        allowed = str(self.mission.get("dispatch_dir") or self.root)
+        if not task_id or not hasattr(self.agent, "observe"):
+            self.keeper.write(self.mission)
+            return "S14_WAIT"
+        obs = dict(self.agent.observe(task_id) or {})
+        obs["allowed_dir"] = allowed
+        if detect_stall(obs) == "S14":
+            self.mission["summary"] = "compilacion en curso"
+            self.keeper.write(self.mission)
+            return "S14_WAIT"
+        wp = self.mission.get("active_package")
+        if not isinstance(wp, dict) or not wp.get("acceptance"):
+            self.mission["state"] = "WAITING_FOR_MAURO"
+            self.mission["summary"] = "compilacion termino sin paquete"
+            self.keeper.write(self.mission)
+            return "S14_SIN_PAQUETE"
+        return self._judge(wp, obs, allowed)
+
+    def _judge(self, wp: Dict[str, Any], obs: Dict[str, Any], allowed_dir: str) -> str:
         stall = detect_stall(obs)
         if stall:
-            return self._on_stall(stall, obs, wp, payload["allowed_dir"])
-        problems = verify_package(wp, obs, payload["allowed_dir"])
+            return self._on_stall(stall, obs, wp, allowed_dir)
+        problems = verify_package(wp, obs, allowed_dir)
         self.mission["gates"] = evaluated_gates(wp, obs, problems)
         self.mission["playbook"] = "PB-06"
         if problems:

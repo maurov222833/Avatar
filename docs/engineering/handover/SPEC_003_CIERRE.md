@@ -50,6 +50,8 @@ Desaparecieron los 50 errores de import y los 2 fallos de escritorio del informe
 
 El informe 11 no volvió a correr la suite: el mismo `Cursor.exe` seguía en el 8765. El fixture de navegador ahora pide un puerto libre al sistema, así que esa escucha ya no bloquea la clase.
 
+El informe 12, en `b7e5e4e`, corrió 809 pruebas con el 8765 ocupado por Cursor. Salida 1, un solo error: la prueba nueva intentó ocupar ella el 8765 y Windows respondió `WinError 10013`. Cero fallos de aserción. La base, el wal, el shm, la clave de 32 bytes y la captura no cambiaron. La fase 3 sigue `TESTED_LINUX`. Si el 8765 ya lo tiene otro proceso, esa prueba lo acepta y sigue con un puerto libre.
+
 ## Riesgo que queda
 
 La parada vive en el proceso. Otro código que llame a una herramienta saltándose el chokepoint no la ve. La tecla global y las pruebas de rutas en Windows siguen pendientes. La prueba corta de Telegram en el PC ya la cerró Mauro el 2026-09-30.

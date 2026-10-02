@@ -28,7 +28,11 @@ class TestLocalFixturePort(unittest.TestCase):
         class _Blocker(socketserver.TCPServer):
             allow_reuse_address = True
 
-        blocker = _Blocker(("127.0.0.1", 8765), socketserver.BaseRequestHandler)
+        blocker = None
+        try:
+            blocker = _Blocker(("127.0.0.1", 8765), socketserver.BaseRequestHandler)
+        except OSError:
+            blocker = None
         server = LocalTestServer(port=0)
         try:
             server.start()
@@ -36,7 +40,8 @@ class TestLocalFixturePort(unittest.TestCase):
             self.assertNotEqual(server.port, 8765)
         finally:
             server.stop()
-            blocker.server_close()
+            if blocker is not None:
+                blocker.server_close()
 
 
 class TestBrowserEngine(unittest.TestCase):

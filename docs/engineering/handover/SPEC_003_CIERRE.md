@@ -1,7 +1,7 @@
 # Cierre Spec 003 — U1 a U18
 
 Matriz revisada el 2026-10-02. Rama `cursor/spec-003-u1-u17-5763`.
-El 2026-09-30 Mauro confirmó en su PC la captura, «dale play» y «pausa» sobre la misma canción, y `/pause` a mitad de un acto inocuo. Eso es `VERIFIED_PC` de esos tres pasos. El resto, en Windows y en el PC, es `UNVERIFIED`.
+El 2026-09-30 Mauro confirmó en su PC la captura, «dale play» y «pausa» sobre la misma canción, y `/pause` a mitad de un acto inocuo. Eso es `VERIFIED_PC` de esos tres pasos. Las filas de la matriz, salvo esa confirmación, siguen con Windows y PC en `UNVERIFIED`. Las correcciones del 2026-10-02, más abajo, quedaron `VERIFIED_WINDOWS` en el informe 13.
 
 La suite de este árbol en Linux (`python -m unittest discover -s tests -q`) es `TESTED_LINUX`. No sustituye la prueba en el PC. Ninguna fila de abajo usa un estado suelto: el entorno va en su columna.
 
@@ -32,7 +32,7 @@ La suite de este árbol en Linux (`python -m unittest discover -s tests -q`) es 
 
 ## Correcciones del 2026-10-02
 
-En la misma suite de Linux, y solo ahí (`TESTED_LINUX`; Windows `UNVERIFIED`; PC `UNVERIFIED`): la apertura de WhatsApp pasa por `perform()` y no usa `shell=True`; la intención queda `REQUESTED` antes del ejecutor y, si el proceso cae, el acto sigue `INTERRUPTED` / `UNVERIFIED` sin reejecutarse solo; el puente acepta un único chat configurado, con coincidencia exacta, rechaza grupos, y el nivel C o mayor espera un identificador numérico de Telegram; los hijos de prueba no heredan el token real y llevan la guarda de red; la captura de prueba va a `memory_dir()` del pin y no pulsa clics ni teclas salvo `AVATAR_ALLOW_REAL_INPUT=1`; la certificación concurrente ya no pierde la evidencia; la prueba del QR borra su directorio al salir.
+Linux: `TESTED_LINUX`. Windows: `VERIFIED_WINDOWS` en el informe 13, commit `dce43a3`, suite de 809 pruebas, 2 omitidas, salida 0. PC: esos tres pasos del 2026-09-30 siguen siendo el único `VERIFIED_PC`. La apertura de WhatsApp pasa por `perform()` y no usa `shell=True`; la intención queda `REQUESTED` antes del ejecutor y, si el proceso cae, el acto sigue `INTERRUPTED` / `UNVERIFIED` sin reejecutarse solo; el puente acepta un único chat configurado, con coincidencia exacta, rechaza grupos, y el nivel C o mayor espera un identificador numérico de Telegram; los hijos de prueba no heredan el token real y llevan la guarda de red; la captura de prueba va a `memory_dir()` del pin y no pulsa clics ni teclas salvo `AVATAR_ALLOW_REAL_INPUT=1`; la certificación concurrente ya no pierde la evidencia; la prueba del QR borra su directorio al salir. `subprocess.Popen` sigue siendo una clase. Un clic sin coordenadas queda en `TARGET_NOT_FOUND`. El fixture del navegador pide un puerto libre.
 
 ## Informe OpenCode 9 (2026-10-02, commit `aca3278`)
 
@@ -50,7 +50,11 @@ Desaparecieron los 50 errores de import y los 2 fallos de escritorio del informe
 
 El informe 11 no volvió a correr la suite: el mismo `Cursor.exe` seguía en el 8765. El fixture de navegador ahora pide un puerto libre al sistema, así que esa escucha ya no bloquea la clase.
 
-El informe 12, en `b7e5e4e`, corrió 809 pruebas con el 8765 ocupado por Cursor. Salida 1, un solo error: la prueba nueva intentó ocupar ella el 8765 y Windows respondió `WinError 10013`. Cero fallos de aserción. La base, el wal, el shm, la clave de 32 bytes y la captura no cambiaron. La fase 3 sigue `TESTED_LINUX`. Si el 8765 ya lo tiene otro proceso, esa prueba lo acepta y sigue con un puerto libre.
+El informe 12, en `b7e5e4e`, corrió 809 pruebas con el 8765 ocupado por Cursor. Salida 1, un solo error: la prueba nueva intentó ocupar ella el 8765 y Windows respondió `WinError 10013`. Cero fallos de aserción. La base, el wal, el shm, la clave de 32 bytes y la captura no cambiaron. La fase 3 sigue `TESTED_LINUX` en ese informe. Si el 8765 ya lo tiene otro proceso, esa prueba lo acepta y sigue con un puerto libre.
+
+## Informe OpenCode 13 (2026-10-02, commit `dce43a3`)
+
+Suite en el PC: `Ran 809 tests in 166.678s`, `OK (skipped=2)`, salida 0. Antes y después, los mismos bytes y la misma hora: base 1482752, wal 1899352, shm 32768, clave 32, `screen_observation.png` 676192. Las correcciones del 2026-10-02 quedan `VERIFIED_WINDOWS`. Las 2 omitidas no vienen nombradas en el informe: esas dos siguen `UNVERIFIED`. Las filas U1–U18 de la matriz no cambian de columna por esta suite.
 
 ## Riesgo que queda
 

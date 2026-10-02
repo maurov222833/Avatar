@@ -19,7 +19,8 @@ import requests
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.act_chokepoint import (
-    ActChokepoint, ActPolicy, ActStatus, EXEC_APPROVAL_REASON, command_matches_allowlist)
+    ActChokepoint, ActPolicy, ActStatus, COMMAND_NOT_UNDERSTOOD,
+    EXEC_APPROVAL_REASON, command_matches_allowlist)
 from core.redaction import REDACTED, redact_secret_text
 from tests.scratch_dir import work_dir
 
@@ -216,7 +217,7 @@ class TestOrchestratorPolicy(unittest.TestCase):
                 orch._dispatch_native_tool("COMMAND", {"command": cmd})
             self.assertTrue(os.path.exists(target), "approved command must really run")
             statuses = [(a["policy_reason"], a["status"]) for a in orch.chokepoint.list_acts()]
-            self.assertEqual(statuses[0], (EXEC_APPROVAL_REASON, ActStatus.PENDING_APPROVAL))
+            self.assertEqual(statuses[0], (COMMAND_NOT_UNDERSTOOD, ActStatus.PENDING_APPROVAL))
             self.assertEqual(statuses[1], ("APPROVED_BY_OPERATOR", ActStatus.OBSERVED))
 
     def test_cli_approver_defaults_to_no(self):

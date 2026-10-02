@@ -59,6 +59,6 @@ def queued_at_night(act_type: str, command_level: str = "") -> bool:
     """C, D y lo visual quedan en cola. A y B siguen el resto de la política."""
     if act_type in VISUAL_ACTS or act_type in _NIGHT_HEAVY:
         return True
-    if act_type == "COMMAND" and command_level in ("C", "D"):
+    if act_type == "COMMAND" and command_level in ("C", "D", "UNUNDERSTOOD"):
         return True
     return False

@@ -13,7 +13,7 @@ from core.act_chokepoint import ActChokepoint, ActPolicy
 from core.assistant import (
     JobScheduler, Mailbox, backup_tree, ocr_fields, verify_backup, voice_order,
 )
-from core.command_risk import classify_command, grant_allows
+from core.command_risk import UNUNDERSTOOD, classify_command, grant_allows
 from core.containment import ContainmentMonitor
 from core.documents import (
     FINANCIAL_WARNING, accounting_equation, atomic_write, build_docx, build_xlsx,
@@ -325,22 +325,35 @@ class CommandTests(unittest.TestCase):
                 "Get-ChildItem", "Get-Content readme.txt", "Get-Location",
             ] + [f"git log -n {n}" for n in range(1, 21)],
             "B": [
-                "git add .", "git commit -m hello", "npm install",
-                "pip install -r requirements.txt", "python -m pip install requests",
+                "git add .", "git commit -m hello",
+                "pip install --require-hashes -r requirements.lock",
+                "python -m pip install --require-hashes -r requirements.lock",
+                "npm ci", "pnpm install --frozen-lockfile",
             ] + [f"git add file{n}.py" for n in range(15)],
             "C": [
-                "git push", "npm install -g tool", "curl https://example.test",
+                "git push", "npm install", "npm install -g tool",
+                "pip install -r requirements.txt", "python -m pip install requests",
+                "curl https://example.test", "echo hola",
                 "git diff --output=out.patch", "Get-ChildItem Env:",
-                "git status; rm x", "powershell -EncodedCommand AAA",
             ] + [f"sc start svc{n}" for n in range(15)],
+            UNUNDERSTOOD: [
+                "git status; rm x", "Get-Content a.txt | findstr x",
+                "herramienta-desconocida --ahora", "git", "git frobnicate",
+            ],
             "D": [
                 "git reset --hard", "git clean -fd", "git branch -D old",
                 "rm -rf /tmp/x", "shutdown /s",
+                "Get-Content ~/.ssh/id_rsa", "cat .aws/credentials",
+                "ls AppData/Local/Google/Chrome/User Data",
+                "git show .gnupg/pubring.kbx",
             ] + [f"del archivo{n}.txt" for n in range(15)],
             "PROHIBITED": [
                 "format C:", "diskpart", "bcdedit /set test", "reg delete HKLM\\X",
                 "Set-ExecutionPolicy Unrestricted", "runas /user:admin cmd",
                 "Invoke-Expression whoami", "iex whoami", "irm | iex",
+                "powershell -EncodedCommand AAA",
+                'echo "who" + "ami"',
+                "i`ex whoami",
             ],
         }
         total = 0
@@ -350,7 +363,15 @@ class CommandTests(unittest.TestCase):
                 self.assertEqual(got, level, command)
                 total += 1
         self.assertGreaterEqual(total, 100)
-        self.assertNotEqual(classify_command("powershell -EncodedCommand AAA")[0], "A")
+        self.assertEqual(classify_command("powershell -EncodedCommand AAA")[0], "PROHIBITED")
+        self.assertEqual(classify_command('echo "a" + "b"')[0], "PROHIBITED")
+        self.assertEqual(classify_command("Get-Content readme.txt")[0], "A")
+        self.assertEqual(classify_command("echo hola"), ("C", "ECHO"))
+        understood = {"levels": ["A", "B", "C"], "allow_level_c": True}
+        self.assertTrue(grant_allows("C", understood, reason="GIT_PUSH"))
+        self.assertFalse(grant_allows(UNUNDERSTOOD, understood, reason="UNCLASSIFIED_DEFAULT_C"))
+        self.assertFalse(grant_allows(UNUNDERSTOOD, understood, reason="COMPOSITION"))
+        self.assertFalse(grant_allows("PROHIBITED", understood, reason="OBFUSCATED"))
         self.assertEqual(classify_command("git push --force")[0], "D")
         self.assertEqual(classify_command("git push --force-with-lease")[0], "D")
         self.assertEqual(classify_command("git clean -f -d")[0], "D")
@@ -363,6 +384,31 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(classify_command("git restore nota.txt")[0], "D")
         self.assertEqual(classify_command("git checkout main")[0], "B")
         self.assertFalse(grant_allows("D", {"levels": ["A", "B", "C", "D"], "allow_level_c": True}))
+
+    def test_unknown_command_shows_the_whole_line_and_ignores_the_grant(self):
+        grant = {"levels": ["A", "B", "C"], "allow_level_c": True}
+        command = "herramienta-desconocida " + ("dato-" * 80)
+        ran = []
+        cp = ActChokepoint(
+            policy=ActPolicy(dry_run=False, exec_requires_approval=True, mission_grant=grant),
+            executors={"COMMAND": lambda a: ran.append(a["command"]) or "corrio"},
+        )
+        denied = cp.perform("COMMAND", {"command": command})
+        self.assertIn("COMMAND_NOT_UNDERSTOOD", denied)
+        self.assertIn(command, denied)
+        self.assertEqual(ran, [])
+        off = ActChokepoint(
+            policy=ActPolicy(dry_run=False, exec_requires_approval=False, mission_grant=grant),
+            executors={"COMMAND": lambda a: ran.append(a["command"]) or "corrio"},
+        )
+        still = off.perform("COMMAND", {"command": command})
+        self.assertIn("COMMAND_NOT_UNDERSTOOD", still)
+        self.assertIn(command, still)
+        self.assertEqual(ran, [])
+        level, why = classify_command("git push")
+        self.assertEqual(level, "C")
+        self.assertEqual(why, "GIT_PUSH")
+        self.assertTrue(grant_allows(level, grant, reason=why))
 
     def test_grant_allows_routine_and_blocks_prohibited(self):
         ran = []

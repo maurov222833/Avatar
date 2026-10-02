@@ -54,7 +54,7 @@ class ClosedGateTests(unittest.TestCase):
         self.assertEqual(classify_command("iex whoami")[0], "PROHIBITED")
         self.assertEqual(classify_command("Invoke-Expression whoami")[0], "PROHIBITED")
         self.assertEqual(classify_command("powershell -Command Set-ExecutionPolicy Bypass")[0], "PROHIBITED")
-        self.assertEqual(classify_command("powershell -EncodedCommand QQ==")[0], "C")
+        self.assertEqual(classify_command("powershell -EncodedCommand QQ==")[0], "PROHIBITED")
         self.assertEqual(classify_command("git status")[0], "A")
         self.assertEqual(classify_command("powershell -Command git status")[0], "C")
 

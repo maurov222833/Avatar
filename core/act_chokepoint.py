@@ -104,8 +104,10 @@ RISKS_REQUIRING_CONSENT = {ActRisk.EXTERNAL_MESSAGE}
 EXEC_APPROVAL_REASON = "EXEC_REQUIRES_OPERATOR_APPROVAL"
 CONTAMINATED_APPROVAL_REASON = "CONTAMINATED_CONTEXT_REQUIRES_APPROVAL"
 PATH_MASS_APPROVAL_REASON = "PATH_MASS_OPERATION"
+COMMAND_NOT_UNDERSTOOD = "COMMAND_NOT_UNDERSTOOD"
 APPROVAL_GATE_REASONS = frozenset({
     EXEC_APPROVAL_REASON, CONTAMINATED_APPROVAL_REASON, PATH_MASS_APPROVAL_REASON,
+    COMMAND_NOT_UNDERSTOOD,
 })
 
 #: Tools whose outputs are untrusted instruction sources (F-06 / D4).
@@ -334,7 +336,7 @@ class ActPolicy:
             # Personal Telegram to the owner still needs approval when contaminated by web.
             return False, CONTAMINATED_APPROVAL_REASON
         if risk == ActRisk.EXEC and act_type == "COMMAND":
-            from core.command_risk import PROHIBITED, classify_command, grant_allows
+            from core.command_risk import PROHIBITED, UNUNDERSTOOD, classify_command, grant_allows
             command_text = args.get("command") or args.get("params") or ""
             level, why = classify_command(str(command_text))
             if level == PROHIBITED:
@@ -355,7 +357,10 @@ class ActPolicy:
                 from core.night_mode import queued_at_night
                 if queued_at_night(act_type, level):
                     return False, "NIGHT_QUEUED"
-            if grant_allows(level, self.mission_grant):
+            if level == UNUNDERSTOOD:
+                # Ni un grant ni apagar exec_requires_approval lo cubren.
+                return False, COMMAND_NOT_UNDERSTOOD
+            if grant_allows(level, self.mission_grant, reason=why):
                 return True, f"ALLOWED_MISSION_LEVEL_{level}"
         if self.night_mode:
             from core.night_mode import queued_at_night
@@ -445,6 +450,14 @@ def _now() -> str:
 
 # Una escritura a medias no se corta. Se nombra, se deja terminar y no se abre otro acto.
 _NON_INTERRUPTIBLE = frozenset({"WRITE_FILE"})
+
+
+def _approval_excerpt(args: Dict[str, Any], reason: str) -> str:
+    """Lo no entendido se muestra entero. El resto cabe en el aviso."""
+    if reason == COMMAND_NOT_UNDERSTOOD:
+        command = str(args.get("command") or args.get("params") or "")
+        return f"Comando completo: {command}"
+    return f"Solicitud: {json.dumps(args, ensure_ascii=False)[:200]}"
 
 
 def _halt_block_message(act_type: str, args: Dict[str, Any], reason: str) -> str:
@@ -972,6 +985,7 @@ class ActChokepoint:
 
         allowed, reason = self.policy.decide(
             act_type, args or {}, acts_already=acts_already)
+        asked = reason
         if not allowed and reason in APPROVAL_GATE_REASONS:
             if self.approver is not None:
                 try:
@@ -988,7 +1002,7 @@ class ActChokepoint:
                     record.status = ActStatus.DENIED
                     return (
                         f"[Bloqueado por política: {reason}] No se ejecutó '{act_type}'. "
-                        f"Solicitud: {json.dumps(args or {}, ensure_ascii=False)[:200]}"
+                        f"{_approval_excerpt(args or {}, asked)}"
                     )
                 approval_id = f"apr_{uuid.uuid4().hex[:12]}"
                 record.policy_reason = reason
@@ -1010,14 +1024,14 @@ class ActChokepoint:
                     f"[PENDING_APPROVAL:{approval_id}] Motivo: {reason}. "
                     f"No se ejecutó '{act_type}' aún. "
                     f"Aprueba con /approve {approval_id} o POST /api/approvals/{approval_id}/resolve. "
-                    f"Solicitud: {json.dumps(args or {}, ensure_ascii=False)[:200]}"
+                    f"{_approval_excerpt(args or {}, asked)}"
                 )
         record.policy_reason = reason
         if not allowed:
             record.status = ActStatus.DENIED
             self._persist(record)
             return (f"[Bloqueado por política: {reason}] No se ejecutó '{act_type}'. "
-                    f"Solicitud: {json.dumps(args or {}, ensure_ascii=False)[:200]}")
+                    f"{_approval_excerpt(args or {}, asked)}")
 
         if self.policy.dry_run and risk in RISKS_REQUIRING_CONSENT:
             if not self.policy.is_trusted_personal_send(act_type, args or {}):

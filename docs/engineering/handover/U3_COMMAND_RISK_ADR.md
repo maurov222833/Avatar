@@ -1,49 +1,68 @@
 # ADR — Clasificación de riesgo de comandos (U3, fase 1)
 
-Fecha de este texto: 2026-10-02. Sustituye el resumen del 2026-09-30 que vivía en este mismo archivo. El cierre del analizador sigue en `U3_POWERSHELL_AST_ADR.md` (2026-10-01): la alternativa 2 no se escribe.
+Fecha de este texto: 2026-10-02. Incorpora la revisión condicional de Mauro. El otro ADR es `U3_POWERSHELL_AST_ADR.md`.
 
-Estado: documento entregado. No hay código nuevo de AST en este paso. `exec_requires_approval` sigue en verdadero.
+Estado: aprobado condicionalmente. No se da por cerrado. `exec_requires_approval` sigue en verdadero. No hay código de AST.
 
 ## Problema
 
-Hoy la aprobación obligatoria cubre el riesgo EXEC: `COMMAND`, `DESKTOP_CLICK` y `DESKTOP_TYPE`. Leer y varios actos locales no pasan por esa puerta. La spec pide un modelo por efecto (A–D y prohibido), no por el nombre del acto, sin apagar la aprobación general.
+La aprobación obligatoria cubre el riesgo EXEC: `COMMAND`, `DESKTOP_CLICK` y `DESKTOP_TYPE`. Leer y varios actos locales no pasan por esa puerta. Hace falta un modelo por efecto, sin apagar la aprobación general, y sin tratar igual un `git push` que un comando que el clasificador no entiende.
 
 ## Decisión
 
-Queda el clasificador de `core/command_risk.py`. No se añade un parser de PowerShell.
+Queda el clasificador de `core/command_risk.py` (expresiones y `shlex`). No se añade un parser de PowerShell.
 
-- Niveles A, B, C, D y `PROHIBITED`.
-- Sin grant de misión, un comando sigue pidiendo aprobación, igual que ahora.
-- Con grant, solo A y B de ese grant se ejecutan sin preguntar otra vez. C exige `allow_level_c` además del nivel. D y `PROHIBITED` no los concede el grant.
-- Si el texto no se entiende (comillas rotas, ofuscación, tuberías, `Invoke-Expression`), no es A. Ante duda, C. Lo prohibido no tiene aprobación.
-- Un envoltorio (`powershell -Command`, `cmd /c`, `bash -c`, `sudo`) no baja el nivel: el comando interior solo puede subirlo.
-- La allowlist sigue siendo la línea completa, no un prefijo. Vive en `config/avatar/command_allowlist.yaml`.
+- Niveles A, B, C entendido, `UNUNDERSTOOD`, D y `PROHIBITED`.
+- Sin grant, un comando sigue pidiendo aprobación.
+- Con grant, solo A y B de ese grant pasan sin preguntar otra vez. C entendido exige `allow_level_c`. D, `PROHIBITED` y lo no entendido no los concede el grant.
+- Lo no entendido (`UNUNDERSTOOD`: comando desconocido, tubería o `;`/`&`, texto que no se puede partir, `UNCLASSIFIED_DEFAULT_C`, git sin subcomando o con subcomando desconocido) pide siempre aprobación interactiva y el aviso lleva el comando completo.
+- Lo ofuscado es `PROHIBITED`: `-EncodedCommand`, concatenación de cadenas (`"a" + "b"`), sustitución `$(` / `${`, y un `iex` camuflado con comilla invertida. No se puede aprobar.
+- Un envoltorio (`powershell -Command`, `cmd /c`, `bash -c`, `sudo`) no baja el nivel.
+- La allowlist sigue siendo la línea completa. Vive en `config/avatar/command_allowlist.yaml`.
+
+## C entendido y lo no entendido
+
+| Clase | Ejemplos | Grant con `allow_level_c` |
+|---|---|---|
+| C entendido | `git push` sin force, `curl`/`wget`/`irm`, `git diff --output`, `Get-ChildItem Env:`, `sc start`, `git reset` sin `--hard`, `git clean` parcial, `npm install`, `pip install`, `pip install -r` sin `--require-hashes`, `echo` | Puede dejarlo pasar |
+| No entendido | Comando desconocido, `git` a secas, `git frobnicate`, `git status; rm x`, `Get-Content a \| findstr x`, comillas rotas | No. Siempre pregunta y muestra la línea entera |
+| Ofuscado | `-EncodedCommand`, `"who" + "ami"`, `` i`ex `` | `PROHIBITED`. Ni el grant ni una aprobación lo ejecutan |
 
 ## Niveles de la directriz, en comandos concretos
 
-| Nivel | Efecto (directriz 5.3) | Lo que clasifica el código hoy |
+| Nivel | Efecto (directriz 5.3) | Lo que clasifica el código |
 |---|---|---|
-| A | Lectura y pruebas no destructivas | `git status`, `git diff`, `git log`, `git show`, `pytest`, `python -m pytest`, `npm test`, `ls`, `dir`, `pwd`, `whoami`, `cat`, `type`, `Get-ChildItem`, `Get-Content`, `Get-Location` |
-| B | Escritura reversible dentro del proyecto | `git add`, `git commit`, `git checkout` / `switch` sin descartar, `npm install` / `pnpm` / `yarn` sin `-g`, `pip install` sin `-g`, `--user` ni `--prefix` |
-| C | Fuera del workspace, global, red, publicación | Comando vacío, git sin subcomando, `git diff --output`, `git push` sin force, `git reset` sin `--hard`, `git clean` parcial, `Env:`, instalación global, `sc`/`net` start/stop/delete, `curl`/`wget`/`irm`, y todo lo que no entra en otra fila (`UNCLASSIFIED_DEFAULT_C`) |
-| D | Destructivo o irreversible | `git push --force`, `git reset --hard`, `git clean -fd`, `git checkout --` / `restore`, `git branch -d`, `rm` / `del` / `erase` / `Remove-Item` / `rmdir`, `shutdown` / `Restart-Computer` / `Stop-Computer` |
-| PROHIBITED | Sin aprobación posible | `format`, `diskpart`, `bcdedit`, `reg delete`, `Set-ExecutionPolicy`, `Invoke-Expression`, `iex`, `irm \| iex`, `runas`, `Start-Process` con `RunAs`, `Set-MpPreference`, `netsh advfirewall` |
+| A | Lectura y pruebas no destructivas, sin ruta protegida | `git status`/`diff`/`log`/`show`, `pytest`, `python -m pytest`, `npm test`, `ls`, `dir`, `pwd`, `whoami`, `cat`, `type`, `Get-ChildItem`, `Get-Content`, `Get-Location` |
+| B | Escritura reversible, o un install fijado | `git add`, `git commit`, `git checkout`/`switch` sin descartar. Install desde archivo con versiones y hashes: `pip install --require-hashes -r <archivo>`, `npm ci`, `pnpm`/`yarn install --frozen-lockfile` |
+| C entendido | Efecto conocido fuera de lo rutinario | Ver la tabla de arriba |
+| UNUNDERSTOOD | El texto no se entendió | Ver la tabla de arriba. Motivos: `UNCLASSIFIED_DEFAULT_C`, `COMPOSITION`, `UNPARSEABLE`, `EMPTY_COMMAND`, `GIT_BARE`, `GIT_OTHER` |
+| D | Destructivo, o una lectura que nombra una ruta protegida | `git push --force`, `git reset --hard`, `git clean -fd`, `git checkout --`/`restore`, `git branch -d`, `rm`/`del`/`Remove-Item`, `shutdown`. También `Get-Content ~/.ssh/id_rsa`, `cat .aws/credentials`, una ruta con `AppData`, `.gnupg`, perfil de navegador (`user data`, `.mozilla`, `google-chrome`) o un nombre de clave (`id_rsa`, `id_ed25519`) |
+| PROHIBITED | Sin aprobación posible | `format`, `diskpart`, `bcdedit`, `reg delete`, `Set-ExecutionPolicy`, `Invoke-Expression`, `iex`, `irm \| iex`, `runas`, firewall, y la ofuscación de la tabla anterior |
 
-`DESKTOP_CLICK` y `DESKTOP_TYPE` no tienen línea de comando. Siguen en la puerta de EXEC: piden aprobación. No bajan a A por este ADR.
+La lista de rutas protegidas de una lectura es la de credenciales, perfiles de navegador y claves que está en `core/command_risk.py` (`_PROTECTED_PATH_PARTS`). Se mira cada argumento ya partido, no un trozo suelto del texto. `Get-Content readme.txt` sigue en A.
+
+`DESKTOP_CLICK` y `DESKTOP_TYPE` no tienen línea de comando. Siguen pidiendo aprobación.
+
+El clasificador no abre el archivo de requisitos. Acepta como install fijado solo la forma canónica del comando (`--require-hashes` junto con `-r`, o `npm ci`, o `--frozen-lockfile`). Si el archivo no trae hashes, pip lo rechaza al correr.
+
+## Desviación aceptada
+
+El análisis es estructural, no el árbol de PowerShell. Mauro acepta esa desviación con una condición: hay que revisarla antes de usar `allow_level_c` por primera vez y antes de encender el modo noche. Hasta esa revisión, este ADR no se da por cerrado y no se enciende ninguna de esas dos cosas.
+
+Hueco de esa revisión: la redirección `>` no se trata como composición. `echo texto > archivo` queda en C entendido. No se inventa un parser para cerrarlo ahora.
 
 ## Transición
 
-1. El chokepoint sigue consultando `exec_requires_approval` antes de ejecutar un EXEC.
-2. El clasificador corre dentro de esa puerta. Un `PROHIBITED` se niega aunque alguien apruebe. Un grant solo abre A y B, o C si el grant lo dice.
-3. Sin grant, el comportamiento visible no cambia: el comando rutinario también espera aprobación.
-4. Lecturas (`READ_FILE`, `LIST_DIR`) y otras escrituras locales no pasan a pedir aprobación por este documento. Moverlas al modelo por nivel sería otro paso, y no está autorizado aquí.
+1. El chokepoint sigue consultando `exec_requires_approval` antes de un EXEC.
+2. `PROHIBITED` se niega aunque alguien apruebe. Lo no entendido sale `COMMAND_NOT_UNDERSTOOD` y entra en la cola de aprobación con el comando completo. Un grant no lo salta, y apagar `exec_requires_approval` tampoco: sigue pidiendo aprobación interactiva.
+3. Sin grant, el comando rutinario también espera aprobación.
+4. Lecturas `READ_FILE` y `LIST_DIR` no pasan a pedir aprobación por este documento.
 
 ## Revisión
 
-- La batería de `tests/test_spec003.py` (`test_battery_of_commands`) tiene que seguir clasificando como la tabla.
-- Un comando ofuscado (`-EncodedCommand`, concatenación, sustitución) no sale A.
+- `tests/test_spec003.py`, `test_battery_of_commands`, cubre ofuscación, desconocidos, composición y rutas protegidas.
+- `allow_level_c` no autoriza `UNUNDERSTOOD` ni `PROHIBITED`.
 - `exec_requires_approval` del policy por defecto sigue en verdadero.
-- El chokepoint niega un acto que el grant no cubre, aunque el modelo lo pida.
 
 ## Marcha atrás
 
@@ -51,4 +70,4 @@ Quitar `mission_grant` del policy. Sin grant, el clasificador no deja pasar coma
 
 ## Qué no entra
 
-No se escribe un AST. La alternativa de un parser propio queda rechazada en `U3_POWERSHELL_AST_ADR.md`. Pedirle el árbol a PowerShell en el PC (`Parser.ParseInput`) sigue `UNVERIFIED` y no se codifica en este paso.
+No se escribe un AST. La alternativa de un parser propio sigue rechazada en el otro ADR.

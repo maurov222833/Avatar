@@ -1,6 +1,7 @@
 """Exclusive lock so only one Avatar process polls Telegram getUpdates."""
 from __future__ import annotations
 
+import atexit
 import os
 import re
 import sys
@@ -55,6 +56,7 @@ class TelegramPollLock:
         self._fh = None
         self.mode = "none"  # os_lock | pid_file
         self.last_reject_reason = ""
+        self._exit_registered = False
 
     @property
     def held(self) -> bool:
@@ -161,16 +163,30 @@ class TelegramPollLock:
         if holder_pid and holder_pid != os.getpid() and _pid_alive(holder_pid):
             self.last_reject_reason = f"held_by_live_pid_{holder_pid}"
             return False
+        fh = None
         try:
             fh = open(self.path, "w+", encoding="utf-8")
             self._write_identity(fh)
             self._fh = fh
             self.mode = "pid_file"
             self.last_reject_reason = ""
+            self._register_exit()
+            fh = None
             return True
         except Exception as e:
+            if fh is not None and not fh.closed:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
             self.last_reject_reason = f"pid_fallback_failed:{e}"[:120]
             return False
+
+    def _register_exit(self) -> None:
+        if self._exit_registered:
+            return
+        self._exit_registered = True
+        atexit.register(self.release)
 
     def force_acquire(self) -> bool:
         """Break stale lock and take ownership (used by supervisor recovery)."""

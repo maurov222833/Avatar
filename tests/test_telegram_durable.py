@@ -46,6 +46,41 @@ class TestTelegramPollLock(unittest.TestCase):
             self.assertTrue(lock.force_acquire(), lock.last_reject_reason)
             lock.release()
 
+    def test_fallback_handle_closes_on_release_and_on_failure(self):
+        from core.telegram_poll_lock import TelegramPollLock
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "telegram_poll.lock")
+            lock = TelegramPollLock(path)
+            self.assertTrue(lock._acquire_pid_file_fallback(), lock.last_reject_reason)
+            held = lock._fh
+            self.assertIsNotNone(held)
+            self.assertFalse(held.closed)
+            self.assertTrue(lock._exit_registered)
+            lock.release()
+            self.assertTrue(held.closed)
+            self.assertIsNone(lock._fh)
+
+            opened = []
+            real_open = open
+
+            def tracking(file, mode="r", *args, **kwargs):
+                handle = real_open(file, mode, *args, **kwargs)
+                opened.append(handle)
+                return handle
+
+            again = TelegramPollLock(path)
+
+            def boom(handle):
+                raise RuntimeError("identidad")
+
+            again._write_identity = boom
+            with mock.patch("builtins.open", tracking):
+                self.assertFalse(again._acquire_pid_file_fallback())
+            self.assertTrue(opened)
+            self.assertTrue(all(handle.closed for handle in opened))
+            self.assertIsNone(again._fh)
+
 
 class TestTelegramDurableDaemon(unittest.TestCase):
     def tearDown(self):

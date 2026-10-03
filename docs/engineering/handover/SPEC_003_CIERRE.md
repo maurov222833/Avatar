@@ -1,7 +1,7 @@
 # Cierre Spec 003 — U1 a U18
 
-Matriz revisada el 2026-10-02. Rama `cursor/spec-003-u1-u17-5763`.
-El 2026-09-30 Mauro confirmó en su PC la captura, «dale play» y «pausa» sobre la misma canción, y `/pause` a mitad de un acto inocuo. Eso es `VERIFIED_PC` de esos tres pasos. Las filas de la matriz, salvo esa confirmación, siguen con Windows y PC en `UNVERIFIED`. Las correcciones del 2026-10-02, más abajo, quedaron `VERIFIED_WINDOWS` en el informe 13.
+Matriz revisada el 2026-10-03. Rama `cursor/spec-003-u1-u17-5763`.
+El 2026-09-30 Mauro confirmó en su PC la captura, «dale play» y «pausa» sobre la misma canción, y `/pause` a mitad de un acto inocuo. Eso es `VERIFIED_PC` de esos tres pasos. Las filas de la matriz, salvo esa confirmación y la nota de U2, siguen con Windows y PC en `UNVERIFIED`. Las correcciones del 2026-10-02 quedaron `VERIFIED_WINDOWS` en el informe 13. El verificador de lecturas (`8757233`) y el cierre de herramientas en charla o pregunta (`e495364`) quedaron `VERIFIED_WINDOWS` en el informe 14.
 
 La suite de este árbol en Linux (`python -m unittest discover -s tests -q`) es `TESTED_LINUX`. No sustituye la prueba en el PC. Ninguna fila de abajo usa un estado suelto: el entorno va en su columna.
 
@@ -12,7 +12,7 @@ La suite de este árbol en Linux (`python -m unittest discover -s tests -q`) es 
 | Unidad | Estado | Entorno (Linux / Windows / PC) | Dónde | Qué no quedó |
 |---|---|---|---|---|
 | U1 Parada | `IMPLEMENTED + INTEGRATED` | Linux: `TESTED_LINUX`. Windows: `UNVERIFIED`. PC: `VERIFIED_PC` solo el `/pause` (2026-09-30). | `core/halt.py`. `/pause` pausa y el segundo `/pause` quita la pausa. Un hilo aparte lee el archivo de disparo aunque el orquestador esté colgado. Una `WRITE_FILE` en curso se nombra, termina, y un acto nuevo no arranca. | La tecla global no se instala y su latencia en el PC no está medida. Ese hilo no arranca solo al abrir Avatar. `/stop` y `/kill` no se apagan con `/pause`. |
-| U2 Rutas | `IMPLEMENTED + INTEGRATED` | Linux: `TESTED_LINUX`. Windows: `UNVERIFIED`. PC: `UNVERIFIED`. | `core/path_guard.py` en escrituras y en comandos que nombran una ruta prohibida. Niega `C:Windows` sin barra, `C:/Windows/...`, y un nombre con punto o espacio final. Antes de pisar un archivo guarda una copia en la papelera de la misión. | Un junction real de Windows no se creó aquí. El 8.3 y el UNC se niegan por el texto, no por NTFS. El tope en bytes no tiene cifra en la spec. |
+| U2 Rutas | `IMPLEMENTED + INTEGRATED` | Linux: `TESTED_LINUX`. Windows: `VERIFIED_WINDOWS` solo en junction, ADS y nombre 8.3 (informe 14). El resto de la unidad, `UNVERIFIED`. PC: `UNVERIFIED`. | `core/path_guard.py` en escrituras y en comandos que nombran una ruta prohibida. Niega `C:Windows` sin barra, `C:/Windows/...`, y un nombre con punto o espacio final. Antes de pisar un archivo guarda una copia en la papelera de la misión. | El UNC se niega por el texto, no por NTFS. El tope en bytes no tiene cifra en la spec. |
 | U3 Comandos | `IMPLEMENTED + INTEGRATED`. ADR aprobados condicionalmente, no cerrados | Linux: `TESTED_LINUX`. Windows: `UNVERIFIED`. PC: `UNVERIFIED`. | `core/command_risk.py`. C entendido (`git push`, `curl`, `echo`, install sin fijar) se separa de `UNUNDERSTOOD`. Lo ofuscado es `PROHIBITED`. `pip`/`npm install` son C salvo un archivo con hashes. Una lectura de ruta protegida deja de ser A. Apagar `exec_requires_approval` no deja correr lo no entendido. `>`, `>>` y `\|` son `UNUNDERSTOOD` / `REDIRECT` o `COMPOSITION`. Out-File, Set-Content y tee son `UNUNDERSTOOD` / `OUTPUT_SINK`. | Sin AST. `>` ya está cerrado. La revisión del análisis estructural, antes del primer `allow_level_c` y antes del modo noche, sigue pendiente. Los ADR no están cerrados. |
 | U4 Contención | `IMPLEMENTED` | Linux: `TESTED_LINUX`. Windows: `UNVERIFIED`. PC: `UNVERIFIED`. | `core/containment.py`. El orquestador la enciende solo si `security.containment_enabled` es verdadero | Apagada por defecto para no pausar el PC a los cinco actos iguales sin que Mauro lo active. |
 | U5 Procedencia | `IMPLEMENTED + INTEGRATED` | Linux: `TESTED_LINUX`. Windows: `UNVERIFIED`. PC: `UNVERIFIED`. | Cada página o búsqueda deja una línea en `memory/provenance.jsonl`. Una orden dentro del texto contamina el turno. | No promociona sola nada a memoria permanente. |
@@ -54,12 +54,25 @@ El informe 12, en `b7e5e4e`, corrió 809 pruebas con el 8765 ocupado por Cursor.
 
 ## Informe OpenCode 13 (2026-10-02, commit `dce43a3`)
 
-Suite en el PC: `Ran 809 tests in 166.678s`, `OK (skipped=2)`, salida 0. Antes y después, los mismos bytes y la misma hora: base 1482752, wal 1899352, shm 32768, clave 32, `screen_observation.png` 676192. Las correcciones del 2026-10-02 quedan `VERIFIED_WINDOWS`. Las 2 omitidas no vienen nombradas en el informe: esas dos siguen `UNVERIFIED`. Las filas U1–U18 de la matriz no cambian de columna por esta suite.
+Suite en el PC: `Ran 809 tests in 166.678s`, `OK (skipped=2)`, salida 0. Antes y después, los mismos bytes y la misma hora: base 1482752, wal 1899352, shm 32768, clave 32, `screen_observation.png` 676192. Las correcciones del 2026-10-02 quedan `VERIFIED_WINDOWS`. Las 2 omitidas no venían nombradas en ese informe. El informe 14 les puso nombre. Las filas U1–U18 de la matriz no cambian de columna por esta suite.
+
+## Informe OpenCode 14 (2026-10-03, commit `e495364`)
+
+Suite en el PC: 811 pruebas, `OK (skipped=2)`, salida 0. Cubre `8757233` y `e495364`. Esos dos quedan `VERIFIED_WINDOWS`.
+
+Las 2 omitidas son pruebas de Linux. No son un hueco de Windows:
+
+- `test_unix_absolute_outside_is_blocked`, motivo `unix absolute path check`
+- `test_windows_drive_path_is_outside_on_posix`, motivo `drive-letter ambiguity is a POSIX abspath issue`
+
+Estas seis, que Linux omite, salieron ok en Windows: `test_20_invalid_target_handling`, `test_25_safe_failure_without_blind_clicking`, `test_text_mode_corrupts_those_bytes`, `test_junction_that_leaves_the_scope_is_denied`, `test_alternate_data_stream_is_denied`, `test_short_name_on_a_real_volume_is_denied`.
+
+El resto de las filas U1–U18 no cambia de columna por esta suite. U2 anota Windows solo en junction, ADS y nombre 8.3.
 
 ## Riesgo que queda
 
-La parada vive en el proceso. Otro código que llame a una herramienta saltándose el chokepoint no la ve. La tecla global y las pruebas de rutas en Windows siguen pendientes. La prueba corta de Telegram en el PC ya la cerró Mauro el 2026-09-30.
+La parada vive en el proceso. Otro código que llame a una herramienta saltándose el chokepoint no la ve. La tecla global sigue sin instalarse. El UNC y el tope en bytes de U2 siguen pendientes. La prueba corta de Telegram en el PC ya la cerró Mauro el 2026-09-30.
 
 ## Siguiente paso
 
-El 2026-10-01 quedaron cerradas las puertas de `GATES_CERRADAS.md`: IDE real apagado, carta sin respuestas, tecla sin instalar, analizador = clasificador actual, WhatsApp aparcado, fusión a `main` en cola, segunda opinión sin gasto y sin llamada. Esa segunda opinión se activa cuando el software esté por terminarse, no antes. La contención automática y el modo noche siguen apagados. No hay cuentas de tienda ni de broker. Lo que queda fuera de este equipo es la prueba en el PC de Windows.
+El 2026-10-01 quedaron cerradas las puertas de `GATES_CERRADAS.md`: IDE real apagado, carta sin respuestas, tecla sin instalar, analizador = clasificador actual, WhatsApp aparcado, fusión a `main` en cola, segunda opinión sin gasto y sin llamada. Esa segunda opinión se activa cuando el software esté por terminarse, no antes. La contención automática y el modo noche siguen apagados. No hay cuentas de tienda ni de broker. La suite de Windows de las correcciones hasta `e495364` ya salió en el informe 14. Las filas de la matriz siguen como dice cada celda.

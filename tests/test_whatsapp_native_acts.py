@@ -172,6 +172,60 @@ class TestFillerCutoff(unittest.TestCase):
             self.assertIn("Solo observ", msg)
             self.assertNotIn("completada", msg)
 
+    def test_verified_read_does_not_dump_the_file_as_a_completed_task(self):
+        """Una lectura con hecho «verificado» no es una tarea hecha ni se pega el fuente."""
+        with _TempWorld():
+            from core.orchestrator import AvatarOrchestrator, _note_unwritten_fix
+            orch = AvatarOrchestrator()
+            bridge = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                "bridges", "whatsapp_bridge.py",
+            )
+            with open(bridge, encoding="utf-8") as handle:
+                body = handle.read()
+            summary = [{"tool_name": "READ_FILE", "output": body,
+                        "args": {"file_path": "bridges/whatsapp_bridge.py"},
+                        "task_result": TaskResult(task_id="t",
+                                                  status=TaskResultStatus.PASS),
+                        "task": None, "goal": None, "verified_fact": object()}]
+            msg = orch._build_executive_fallback(summary)
+            self.assertIn("Solo observ", msg)
+            self.assertNotIn("completada", msg)
+            self.assertNotIn("import time", msg)
+            self.assertNotIn("Garantizar resolución", msg)
+
+            script = [{
+                "type": "function_call", "name": "READ_FILE",
+                "args": {"file_path": "bridges/whatsapp_bridge.py"}, "text": "",
+            }] * 5
+
+            def stub(**k):
+                return script.pop(0) if script else {"type": "provider_empty", "error": "x"}
+
+            orch.llm.generate_response_with_tools = stub
+            out = orch.process_user_input(
+                "Ahora dime, te hemos realizado unos cambios con WhatsAPP, "
+                "dime, sabes que se mejoro?",
+                max_steps=5,
+            )
+            self.assertIn("Solo observ", out)
+            self.assertNotIn("import time", out)
+            self.assertNotIn("Tarea completada", out)
+            self.assertNotIn("Estado de la misión", out)
+            self.assertNotIn("BLOCKED", out)
+
+            lie = (
+                "Corrección aplicada. He reajustado el foco contextual "
+                "para priorizar la conversación."
+            )
+            noted = _note_unwritten_fix(lie, [])
+            self.assertIn("no modifiqué ningún archivo", noted)
+            written = _note_unwritten_fix(lie, [{
+                "tool_name": "WRITE_FILE",
+                "task_result": TaskResult(task_id="w", status=TaskResultStatus.PASS),
+            }])
+            self.assertNotIn("no modifiqué ningún archivo", written)
+
     def test_filler_storm_breaks_with_direction_ask(self):
         with _TempWorld():
             from core.orchestrator import AvatarOrchestrator

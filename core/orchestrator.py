@@ -395,6 +395,37 @@ _READ_ONLY_FILLER = {
     "BROWSER_OBSERVE", "DESKTOP_OBSERVE", "WHATSAPP_STATUS",
 }
 
+#: El modelo a veces anuncia un arreglo que no escribió. Estas frases solo valen
+#: si en el mismo turno hubo un WRITE_FILE que sí terminó.
+_UNWRITTEN_FIX_MARKERS = (
+    "corrección aplicada",
+    "correccion aplicada",
+    "he reajustado",
+    "reajusté el foco",
+    "reajuste el foco",
+    "ya quedó corregido",
+    "ya quedo corregido",
+)
+
+
+def _note_unwritten_fix(text: str, executed) -> str:
+    """Si el texto dice que ya corrigió el programa y no hubo escritura, lo desmiente."""
+    folded = (text or "").lower()
+    if not any(mark in folded for mark in _UNWRITTEN_FIX_MARKERS):
+        return text
+    for entry in executed or []:
+        if entry.get("tool_name") != "WRITE_FILE":
+            continue
+        try:
+            if entry["task_result"].status.is_success():
+                return text
+        except Exception:
+            continue
+    note = "En este turno no modifiqué ningún archivo."
+    if note.lower() in folded:
+        return text
+    return f"{(text or '').rstrip()}\n\n{note}"
+
 def _olog(message: str, level: str = "INFO") -> None:
     try:
         from core.logging_util import log
@@ -874,8 +905,9 @@ class AvatarOrchestrator:
                         verified_fact = PhysicalFactVerifier.verify_test_execution(cmd, tool_output)
                     else:
                         verified_fact = PhysicalFactVerifier.verify_command(cmd, tool_output)
-                else:
-                    verified_fact = PhysicalFactVerifier.verify_command(f"{tool_name}", tool_output)
+                # Una lectura no es un comando con código de salida 0. Tratarla así
+                # fabricaba un hecho «verificado» y el respaldo la anunciaba como
+                # tarea completada, pegando el archivo en el chat.
 
                 if verified_fact:
                     verified_facts_history.append(verified_fact)
@@ -1108,11 +1140,17 @@ class AvatarOrchestrator:
             )
         if self.state_db and current_mission_id:
             raw_status = self._reconcile_mission(current_mission_id)
-            if executed_tools_summary and raw_status:
+            # Una pregunta que solo leyó archivos no es una misión que Mauro pidió
+            # cerrar. El sello de estado, en ese caso, tapa la respuesta.
+            if (raw_status and executed_tools_summary
+                    and self._show_mission_status(interaction_type, executed_tools_summary)):
                 from core.mission_report import from_transition
                 final_user_response = (
                     f"{final_user_response}\n\nEstado de la misión: {from_transition(raw_status)}."
                 )
+
+        final_user_response = _note_unwritten_fix(
+            final_user_response, executed_tools_summary)
 
         # Guardar en memoria de conversación corta descontaminada
         self.history.append({"role": "user", "content": user_input})
@@ -1138,6 +1176,18 @@ class AvatarOrchestrator:
             out += f"\n[…salida truncada: {len(text.splitlines())} líneas totales…]"
         return out
 
+    def _show_mission_status(self, interaction_type, executed) -> bool:
+        """Una charla o una consulta que solo leyó no cierra con estado de misión."""
+        if not executed:
+            return False
+        if interaction_type in (
+            InteractionType.CONVERSATION_NORMAL,
+            InteractionType.INFORMATIVE_QUERY,
+        ):
+            if all(entry.get("tool_name") in _READ_ONLY_FILLER for entry in executed):
+                return False
+        return True
+
     def _build_executive_fallback(self, executed_tools_summary) -> str:
         """
         Mensaje final de respaldo construido desde el estado real de ejecución.
@@ -1157,12 +1207,18 @@ class AvatarOrchestrator:
                 ok = bool(last["task_result"].status.is_success())
             except Exception:
                 ok = False
-            if ok and tool in _READ_ONLY_FILLER and not last.get("verified_fact"):
-                # Lectura sin hallazgo: observar no es completar. Decirlo tal cual
-                # impide que el relleno (LIST_DIR/READ_FILE en bucle) pose como avance.
-                base = (f"🔍 Solo observé con `{tool}`, sin cambios ni hallazgos nuevos.\n"
-                        f"Lo visto: {excerpt or 'sin salida'}\n"
-                        "Dime el siguiente paso concreto o qué busco exactamente.")
+            if tool in _READ_ONLY_FILLER:
+                # Observar no es completar, aunque el verificador haya emitido un
+                # hecho. El cuerpo del archivo no se pega: fue lo que Mauro vio
+                # cuando preguntó qué había cambiado en WhatsApp.
+                if ok:
+                    base = (f"🔍 Solo observé con `{tool}`, sin cambios.\n"
+                            "El proveedor no redactó la respuesta, así que no pego lo leído.\n"
+                            "Dime qué quieres saber y lo contesto en prosa.")
+                else:
+                    base = (f"⚠️ No pude completar la lectura con `{tool}`.\n"
+                            f"Detalle real: {excerpt or 'sin salida registrada'}\n"
+                            "Dime si reintento o cambiamos de enfoque.")
             elif ok:
                 base = (f"✅ Tarea completada: `{tool}` ejecutada y verificada.\n"
                         f"Evidencia: {excerpt}\n"

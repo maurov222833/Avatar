@@ -408,6 +408,26 @@ _UNWRITTEN_FIX_MARKERS = (
 )
 
 
+_ORDER_PREFIXES = (
+    "lista ", "listar ", "muestra ", "mostrar ", "lee ", "leer ",
+    "abre ", "abrir ", "ejecuta ", "ejecutar ", "envia ", "envía ",
+    "enviar ", "escribe ", "escribir ", "crea ", "crear ", "corre ",
+    "reproduce ", "pausa ", "captura ", "busca ", "run ",
+)
+
+
+def _is_consultation(user_input: str, interaction_type) -> bool:
+    """Charla o pregunta. Una orden («lista los archivos») sigue teniendo herramientas."""
+    if interaction_type == InteractionType.CONVERSATION_NORMAL:
+        return True
+    if interaction_type != InteractionType.INFORMATIVE_QUERY:
+        return False
+    folded = (user_input or "").strip().lower().lstrip("¿¡ ")
+    if any(folded.startswith(prefix) for prefix in _ORDER_PREFIXES):
+        return False
+    return True
+
+
 def _note_unwritten_fix(text: str, executed) -> str:
     """Si el texto dice que ya corrigió el programa y no hubo escritura, lo desmiente."""
     folded = (text or "").lower()
@@ -733,22 +753,30 @@ class AvatarOrchestrator:
                 "Prosa natural, breve, sin plantillas QUÉ HICE/EVIDENCIA/ESTADO. "
                 "Si solo conversan, no ejecutes herramientas."
             )
+        talk = _is_consultation(user_input, interaction_type)
         if interaction_type == InteractionType.CONVERSATION_NORMAL:
             current_system_prompt += (
                 "\n\n[DIRECTIVA: CONVERSACIÓN]:\n"
                 "Mauro está en charla (saludo, ánimo, capacidad, curiosidad). "
                 "Responde con criterio y calidez intelectual en 2-6 frases. "
                 "PROHIBIDO el formato QUÉ HICE / EVIDENCIA / ESTADO / SIGUIENTE PASO. "
-                "PROHIBIDO inventar auditorías de 'subsistemas' o 'latencia' si no corriste tools. "
-                "SIN herramientas salvo que pida explícitamente una acción concreta ahora."
+                "PROHIBIDO inventar auditorías de 'subsistemas' o 'latencia'. "
+                "En este turno no hay herramientas: no leas archivos ni ejecutes nada."
+            )
+        elif talk:
+            current_system_prompt += (
+                "\n\n[DIRECTIVA: CONSULTA]:\n"
+                "Responde con claridad y juicio, en prosa. "
+                "En este turno no hay herramientas: no leas archivos, no ejecutes comandos "
+                "y no inventes una lista de cambios del programa. "
+                "Si no tienes el dato, dilo. "
+                "PROHIBIDO el formato QUÉ HICE / EVIDENCIA / ESTADO."
             )
         elif interaction_type == InteractionType.INFORMATIVE_QUERY:
             current_system_prompt += (
-                "\n\n[DIRECTIVA: CONSULTA]:\n"
-                "Responde con claridad y juicio. Si la pregunta es sobre lo que puedes hacer "
-                "(p. ej. YouTube, archivos, Telegram), explica en prosa sin plantilla burocrática. "
-                "Usa herramientas solo si hace falta un dato real del sistema; si no, responde directo. "
-                "Plantilla QUÉ HICE/… solo si acabas de ejecutar trabajo real."
+                "\n\n[DIRECTIVA: ORDEN]:\n"
+                "Mauro pidió una acción concreta. Usa la herramienta que corresponde. "
+                "No pegues el fuente de un archivo en la respuesta."
             )
         elif interaction_type == InteractionType.OPEN_ENGINEERING_MISSION:
             current_system_prompt += (
@@ -783,6 +811,7 @@ class AvatarOrchestrator:
         step_count = 0
         empty_streak = 0  # respuestas vacías seguidas del proveedor en este turno
         filler_streak = 0  # turnos seguidos solo con lecturas sin hallazgo
+        discarded_tool = False  # en charla o consulta se ignora un function call
         final_user_response = ""
         executed_tools_summary = []
         verified_facts_history: List[VerifiedFact] = []
@@ -818,11 +847,20 @@ class AvatarOrchestrator:
             llm_result = self.llm.generate_response_with_tools(
                 system_prompt=supreme_prompt,
                 contents=contents,
-                tools=AVATAR_TOOLS_SCHEMA
+                tools=None if talk else AVATAR_TOOLS_SCHEMA
             )
 
+            # Charla y consulta no ejecutan. Un function call se descarta: la
+            # respuesta tiene que ser prosa, nunca el contenido de un archivo.
+            if talk and llm_result.get("type") == "function_call":
+                discarded_tool = True
+                llm_result = {
+                    "type": "text",
+                    "text": (llm_result.get("text") or "").strip(),
+                }
+
             # Intento de recuperación de acción estructurada si el LLM emitió texto en lugar de Function Call nativo
-            if llm_result.get("type") == "text":
+            if not talk and llm_result.get("type") == "text":
                 recovered = StructuredActionRecoveryLayer.extract_and_validate_structured_action(
                     llm_result.get("text", ""),
                     AVATAR_TOOLS_SCHEMA
@@ -1032,16 +1070,28 @@ class AvatarOrchestrator:
                             "(p. ej. qué archivo, qué chat, qué enviar).")
                         break
                     if empty_streak >= 2:
-                        final_user_response = (
-                            "⚠️ El proveedor devolvió respuestas vacías "
-                            f"{empty_streak} veces seguidas. Detengo el turno para no "
-                            "generar llamadas de relleno: revisa la conexión o la cuota, "
-                            "considera cambiar de proveedor y repite la petición.")
+                        if talk and discarded_tool:
+                            final_user_response = (
+                                "Esto es una consulta. No ejecuté herramientas ni leí archivos. "
+                                "No hubo respuesta en prosa. Vuelve a preguntar y te contesto "
+                                "sin abrir el código."
+                            )
+                        else:
+                            final_user_response = (
+                                "⚠️ El proveedor devolvió respuestas vacías "
+                                f"{empty_streak} veces seguidas. Detengo el turno para no "
+                                "generar llamadas de relleno: revisa la conexión o la cuota, "
+                                "considera cambiar de proveedor y repite la petición.")
                         break
+                    nudge = (
+                        "Tu respuesta anterior llegó vacía. Continúa en prosa, sin herramientas."
+                        if talk else
+                        "Tu respuesta anterior llegó vacía. Continúa: "
+                        "responde con texto o invoca una herramienta válida."
+                    )
                     contents.append({
                         "role": "user",
-                        "parts": [{"text": "Tu respuesta anterior llegó vacía. Continúa: "
-                                           "responde con texto o invoca una herramienta válida."}]
+                        "parts": [{"text": nudge}]
                     })
                     continue
 
@@ -1112,7 +1162,11 @@ class AvatarOrchestrator:
                 f"- **Resultado Determinado:** `{t_res.status.value}` (Éxito: `{t_res.status.is_success()}`)\n"
                 f"- **Salida Real (resumen):**\n```\n{self._truncate_output(last_output)}\n```"
             )
-            if last_output and not any(line in final_user_response for line in last_output.splitlines() if len(line) > 10):
+            paste_body = last_tool_name not in _READ_ONLY_FILLER and last_tool_name not in (
+                "WHATSAPP_READ", "WHATSAPP_STATUS",
+            )
+            if (paste_body and last_output
+                    and not any(line in final_user_response for line in last_output.splitlines() if len(line) > 10)):
                 final_user_response = f"{final_user_response}\n{summary_block}"
 
         if not final_user_response or not final_user_response.strip():
@@ -1143,7 +1197,8 @@ class AvatarOrchestrator:
             # Una pregunta que solo leyó archivos no es una misión que Mauro pidió
             # cerrar. El sello de estado, en ese caso, tapa la respuesta.
             if (raw_status and executed_tools_summary
-                    and self._show_mission_status(interaction_type, executed_tools_summary)):
+                    and self._show_mission_status(
+                        interaction_type, executed_tools_summary, consultation=talk)):
                 from core.mission_report import from_transition
                 final_user_response = (
                     f"{final_user_response}\n\nEstado de la misión: {from_transition(raw_status)}."
@@ -1176,17 +1231,11 @@ class AvatarOrchestrator:
             out += f"\n[…salida truncada: {len(text.splitlines())} líneas totales…]"
         return out
 
-    def _show_mission_status(self, interaction_type, executed) -> bool:
-        """Una charla o una consulta que solo leyó no cierra con estado de misión."""
-        if not executed:
+    def _show_mission_status(self, interaction_type, executed, *, consultation: bool) -> bool:
+        """Una charla o una pregunta no cierra con estado de misión."""
+        if consultation or not executed:
             return False
-        if interaction_type in (
-            InteractionType.CONVERSATION_NORMAL,
-            InteractionType.INFORMATIVE_QUERY,
-        ):
-            if all(entry.get("tool_name") in _READ_ONLY_FILLER for entry in executed):
-                return False
-        return True
+        return interaction_type != InteractionType.CONVERSATION_NORMAL
 
     def _build_executive_fallback(self, executed_tools_summary) -> str:
         """

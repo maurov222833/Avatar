@@ -49,6 +49,18 @@ class TestSemanticMissionEngine(unittest.TestCase):
         res = Verifier.verify(task.task_id, evidence, {"expected_stdout_contains": "AVATAR_DIRECT_ACTION_OK"})
         self.assertEqual(res.status, TaskResultStatus.PASS)
 
+    def test_001c_a_question_about_the_chat_is_not_an_engineering_mission(self):
+        """«analices» no abre misión. Una consulta no hereda el verbo «analiza»."""
+        prompts = [
+            "Ahora dime, te hemos realizado unos cambios con WhatsAPP, dime, sabes que se mejoro?",
+            "Qué se mejoró en la integración de WhatsApp?",
+            "Quiero que analices lo que acaba de suceder y me des un reporte claro",
+        ]
+        for prompt in prompts:
+            itype = SemanticMissionEngine.classify_interaction(prompt)
+            self.assertEqual(
+                itype, InteractionType.INFORMATIVE_QUERY, f"Fallo en prompt: {prompt}")
+
     def test_003_open_mission_creation(self):
         """TEST 3: Misión abierta se clasifica correctamente y genera un Goal formal."""
         prompt = "Investiga si existe una debilidad real en tu proceso de recuperación. No se te proporciona archivo, defecto ni solución."

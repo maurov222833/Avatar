@@ -202,17 +202,39 @@ class TestFillerCutoff(unittest.TestCase):
             def stub(**k):
                 return script.pop(0) if script else {"type": "provider_empty", "error": "x"}
 
+            calls = []
+
+            def stub(**k):
+                calls.append(k.get("tools"))
+                return script.pop(0) if script else {"type": "provider_empty", "error": "x"}
+
             orch.llm.generate_response_with_tools = stub
+            ran = []
+            orch._dispatch_native_tool = lambda *a, **k: ran.append(a) or "NO"
             out = orch.process_user_input(
                 "Ahora dime, te hemos realizado unos cambios con WhatsAPP, "
                 "dime, sabes que se mejoro?",
                 max_steps=5,
             )
-            self.assertIn("Solo observ", out)
+            self.assertFalse(ran)
+            self.assertTrue(calls)
+            self.assertIsNone(calls[0])
+            self.assertIn("No ejecuté herramientas", out)
             self.assertNotIn("import time", out)
             self.assertNotIn("Tarea completada", out)
             self.assertNotIn("Estado de la misión", out)
             self.assertNotIn("BLOCKED", out)
+
+            def prose(**k):
+                self.assertIsNone(k.get("tools"))
+                return {"type": "text", "text": "No tengo ese registro en este turno."}
+
+            orch.llm.generate_response_with_tools = prose
+            answered = orch.process_user_input(
+                "Qué se mejoró en la integración de WhatsApp?")
+            self.assertIn("No tengo ese registro", answered)
+            self.assertNotIn("Estado de la misión", answered)
+            self.assertNotIn("Tarea completada", answered)
 
             lie = (
                 "Corrección aplicada. He reajustado el foco contextual "
@@ -246,7 +268,8 @@ class TestFillerCutoff(unittest.TestCase):
                 return script.pop(0) if script else {"type": "text", "text": ""}
 
             orch.llm.generate_response_with_tools = stub
-            out = orch.process_user_input("revisa algo", max_steps=6)
+            out = orch.process_user_input(
+                "analiza la arquitectura del proyecto", max_steps=6)
             self.assertIn("solo leyendo", out)
             self.assertLessEqual(len(calls), 5)
 

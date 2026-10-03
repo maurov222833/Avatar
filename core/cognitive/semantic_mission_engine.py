@@ -120,7 +120,13 @@ class SemanticMissionEngine:
             "diagnostica", "diagnosticar", "evalúa", "evaluar", "audita", "auditar",
             "busca debilidades", "encuentra fallos", "revisa arquitectura", "comprueba autonomía"
         ]
-        is_open_mission = any(kw in text_lower for kw in mission_keywords) and (
+        def _kw_in(kw: str) -> bool:
+            # Palabra completa. «analices» no es «analiza» y no abre una misión.
+            if " " in kw:
+                return kw in text_lower
+            return re.search(rf"(?<!\w){re.escape(kw)}(?!\w)", text_lower) is not None
+
+        is_open_mission = any(_kw_in(kw) for kw in mission_keywords) and (
             len(text.split()) >= 3 or has_negative_constraint
         )
 

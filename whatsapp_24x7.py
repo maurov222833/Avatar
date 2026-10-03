@@ -80,6 +80,7 @@ def beat(stats):
 
 def run_cycle(cfg, max_polls=0):
     """Un ciclo completo: navegador fresco -> loop hasta fallo/parada. Devuelve motivo."""
+    # memory/screen_observation.png es efímero: cada ciclo del puente lo sobreescribe y no se conserva entre sesiones. La captura del 2026-10-02 la borró Mauro.
     from bridges.whatsapp_bridge import WhatsAppBridge, WhatsAppReadError
     from bridges.whatsapp_reader import WhatsAppWebReader
     from core.runtime import get_shared_orchestrator

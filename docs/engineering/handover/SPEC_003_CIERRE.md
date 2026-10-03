@@ -54,7 +54,7 @@ El informe 12, en `b7e5e4e`, corrió 809 pruebas con el 8765 ocupado por Cursor.
 
 ## Informe OpenCode 13 (2026-10-02, commit `dce43a3`)
 
-Suite en el PC: `Ran 809 tests in 166.678s`, `OK (skipped=2)`, salida 0. Antes y después, los mismos bytes y la misma hora: base 1482752, wal 1899352, shm 32768, clave 32, `screen_observation.png` 676192. Las correcciones del 2026-10-02 quedan `VERIFIED_WINDOWS`. Las 2 omitidas no venían nombradas en ese informe. El informe 14 les puso nombre. Las filas U1–U18 de la matriz no cambian de columna por esta suite.
+Suite en el PC: `Ran 809 tests in 166.678s`, `OK (skipped=2)`, salida 0. Antes y después, los mismos bytes y la misma hora: base 1482752, wal 1899352, shm 32768, clave 32, `screen_observation.png` 676192. Esa captura es efímera: cada ciclo del puente la sobreescribe y no se conserva entre sesiones; la del 2026-10-02 la borró Mauro. Las correcciones del 2026-10-02 quedan `VERIFIED_WINDOWS`. Las 2 omitidas no venían nombradas en ese informe. El informe 14 les puso nombre. Las filas U1–U18 de la matriz no cambian de columna por esta suite.
 
 ## Informe OpenCode 14 (2026-10-03, commit `e495364`)
 

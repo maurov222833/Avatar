@@ -36,6 +36,7 @@ class ComputerControl:
         """Captura la pantalla utilizando ScreenTool (reuso estricto del componente existente)."""
         if output_path is None:
             from core.paths import memory_dir
+            # Efímera: cada ciclo del puente la sobreescribe y no se conserva entre sesiones. La del 2026-10-02 la borró Mauro.
             output_path = os.path.join(memory_dir(), "screen_observation.png")
         return ScreenTool.take_screenshot(output_path)
 
